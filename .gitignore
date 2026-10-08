@@ -1,0 +1,11 @@
+.build/
+.swiftpm/
+.superpowers/
+DerivedData/
+NativeBuild/
+Vendor/
+*.xcuserstate
+xcuserdata/
+.DS_Store
+.private/
+TestResults/
