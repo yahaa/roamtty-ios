@@ -1,0 +1,121 @@
+import SwiftUI
+import UniformTypeIdentifiers
+import RoamttyCore
+
+struct SettingsScreen: View {
+    private enum ImportKind { case font, downloadFolder }
+    @EnvironmentObject var model: AppModel
+    @Environment(\.dismiss) var dismiss
+    @ObservedObject private var fonts = FontCatalog.shared
+    @State private var importKind = ImportKind.font
+    @State private var showImporter = false
+    @State private var fontError: String?
+    @State private var downloadFolderError: String?
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 24) {
+                    Panel(title: model.text("外观", "Appearance")) {
+                        HStack(spacing: 8) {
+                            themeButton(.system, model.text("跟随系统", "System"), "circle.lefthalf.filled")
+                            themeButton(.dark, model.text("深色", "Dark"), "moon.fill")
+                            themeButton(.light, model.text("浅色", "Light"), "sun.max.fill")
+                        }.padding(12)
+                    }
+                    Panel(title: model.text("语言", "Language")) {
+                        HStack {
+                            Button { model.settings.language = "zh-Hans"; model.saveSettings() } label: { HStack { Text("简体中文"); if !model.english { Image(systemName: "checkmark") } } }.buttonStyle(RoamButtonStyle(primary: !model.english)).accessibilityIdentifier("language-zh").accessibilityAddTraits(!model.english ? .isSelected : [])
+                            Button { model.settings.language = "en"; model.saveSettings() } label: { HStack { Text("English"); if model.english { Image(systemName: "checkmark") } } }.buttonStyle(RoamButtonStyle(primary: model.english)).accessibilityIdentifier("language-en").accessibilityAddTraits(model.english ? .isSelected : [])
+                        }.padding(12)
+                    }
+                    Panel(title: model.text("终端", "Terminal")) {
+                        Picker(model.text("字体", "Font"), selection: $model.settings.font) {
+                            Text(model.text("系统等宽", "System monospace")).tag(TerminalFontSelection.system).accessibilityIdentifier("settings-font-system")
+                            ForEach(TerminalFontSelection.bundled, id: \.self) { name in Text(name.replacingOccurrences(of: "-Regular", with: "")).tag(name) }
+                            if let custom = fonts.custom { Text(custom.displayName).tag(TerminalFontSelection.custom).accessibilityIdentifier("settings-font-custom") }
+                        }.padding(16).panelDivider().accessibilityIdentifier("settings-font").accessibilityValue(fonts.valueLabel(model.settings.font, english: model.english))
+                        Button { fontError = nil; importKind = .font; showImporter = true } label: { InfoRow(title: model.text("导入字体", "Import font"), value: "TTF / OTF · ≤16 MiB", icon: "textformat") }.panelDivider().accessibilityIdentifier("settings-font-import")
+                        if fonts.custom != nil {
+                            Button(model.text("清除自定义字体", "Clear custom font"), role: .destructive) {
+                                do { model.settings.font = try fonts.clear(selection: model.settings.font); fontError = nil; model.saveSettings() }
+                                catch { fontError = error.localizedDescription }
+                            }.padding(16).panelDivider().accessibilityIdentifier("settings-font-clear-custom")
+                        }
+                        if let fontError { Text(fontError).font(.footnote).foregroundStyle(Palette.danger).padding(16).accessibilityIdentifier("settings-font-error") }
+                        VStack(spacing: 10) {
+                            HStack { Text(model.text("字号", "Font size")); Spacer(); Text("\(Int(model.settings.fontSize)) pt").foregroundStyle(Palette.secondary).accessibilityIdentifier("settings-font-size-value") }
+                            Slider(value: $model.settings.fontSize, in: 8...28, step: 1).accessibilityLabel(model.text("字号", "Font size")).accessibilityIdentifier("settings-font-size")
+                            Text("❯ ssh developer@roamtty\n你好，世界  echo 'Hello, world'\nλ → 0123456789 {} []").font(Font(fonts.font(selection: model.settings.font, size: model.settings.fontSize))).frame(maxWidth: .infinity, alignment: .leading).padding(12).background(Palette.background, in: RoundedRectangle(cornerRadius: 10)).accessibilityIdentifier("settings-font-preview").accessibilityValue(fonts.font(selection: model.settings.font, size: model.settings.fontSize).fontName)
+                        }.padding(16).panelDivider()
+                        Toggle(model.text("固定工具箱", "Keep toolbox open"), isOn: $model.settings.toolboxPinned).padding(16).accessibilityIdentifier("settings-toolbox-pinned")
+                    }
+                    Panel(title: model.text("文件", "Files")) {
+                        Toggle(model.text("显示隐藏文件", "Show hidden files"), isOn: $model.settings.showHiddenFiles).padding(16).panelDivider().accessibilityIdentifier("settings-hidden-files")
+                        Button { downloadFolderError = nil; importKind = .downloadFolder; showImporter = true } label: { InfoRow(title: model.text("下载目录", "Download folder"), value: model.settings.downloadBookmark == nil ? "Roamtty/Downloads" : model.text("自定义目录", "Custom folder"), icon: "folder") }.panelDivider().accessibilityIdentifier("settings-download-folder")
+                        if let downloadFolderError { Text(downloadFolderError).font(.footnote).foregroundStyle(Palette.danger).padding(16).accessibilityIdentifier("settings-download-folder-error") }
+                        if model.settings.downloadBookmark != nil { Button(model.text("恢复默认下载目录", "Use default download folder")) { model.settings.downloadBookmark = nil; downloadFolderError = nil; model.saveSettings() }.padding(16) }
+                    }
+                }.padding(16).frame(maxWidth: 720)
+            }.accessibilityIdentifier("settings-scroll").frame(maxWidth: .infinity).pageBackground().navigationTitle(model.text("设置", "Settings"))
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button(model.text("完成", "Done")) { dismiss() }.accessibilityIdentifier("settings-done") } }
+        }
+        .onChange(of: model.settings) { _ in model.saveSettings() }
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: importKind == .downloadFolder ? [.folder] : [UTType(filenameExtension: "ttf") ?? .data, UTType(filenameExtension: "otf") ?? .data]) { result in
+            // Keep the purpose separate from isPresented: SwiftUI clears that
+            // binding before delivering the selected document's completion.
+            do {
+                let url = try result.get()
+                switch importKind {
+                case .font:
+                    model.settings.font = try fonts.install(url); fontError = nil
+                case .downloadFolder:
+                    let access = url.startAccessingSecurityScopedResource()
+                    defer { if access { url.stopAccessingSecurityScopedResource() } }
+                    model.settings.downloadBookmark = try url.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)
+                    downloadFolderError = nil
+                }
+                model.saveSettings()
+            } catch let error as CocoaError where error.code == .userCancelled {
+                // Dismissing the native picker leaves the existing selection intact.
+            } catch {
+                if importKind == .font { fontError = error.localizedDescription }
+                else { downloadFolderError = error.localizedDescription }
+            }
+        }
+    }
+    private func themeButton(_ theme: AppTheme, _ title: String, _ image: String) -> some View {
+        Button { model.settings.theme = theme; model.saveSettings() } label: { VStack(spacing: 8) { Image(systemName: image).font(.title3); Text(title).font(.caption) }.padding(.vertical, 8) }.buttonStyle(RoamButtonStyle(primary: model.settings.theme == theme)).accessibilityIdentifier("theme-\(theme.rawValue)").accessibilityAddTraits(model.settings.theme == theme ? .isSelected : [])
+    }
+}
+struct HelpScreen: View {
+    @EnvironmentObject var model: AppModel
+    @Environment(\.dismiss) var dismiss
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 24) {
+                    Panel(title: model.text("连接主机", "Connect a host")) { Text(model.text("添加主机后，点开主机详情。终端和 AI 助手可选择远程工作目录；首次连接需要核对服务器指纹。", "Add a host and open its details. Terminal and AI agent launchers let you choose a remote working folder. Verify the server fingerprint on the first connection.")).padding(16) }
+                    Panel(title: model.text("恢复工作", "Resume work")) { Text(model.text("tmux 会话保留在服务器，关闭连接后可点会话卡片恢复。普通 SSH 会话无法恢复。iOS 会在应用进入后台后暂停网络活动。", "tmux sessions stay on the server; tap a session card to reconnect. Plain SSH sessions cannot be resumed. iOS suspends network activity while the app is in the background.")).padding(16) }
+                    Panel(title: model.text("终端手势", "Terminal gestures")) { Text(model.text("点击光标所在行及上下两行可打开键盘；双击发送 Tab，三击粘贴。拖动查看回滚内容，长按选择文字，双指缩放调整字体。停止输入后，光标行末显示回车键，其余时间显示 Esc；斜杠命令显示上下箭头，双击可暂时收起。点小幽灵打开工具箱，长按并滑动选择快捷键。", "Tap within two rows of the cursor to open the keyboard. Double-tap sends Tab; triple-tap pastes. Drag to scroll back, hold to select text, and pinch to adjust font size. Enter appears at the cursor row after typing pauses; otherwise Esc is shown. Slash commands show Up/Down keys, which a double tap temporarily dismisses. Tap the ghost for tools, or hold and drag to a shortcut.")).padding(16) }
+                    Panel(title: model.text("传输文件", "Transfer files")) { Text(model.text("在文件页中选择上传或下载。上传文件或文件夹来自 iOS 文件；下载保存在 Roamtty/Downloads，或设置中选择的目录。传输可在传输面板查看进度和取消。", "Upload files or folders from iOS Files. Downloads go to Roamtty/Downloads or the folder chosen in Settings. View progress and cancel transfers in the transfer panel.")).padding(16) }
+                }.padding(16)
+            }.accessibilityIdentifier("guide-scroll").pageBackground().navigationTitle(model.text("使用指南", "Guide")).toolbar { ToolbarItem(placement: .confirmationAction) { Button(model.text("完成", "Done")) { dismiss() }.accessibilityIdentifier("guide-done") } }
+        }
+    }
+}
+struct AboutScreen: View {
+    @EnvironmentObject var model: AppModel
+    @Environment(\.dismiss) var dismiss
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 24) {
+                    GhostMark().frame(width: 88, height: 88).padding(.top, 24)
+                    Text("Roamtty").font(.largeTitle.weight(.semibold)); Text("1.0.0 · SSH · tmux · mosh").foregroundStyle(Palette.secondary)
+                    Panel(title: model.text("隐私", "Privacy")) { Text(model.text("主机信息和设置存储在设备上。保存的密码和私钥使用此设备的 Keychain。私钥口令仅保存在内存。连接直接发送至你选择的服务器；应用没有遥测或广告。", "Host information and settings stay on your device. Saved passwords and private keys use device-only Keychain storage. Key passphrases remain in memory. Connections go directly to your chosen servers. The app contains no telemetry or advertising.")).padding(16) }
+                    Panel(title: model.text("开源组件", "Open source")) { Text("SwiftTerm · MIT\nlibssh2 · BSD\nOpenSSL · Apache 2.0\nzlib · zlib license\nRoamtty · Apache 2.0").padding(16).frame(maxWidth: .infinity, alignment: .leading) }
+                }.padding(16)
+            }.accessibilityIdentifier("about-scroll").pageBackground().navigationTitle(model.text("关于", "About")).toolbar { ToolbarItem(placement: .confirmationAction) { Button(model.text("完成", "Done")) { dismiss() }.accessibilityIdentifier("about-done") } }
+        }
+    }
+}

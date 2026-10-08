@@ -12,4 +12,4 @@ Goal: Swift iOS application matching the Android baseline's user-visible feature
 
 All settings and behavior follow Android source and tests. SQLite owns metadata/trust/journal; secrets are separate, device-only Keychain values; private-key passphrases and terminal text never persist. Input is bounded and never replayed after reconnect. iOS suspension is handled through limited background execution and tmux reattachment, not indefinite keepalive.
 
-Acceptance: unit and live OpenSSH/mosh tests, native Xcode build, UI screenshot comparisons and physical iPhone workflows. Unavailable checks must be reported as unverified, never passed.
+Acceptance: unit and live OpenSSH/mosh tests, native Xcode builds, UI screenshots and full simulator workflows. A paired iPhone is used where its system permissions permit; the user explicitly authorized creating a simulator when physical automation is unavailable. Unavailable checks must be reported as unverified, never passed.

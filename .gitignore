@@ -2,6 +2,7 @@
 .swiftpm/
 .superpowers/
 DerivedData/
+DeviceBuild/
 NativeBuild/
 Vendor/
 *.xcuserstate
@@ -9,3 +10,6 @@ xcuserdata/
 .DS_Store
 .private/
 TestResults/
+
+build/
+__pycache__/
