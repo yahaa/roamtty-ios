@@ -118,7 +118,7 @@ final class PreviewSettingsUITests: RoamttyLiveUITestCase {
     }
     private func openRemoteFolder(_ path: String) {
         openTools(); app.buttons["download-file"].tap()
-        XCTAssertTrue(app.buttons["files-select"].waitForExistence(timeout: 10)); app.buttons["files-select"].tap()
+        filesMenu("files-select")
         let search = app.searchFields.firstMatch
         if !search.exists { app.swipeDown() }
         XCTAssertTrue(search.waitForExistence(timeout: 5)); replace(search, with: path); search.typeText("\n")
@@ -142,12 +142,6 @@ final class PreviewSettingsUITests: RoamttyLiveUITestCase {
     private func closeBrowser() {
         let done = app.buttons["files-picker-done"]
         XCTAssertTrue(done.waitForExistence(timeout: 5)); done.tap(); waitFor(NSPredicate(format: "exists == false"), done)
-    }
-    private func closeTerminal() {
-        app.buttons["terminal-close"].tap()
-        let close = app.buttons.matching(identifier: "terminal-close-confirm").firstMatch
-        XCTAssertTrue(close.waitForExistence(timeout: 5)); close.tap()
-        XCTAssertTrue(app.buttons["host-detail-terminal"].waitForExistence(timeout: 8))
     }
     private func waitFor(_ predicate: NSPredicate, _ element: XCUIElement) {
         let check = XCTNSPredicateExpectation(predicate: predicate, object: element)

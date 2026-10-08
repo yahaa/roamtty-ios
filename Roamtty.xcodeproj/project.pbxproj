@@ -919,6 +919,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "3BFA73A0D83156A4C3465740";
 		};
+		"1C0980B12601AB8C3257539C" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Files/FileIcons.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"8FD238C15CAC9FB5A2A6DC8C" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "1C0980B12601AB8C3257539C";
+		};
 		"538866A6A9E6211360E7EF93" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/Roamtty/Files/FilePreviewScreen.swift";
@@ -1089,6 +1099,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "D07207283687077A3A31D48B";
 		};
+		"4C8EE0B197CF8722901F1CF0" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Terminal/CommonCommandsSheet.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"645CEE28F4B40C080A2AE129" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "4C8EE0B197CF8722901F1CF0";
+		};
 		"70B3322A37C09F4DAE3A4E08" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/Roamtty/Terminal/CursorRowButtons.swift";
@@ -1098,6 +1118,16 @@
 		"60E76303E8E4D33E37D0237C" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "70B3322A37C09F4DAE3A4E08";
+		};
+		"8462B04E74D9DF395228ED2A" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Terminal/DraftEditor.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"E5B477202D93FCD7C20299D5" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "8462B04E74D9DF395228ED2A";
 		};
 		"BC2585E3F8FE86B917F6F038" = {
 			"isa" = "PBXFileReference";
@@ -1129,6 +1159,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "28955CEAFFEF07421B4DDBCE";
 		};
+		"3A527B6B136DB9E269DFDD16" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Terminal/TerminalNotice.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"85E152BC55F256401DF5E482" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "3A527B6B136DB9E269DFDD16";
+		};
 		"A264D7E16D3E957D6E63749B" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/Roamtty/Terminal/TerminalScreen.swift";
@@ -1156,6 +1196,7 @@
 				"5F29D1EC30498895BFD1E919",
 				"A606DB9A9DFBF25B656D7D1E",
 				"DB7746E16CF2928EB80AE7C4",
+				"8FD238C15CAC9FB5A2A6DC8C",
 				"B21E458F50F5105829F945BD",
 				"514405D865D092861D65F489",
 				"3BE1505C1C6EC5F68510903E",
@@ -1173,10 +1214,13 @@
 				"005CD5678F824B8C332EEBA6",
 				"CAFE14EA2FBCA8F0B4C28301",
 				"C5CD8A95E4F11EE60CF66454",
+				"645CEE28F4B40C080A2AE129",
 				"60E76303E8E4D33E37D0237C",
+				"E5B477202D93FCD7C20299D5",
 				"8A4C7B1B48D2ACE02145A7E0",
 				"5A6F8F95B2CA26D39BF48399",
 				"74409B0048A7D72BA8BBC785",
+				"85E152BC55F256401DF5E482",
 				"16103811B35DA0DF8839C518",
 				"1FC050EFE9B74172005CD96C",
 			);
@@ -1935,6 +1979,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "DEBF387A1044BABBC67B883C";
 		};
+		"8E34196EBFDF72365B24AA91" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/UITests/ParityScreenshotUITests.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"BF601020C27E89CB993250C1" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "8E34196EBFDF72365B24AA91";
+		};
 		"52330A536B200C9C16B4E6C5" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/UITests/PluginInstallationUITests.swift";
@@ -2016,6 +2070,7 @@
 				"EF454252C2A0075113C991E3",
 				"33CD919E270B147D74A13D9B",
 				"AA54280581B7B4AC33E7F8F7",
+				"BF601020C27E89CB993250C1",
 				"7B2451AB1C093A12F5587934",
 				"793D32CF5383FDB1DA18E561",
 				"0D797F1559BDDEB604C09281",
@@ -2228,6 +2283,7 @@
 				"0C1A6AD0AC6F4BD341261786",
 				"AA70066F11A1CF1DCC928980",
 				"3BFA73A0D83156A4C3465740",
+				"1C0980B12601AB8C3257539C",
 				"538866A6A9E6211360E7EF93",
 				"65F4545B30CEED72A5A8BA34",
 				"A6679C802983B2CA1F89D83E",
@@ -2245,10 +2301,13 @@
 				"198074A6A125E4234B0CE902",
 				"79FD152065A0A632C10AE3A0",
 				"D07207283687077A3A31D48B",
+				"4C8EE0B197CF8722901F1CF0",
 				"70B3322A37C09F4DAE3A4E08",
+				"8462B04E74D9DF395228ED2A",
 				"BC2585E3F8FE86B917F6F038",
 				"1A15323BAA3156E1AB65AE43",
 				"28955CEAFFEF07421B4DDBCE",
+				"3A527B6B136DB9E269DFDD16",
 				"A264D7E16D3E957D6E63749B",
 				"275E3DB022CBE6D670178A5A",
 				"097A7C2C4390D748BC2209E8",
@@ -2283,6 +2342,7 @@
 				"92517A6688BB864D987E8B90",
 				"14D1F9719A9D06DFA7564A67",
 				"DEBF387A1044BABBC67B883C",
+				"8E34196EBFDF72365B24AA91",
 				"52330A536B200C9C16B4E6C5",
 				"2C801C079FA55563D06C2B14",
 				"B07ADD9C13005F91213B615A",

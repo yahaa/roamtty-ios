@@ -75,8 +75,7 @@ struct FileBrowserScreen: View {
     }
     var body: some View {
         VStack(spacing: 0) {
-            pathBar.disabled(mutationID != nil)
-            HStack { Text(model.text("\(shown.count) 项", "\(shown.count) items")).font(.caption); Spacer(); if loading || searching { ProgressView().scaleEffect(0.8) } }.foregroundStyle(Palette.secondary).padding(.horizontal, 16).padding(.vertical, 8)
+            listingSummary
             if mutationID != nil { mutationProgress }
             if let actionError {
                 HStack(alignment: .top, spacing: 12) {
@@ -85,55 +84,78 @@ struct FileBrowserScreen: View {
                 }.padding(12).background(Palette.panel)
             }
             if let searchWarning { Text(searchWarning).font(.caption).foregroundStyle(Palette.warning).padding(.horizontal, 16).accessibilityIdentifier("files-search-warning") }
-            if let failure { EmptyMessage(icon: "exclamationmark.triangle", title: model.text("无法读取目录", "Unable to read folder"), message: failure); Button(model.text("重试", "Retry")) { navigate(directory) }; Spacer() }
+            if let failure {
+                VStack(spacing: 8) {
+                    Text(failure).font(.subheadline).foregroundStyle(Palette.secondary).multilineTextAlignment(.center)
+                    Button(model.text("重试", "Retry")) { navigate(directory) }.buttonStyle(TextActionStyle())
+                }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
             else {
                 List(shown) { entry in
-                    Button { if entry.isDirectory { navigate(entry.path) } else if selecting { toggleSelection(entry) } else { preview = entry } } label: {
-                        HStack(spacing: 12) {
-                            if selecting && !entry.isDirectory { Image(systemName: selected.contains(where: { $0.path == entry.path }) ? "checkmark.circle.fill" : "circle").foregroundStyle(Palette.accent) }
-                            Image(systemName: fileIcon(entry)).font(.system(size: 23)).foregroundStyle(entry.isDirectory ? Palette.accent : Palette.secondary).frame(width: 32)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(entry.name).foregroundStyle(Palette.foreground).font(.subheadline).lineLimit(1)
-                                if selectedOnly || !searchPrefix.isEmpty { Text(parentRemotePath(entry.path)).font(.caption2).foregroundStyle(Palette.secondary).lineLimit(1) }
-                                HStack { Text(entry.isDirectory ? model.text("文件夹", "Folder") : formattedBytes(entry.size)); if entry.mtime > 0 { Text(Date(timeIntervalSince1970: TimeInterval(entry.mtime)), style: .date) }; if entry.isSymlink { Image(systemName: "link") } }.font(.caption).foregroundStyle(Palette.secondary)
-                            }
-                            Spacer(minLength: 4)
-                            if entry.isDirectory { Image(systemName: "chevron.right").font(.caption).foregroundStyle(Palette.secondary) }
-                        }.padding(.vertical, 5)
-                    }.accessibilityIdentifier("files-entry-\(entry.path)").accessibilityValue(selected.contains(where: { $0.path == entry.path }) ? model.text("已选择", "Selected") : "").listRowBackground(Palette.panel).contextMenu { entryActions(entry) }.swipeActions(edge: .trailing) {
+                    HStack(spacing: 0) {
+                        Button { if entry.isDirectory { navigate(entry.path) } else if selecting { toggleSelection(entry) } else { preview = entry } } label: {
+                            HStack(spacing: 16) {
+                                if selecting && !entry.isDirectory { Image(systemName: selected.contains(where: { $0.path == entry.path }) ? "checkmark.circle.fill" : "circle").foregroundStyle(Palette.accent) }
+                                RemoteFileIcon(name: entry.name, directory: entry.isDirectory, permissions: entry.isSymlink ? 0 : entry.permissions, link: entry.isSymlink, size: 28)
+                                    .opacity(entry.name.hasPrefix(".") ? 0.6 : 1)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(entry.name).foregroundStyle(Palette.foreground.opacity(entry.name.hasPrefix(".") ? 0.7 : 1)).font(.body).lineLimit(1).truncationMode(.middle)
+                                    if selectedOnly || !searchPrefix.isEmpty { Text(parentRemotePath(entry.path)).font(.caption2).foregroundStyle(Palette.secondary).lineLimit(1) }
+                                    let meta = entryMeta(entry)
+                                    if !meta.isEmpty { Text(meta).font(.footnote).foregroundStyle(Palette.secondary).lineLimit(1) }
+                                }
+                                Spacer(minLength: 4)
+                            }.frame(minHeight: 44).contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                            .accessibilityIdentifier("files-entry-\(entry.path)").accessibilityValue(selected.contains(where: { $0.path == entry.path }) ? model.text("已选择", "Selected") : "")
+                        Menu { entryActions(entry) } label: { AppIcon("ic_more").foregroundStyle(Palette.secondary).frame(width: 44, height: 44).contentShape(Rectangle()) }
+                            .accessibilityLabel(model.text("文件操作：", "File actions: ") + entry.name).accessibilityIdentifier("files-row-menu-\(entry.name)")
+                    }.listRowBackground(Palette.background).listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 4))
+                        .contextMenu { entryActions(entry) }.swipeActions(edge: .trailing) {
                         Button(role: .destructive) { deleteEntry = entry } label: { Label(model.text("删除", "Delete"), systemImage: "trash") }
                         Button { model.files.download(entry, host: host, model: model, connectionTarget: connectionTarget); transfers = true } label: { Label(model.text("下载", "Download"), systemImage: "arrow.down.circle") }.tint(Palette.accent)
                     }
-                }.listStyle(.insetGrouped).scrollContentBackground(.hidden).disabled(mutationID != nil).refreshable { if mutationID == nil { await load(directory) } }
-                    .overlay { if !loading && !searching && shown.isEmpty { EmptyMessage(icon: "folder", title: model.text("没有文件", "No files"), message: filter.isEmpty ? model.text("使用上传按钮添加文件。", "Use Upload to add files.") : model.text("没有匹配的文件。", "No matching files.")) } }
+                }.listStyle(.plain).scrollContentBackground(.hidden).disabled(mutationID != nil).refreshable { if mutationID == nil { await load(directory) } }
+                    .overlay {
+                        if !loading && !searching && shown.isEmpty {
+                            VStack(spacing: 12) {
+                                RemoteFileIcon(name: "", directory: true, size: 56).opacity(0.5)
+                                Text(entries.isEmpty ? model.text("此目录为空", "This folder is empty") : !filter.isEmpty ? model.text("没有匹配的项目", "No matching items") : model.text("没有可显示的项目", "Nothing to show"))
+                                    .font(.subheadline).foregroundStyle(Palette.secondary)
+                            }
+                        } else if loading && entries.isEmpty {
+                            VStack(spacing: 16) { ProgressView(); Text(model.text("正在读取远端目录…", "Reading the remote folder…")).font(.subheadline).foregroundStyle(Palette.secondary) }
+                        }
+                    }
             }
             if selecting { selectionBar }
         }.pageBackground().navigationTitle(model.text("文件", "Files")).navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(Palette.background, for: .navigationBar)
             .modifier(FileBrowserSearchDismissal(request: searchDismissal))
             .searchable(text: $filter, prompt: model.text("搜索文件或路径", "Search files or paths"))
             .modifier(FileBrowserSearchToolbarBehavior())
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) { Button { selecting.toggle(); if !selecting { selectedOnly = false } } label: { Image(systemName: selecting ? "checkmark.circle.fill" : "checkmark.circle") }.accessibilityLabel(model.text("选择多个文件", "Select files")).accessibilityIdentifier("files-select") }
+                ToolbarItem(placement: .principal) { pathBar.disabled(mutationID != nil) }
                 ToolbarItem(placement: .navigationBarTrailing) { Menu {
-                    Button(model.text("上传文件", "Upload files"), systemImage: "doc.badge.arrow.up") { folderImporter = false; importer = true }
-                    Button(model.text("上传文件夹", "Upload folder"), systemImage: "folder.badge.plus") { folderImporter = true; importer = true }
-                } label: { Image(systemName: "square.and.arrow.up") }.accessibilityLabel(model.text("上传", "Upload")).accessibilityIdentifier("files-upload") }
-                ToolbarItem(placement: .navigationBarTrailing) { Button { transfers = true } label: { Image(systemName: "arrow.up.arrow.down.circle") }.accessibilityLabel(model.text("传输", "Transfers")) }
-                ToolbarItem(placement: .navigationBarTrailing) { Menu {
-                    Button(model.text("新建文件夹", "New folder"), systemImage: "folder.badge.plus") { newFolderName = ""; creatingFolder = true }.disabled(mutationID != nil).accessibilityIdentifier("files-new-folder")
-                    Button(model.text("复制当前路径", "Copy current path"), systemImage: "doc.on.doc") { UIPasteboard.general.string = directory }.accessibilityIdentifier("files-copy-current-path")
-                    Button(model.text("在此打开终端", "Open terminal here"), systemImage: "terminal") { launchHere(agent: false) }.accessibilityIdentifier("files-open-terminal")
-                    Button(model.text("在此启动 AI 助手", "Start AI agent here"), systemImage: "sparkles") { launchHere(agent: true) }.accessibilityIdentifier("files-open-agent")
+                    Button { launchHere(agent: false) } label: { Label { Text(model.text("打开终端", "Open terminal")) } icon: { Image("ic_sessions") } }.accessibilityIdentifier("files-open-terminal")
+                    Button { launchHere(agent: true) } label: { Label { Text(model.text("AI 助手", "AI assistant")) } icon: { Image("ic_agent") } }.accessibilityIdentifier("files-open-agent")
+                    Divider()
+                    Button { navigate(directory) } label: { Label { Text(model.text("刷新", "Refresh")) } icon: { Image("ic_refresh") } }.disabled(loading || mutationID != nil)
+                    Button { newFolderName = ""; creatingFolder = true } label: { Label { Text(model.text("新建文件夹", "New folder")) } icon: { Image("ic_folder_add") } }.disabled(mutationID != nil).accessibilityIdentifier("files-new-folder")
+                    Menu {
+                        Button(model.text("上传文件", "Upload files")) { folderImporter = false; importer = true }
+                        Button(model.text("上传文件夹", "Upload folder")) { folderImporter = true; importer = true }
+                    } label: { Label { Text(model.text("上传", "Upload")) } icon: { Image("ic_upload") } }.accessibilityIdentifier("files-upload")
+                    Button { selecting.toggle(); if !selecting { selectedOnly = false } } label: { Label { Text(selecting ? model.text("结束批量下载", "Finish batch download") : model.text("批量下载", "Batch download")) } icon: { Image("ic_download") } }.accessibilityIdentifier("files-select")
+                    Button { transfers = true } label: { Label { Text(model.text("传输", "Transfers")) } icon: { Image("ic_cloud_download") } }
+                    Button { UIPasteboard.general.string = directory } label: { Label { Text(model.text("复制当前路径", "Copy current path")) } icon: { Image("ic_copy") } }.accessibilityIdentifier("files-copy-current-path")
+                    if !downloadSelection && model.path.contains(.host(host.id)) {
+                        Button { model.path = [.host(host.id)] } label: { Label { Text(model.text("返回主机详情", "Back to host details")) } icon: { Image("ic_close") } }.accessibilityIdentifier("files-close")
+                    }
+                    Divider()
                     Toggle(model.text("显示隐藏文件", "Show hidden files"), isOn: $model.settings.showHiddenFiles).onChange(of: model.settings.showHiddenFiles) { _ in model.saveSettings() }.accessibilityIdentifier("files-show-hidden")
-                    Menu(model.text("排序", "Sort")) {
-                        sortChoice(.name, chinese: "名称", english: "Name")
-                        sortChoice(.size, chinese: "大小", english: "Size")
-                        sortChoice(.modified, chinese: "修改时间", english: "Modified")
-                        sortChoice(.type, chinese: "类型", english: "Type")
-                    }.accessibilityIdentifier("files-sort")
-                    Toggle(model.text("降序", "Descending"), isOn: $model.settings.fileSortDescending).onChange(of: model.settings.fileSortDescending) { _ in model.saveSettings() }.accessibilityIdentifier("files-sort-descending")
-                    Button(model.text("刷新", "Refresh"), systemImage: "arrow.clockwise") { navigate(directory) }
-                } label: { Image(systemName: "ellipsis.circle") }.accessibilityIdentifier("files-options") }
+                } label: { AppIcon("ic_more", size: 24) }.accessibilityLabel(model.text("更多", "More")).accessibilityIdentifier("files-options") }
             }
             .task { if downloadSelection { selecting = true }; await load(initialDirectory == "~" ? "." : initialDirectory) }
             .onAppear { visible = true; receiveSharedUpload() }
@@ -168,9 +190,12 @@ struct FileBrowserScreen: View {
                 Button(model.text("创建", "Create")) { createFolder() }.disabled(!isSafeRemoteEntryName(newFolderName)).accessibilityIdentifier("files-create-folder")
                 Button(model.text("取消", "Cancel"), role: .cancel) { newFolderName = "" }
             }
-            .confirmationDialog(model.text("删除 \(deleteEntry?.name ?? "")？", "Delete \(deleteEntry?.name ?? "")?"), isPresented: Binding(get: { deleteEntry != nil }, set: { if !$0 { deleteEntry = nil } }), titleVisibility: .visible) {
-                Button(model.text("永久删除", "Delete permanently"), role: .destructive) { if let entry = deleteEntry { remove(entry) } }.accessibilityIdentifier("files-delete-confirm")
-            } message: { Text(model.text("此操作会删除服务器上的文件。", "This deletes files on the server.")) }
+            .alert(deleteEntry?.isDirectory == true ? model.text("删除文件夹？", "Delete folder?") : model.text("删除文件？", "Delete file?"), isPresented: Binding(get: { deleteEntry != nil }, set: { if !$0 { deleteEntry = nil } }), presenting: deleteEntry) { entry in
+                Button(model.text("取消", "Cancel"), role: .cancel) { deleteEntry = nil }
+                Button(model.text("删除", "Delete"), role: .destructive) { remove(entry) }.accessibilityIdentifier("files-delete-confirm")
+            } message: { entry in
+                Text(entry.path + "\n\n" + (entry.isDirectory ? model.text("将永久删除远端目录及其全部内容，此操作不可撤销。", "The remote folder and everything in it will be deleted permanently. This cannot be undone.") : model.text("将永久删除远端文件，此操作不可撤销。", "The remote file will be deleted permanently. This cannot be undone.")))
+            }
     }
     private func receiveSharedUpload() {
         // Only the host-only browser selected by Root can receive this handoff. A terminal's
@@ -209,35 +234,92 @@ struct FileBrowserScreen: View {
         if selected.contains(where: { $0.path == entry.path }) { selected.removeAll { $0.path == entry.path } }
         else { selected.append(entry) }
     }
+    /// Android `FileBrowserPathBar`: the host as the root crumb, quiet parent folders, the current folder in title weight.
     private var pathBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                Button { navigate("/") } label: { Image(systemName: "internaldrive") }.frame(width: 36, height: 40)
-                let components = directory.split(separator: "/").map(String.init)
-                ForEach(Array(components.enumerated()), id: \.offset) { index, component in
-                    Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Palette.secondary)
-                    Button(component) { navigate("/" + components.prefix(index + 1).joined(separator: "/")) }.font(.subheadline).lineLimit(1).accessibilityIdentifier("files-breadcrumb-/" + components.prefix(index + 1).joined(separator: "/"))
+        let components = directory.split(separator: "/").map(String.init)
+        return ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    crumb(index: 0, current: components.isEmpty, path: "/") {
+                        HStack(spacing: 6) { AppIcon("ic_os_server", size: 16).foregroundStyle(Palette.secondary); Text(host.name) }
+                    }
+                    ForEach(Array(components.enumerated()), id: \.offset) { index, component in
+                        AppIcon("ic_chevron_right", size: 14).foregroundStyle(Palette.adaptive(0x827A70, 0x9A9890))
+                        crumb(index: index + 1, current: index == components.count - 1, path: "/" + components.prefix(index + 1).joined(separator: "/")) { Text(component) }
+                    }
                 }
-            }.padding(.horizontal, 16)
-        }.background(Palette.panel)
+            }.onChange(of: directory) { _ in DispatchQueue.main.async { proxy.scrollTo(components.count, anchor: .trailing) } }
+                .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { proxy.scrollTo(components.count, anchor: .trailing) } }
+        }.frame(maxWidth: 260)
+    }
+    private func crumb<Label: View>(index: Int, current: Bool, path: String, @ViewBuilder label: () -> Label) -> some View {
+        Button { if !current { navigate(path) } } label: {
+            label().font(current ? .system(size: 16, weight: .semibold) : .subheadline)
+                .foregroundStyle(current ? Palette.foreground : Palette.secondary).lineLimit(1).fixedSize()
+                .padding(.horizontal, 6).padding(.vertical, 10)
+        }.buttonStyle(.plain).id(index).accessibilityAddTraits(current ? .isHeader : [])
+            .accessibilityIdentifier("files-breadcrumb-" + path)
+    }
+    /// Android `ListingSummary`: what is shown, what is hidden, and the sort control.
+    private var listingSummary: some View {
+        let folders = shown.filter(\.isDirectory).count, files = shown.count - folders
+        let hidden = max(0, (searchPrefix.isEmpty && !selectedOnly ? entries.count : shown.count) - shown.count)
+        let parts = [folders > 0 ? model.text("\(folders) 个文件夹", "\(folders) folders") : nil,
+                     files > 0 ? model.text("\(files) 个文件", "\(files) files") : nil,
+                     hidden > 0 ? model.text("\(hidden) 项未显示", "\(hidden) hidden") : nil].compactMap { $0 }
+        return HStack(spacing: 8) {
+            Text(parts.joined(separator: " · ")).font(.system(size: 12)).foregroundStyle(Palette.secondary).lineLimit(1).accessibilityIdentifier("files-summary")
+            if loading || searching { ProgressView().scaleEffect(0.7) }
+            Spacer()
+            Menu {
+                sortChoice(.name, chinese: "名称", english: "Name")
+                sortChoice(.modified, chinese: "修改时间", english: "Modified")
+                sortChoice(.size, chinese: "大小", english: "Size")
+                sortChoice(.type, chinese: "类型", english: "Type")
+            } label: {
+                HStack(spacing: 6) {
+                    AppIcon("ic_sort", size: 16)
+                    Text(sortLabel(model.settings.fileSort) + (model.settings.fileSortDescending ? " ↓" : " ↑")).font(.system(size: 12, weight: .medium))
+                }.foregroundStyle(Palette.accent).padding(.horizontal, 10).frame(minHeight: 36)
+            }.accessibilityIdentifier("files-sort")
+        }.padding(.leading, 20).padding(.trailing, 8)
+    }
+    private func sortLabel(_ sort: RemoteFileSort) -> String {
+        switch sort {
+        case .name: return model.text("名称", "Name")
+        case .modified: return model.text("修改时间", "Modified")
+        case .size: return model.text("大小", "Size")
+        case .type: return model.text("类型", "Type")
+        }
+    }
+    private static let mtimeFormat: DateFormatter = { let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm"; return f }()
+    /// Android `RemoteFileRow` meta: 链接 · size · yyyy-MM-dd HH:mm.
+    private func entryMeta(_ entry: RemoteEntry) -> String {
+        var parts: [String] = []
+        if entry.isSymlink { parts.append(model.text("链接", "Link")) }
+        if !entry.isDirectory && !entry.isSymlink, let size = entry.size, size >= 0 {
+            let value = Double(size)
+            parts.append(size < 1024 ? "\(size) B" : size < 1 << 20 ? "\(size / 1024) KiB" : size < 1 << 30 ? String(format: "%.1f MiB", value / 1048576) : String(format: "%.1f GiB", value / 1073741824))
+        }
+        if entry.mtime > 0 { parts.append(Self.mtimeFormat.string(from: Date(timeIntervalSince1970: TimeInterval(entry.mtime)))) }
+        return parts.joined(separator: " · ")
     }
     @ViewBuilder private func entryActions(_ entry: RemoteEntry) -> some View {
-        Button(model.text("下载", "Download"), systemImage: "arrow.down.circle") { model.files.download(entry, host: host, model: model, connectionTarget: connectionTarget); transfers = true }.accessibilityIdentifier("files-action-download")
-        Button(model.text("复制路径", "Copy path"), systemImage: "doc.on.doc") { UIPasteboard.general.string = entry.path }
-        if let runtime = targetRuntime {
-            Button(model.text("插入终端", "Insert in terminal"), systemImage: "terminal") { if runtime.send(shellQuote(entry.path)) { model.path = [.host(host.id), .terminal(runtime.record.id)] } }
+        Button(entry.isDirectory ? model.text("打开", "Open") : model.text("查看内容", "View")) { if entry.isDirectory { navigate(entry.path) } else { preview = entry } }.accessibilityIdentifier("files-action-open")
+        if entry.isDirectory && !downloadSelection {
+            Button { if let onLaunchDirectory { onLaunchDirectory(false, entry.path) } else { model.sheet = .launch(host, false, directory: entry.path) } } label: { Label { Text(model.text("打开终端", "Open terminal")) } icon: { Image("ic_sessions") } }.accessibilityIdentifier("files-action-open-terminal")
+            Button { if let onLaunchDirectory { onLaunchDirectory(true, entry.path) } else { model.sheet = .launch(host, true, directory: entry.path) } } label: { Label { Text(model.text("AI 助手", "AI assistant")) } icon: { Image("ic_agent") } }.accessibilityIdentifier("files-action-open-agent")
         }
-        if !entry.isDirectory { Button(model.text("选择", "Select"), systemImage: "checkmark.circle") { selecting = true; toggleSelection(entry) } }
-        Button(model.text("重命名", "Rename"), systemImage: "pencil") { newName = entry.name; renameEntry = entry }.accessibilityIdentifier("files-action-rename")
-        Button(model.text("删除", "Delete"), systemImage: "trash", role: .destructive) { deleteEntry = entry }.accessibilityIdentifier("files-action-delete")
-    }
-    private func fileIcon(_ entry: RemoteEntry) -> String {
-        if entry.isDirectory { return "folder.fill" }
-        let ext = (entry.name as NSString).pathExtension.lowercased()
-        if ["png", "jpg", "jpeg", "gif", "webp", "heic", "svg"].contains(ext) { return "photo" }
-        if ["zip", "tar", "gz", "xz", "7z"].contains(ext) { return "doc.zipper" }
-        if ["swift", "py", "js", "ts", "go", "rs", "c", "h", "sh", "json", "yaml"].contains(ext) { return "curlybraces" }
-        return "doc.text"
+        // iOS also downloads folders recursively, so 下载 is offered for both.
+        Button(model.text("下载", "Download")) { model.files.download(entry, host: host, model: model, connectionTarget: connectionTarget); transfers = true }.accessibilityIdentifier("files-action-download")
+        if !entry.isDirectory { Button(model.text("选择", "Select")) { selecting = true; toggleSelection(entry) } }
+        Button(model.text("复制路径", "Copy path")) { UIPasteboard.general.string = entry.path }.accessibilityIdentifier("files-action-copy-path")
+        if let runtime = targetRuntime {
+            Button(model.text("插入终端", "Insert in terminal")) { if runtime.send(shellQuote(entry.path)) { model.path = [.host(host.id), .terminal(runtime.record.id)] } }
+        }
+        Button(model.text("重命名", "Rename")) { newName = entry.name; renameEntry = entry }.accessibilityIdentifier("files-action-rename")
+        Divider()
+        Button(model.text("删除", "Delete"), role: .destructive) { deleteEntry = entry }.accessibilityIdentifier("files-action-delete")
     }
     private func receiveImport(_ result: Result<[URL], Error>) {
         do { uploadURLs = try result.get() }

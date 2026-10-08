@@ -4,9 +4,11 @@ import XCTest
 final class TerminalGestureUITests: RoamttyLiveUITestCase {
     func testPlainSSHKeyboardPinchAndGestureBytes() throws {
         let surface = try openTerminal(mode: "SSH")
-        XCTAssertTrue(app.staticTexts["SSH"].exists)
-        XCTAssertFalse(app.staticTexts["tmux"].exists)
-        app.buttons["terminal-keyboard"].tap()
+        XCTAssertTrue(terminalTransport.hasPrefix("SSH"))
+        // As on Android, a tap on the cursor's line opens the keyboard.
+        let escape = app.buttons["cursor-escape"]
+        XCTAssertTrue(escape.waitForExistence(timeout: 6))
+        surface.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: surface.frame.width * 0.3, dy: escape.frame.midY - surface.frame.minY)).tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         surface.typeText("printf 'KEYBOARD_'; printf 'VERIFIED\\n'\n")
         waitForOutput("KEYBOARD_VERIFIED", surface: surface)
@@ -27,7 +29,6 @@ final class TerminalGestureUITests: RoamttyLiveUITestCase {
         waitForOutput("GESTURE_PROGRESS=091b5b44", surface: surface)
         left.press(forDuration: 0.01, thenDragTo: right)
         waitForOutput("GESTURE_PROGRESS=091b5b441b5b43", surface: surface)
-        let escape = app.buttons["cursor-escape"]
         XCTAssertTrue(escape.waitForExistence(timeout: 6)); escape.tap()
         waitForOutput("GESTURE_BYTES=091b5b441b5b431b", surface: surface)
         capture("Double tap, horizontal swipes and Escape received by remote PTY")
@@ -40,16 +41,13 @@ final class TerminalGestureUITests: RoamttyLiveUITestCase {
         let expected = Data(("\u{1b}[200~one\rtwo\r\u{1b}[201~").utf8)
         try runCommand(receiver(prefix: "BRACKETED", count: expected.count, bracketed: true))
         waitForOutput("BRACKETED_READY", surface: surface)
-        openTools(); app.buttons["terminal-commands"].tap()
-        let draft = app.textViews["command-draft"]
-        XCTAssertTrue(draft.waitForExistence(timeout: 5)); replace(draft, with: payload)
-        app.buttons["command-insert"].tap()
+        typeIntoTerminal(payload)
         XCTAssertFalse(app.buttons["terminal-paste-send"].exists, "Bracketed paste must be sent with delimiters without a multiline warning")
         waitForOutput("BRACKETED_BYTES=" + expected.map { String(format: "%02x", $0) }.joined(), surface: surface)
         try runCommand("kill -HUP $$")
         let reconnect = app.buttons["terminal-reconnect"]
         XCTAssertTrue(reconnect.waitForExistence(timeout: 20)); reconnect.tap()
-        XCTAssertTrue(app.staticTexts["已连接"].waitForExistence(timeout: 20))
+        XCTAssertTrue(phase("已连接").waitForExistence(timeout: 20))
         let resumed = try runCommand("printf 'RECONNECT_'; printf 'VERIFIED\\n'")
         waitForOutput("RECONNECT_VERIFIED", surface: resumed)
         XCTAssertFalse((resumed.value as? String ?? "").contains("BRACKETED_BYTES"), "A replacement session must have a fresh renderer and must not replay old input")
@@ -72,9 +70,7 @@ final class TerminalGestureUITests: RoamttyLiveUITestCase {
     }
 
     private func closePlainTerminal() {
-        app.buttons["terminal-close"].tap()
-        let confirm = app.buttons.matching(identifier: "terminal-close-confirm").firstMatch
-        XCTAssertTrue(confirm.waitForExistence(timeout: 3)); confirm.tap()
+        closeTerminal()
         XCTAssertTrue(app.buttons["host-detail-terminal"].waitForExistence(timeout: 8))
         XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'session-'")).count, 0, "Explicitly closing plain SSH must remove its session card")
     }

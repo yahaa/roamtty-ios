@@ -1,88 +1,109 @@
 import SwiftUI
+import UIKit
 import RoamttyCore
 import RoamttyTransport
 
+/// Android `TerminalPane`: the terminal fills the page with no bars. Controls live in the toolbox ghost, its
+/// shortcut ring and the dock it opens; notices float on the upper golden section over the preserved grid.
 struct TerminalScreen: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var runtime: SessionRuntime
+    @StateObject private var draft = DraftController()
     @State private var toolbox = TerminalToolboxState()
     @State private var keyboardVisible = false
     @State private var commandSheet = false
     @State private var fileAction: TerminalFileAction?
     @State private var launchAfterFiles: AppSheet?
     @State private var closeConfirm = false
-    @State private var settingsSheet = false
-    private var dockAvailable: Bool { runtime.phase == .connected && !commandSheet }
+    @State private var reverifySheet = false
+    @State private var editor = false
+    @State private var renaming = false
+    @State private var renameText = ""
+    private var connected: Bool { runtime.phase == .connected }
+    private var dockAvailable: Bool { connected && !editor && !commandSheet }
     private var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
+    /// The terminal view sits inside these insets of its viewport, as on Android (10 / 6 / 6 dp).
+    private static let inset = EdgeInsets(top: 6, leading: 10, bottom: 0, trailing: 6)
+
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                PhaseLabel(phase: runtime.phase)
-                Badge(text: runtime.record.mode == .tmux ? "tmux" : "SSH")
-                if runtime.transportName == "mosh" { Badge(text: "mosh") }
-                Spacer()
-                Menu {
-                    ForEach(model.records.filter { $0.hostID == runtime.host.id }) { record in Button(record.displayTitle) { model.openSession(record) } }
-                    Divider()
-                    Button(model.text("新会话", "New session"), systemImage: "plus") { model.sheet = .launch(runtime.host, false) }
-                } label: { Image(systemName: "rectangle.stack").frame(width: 44, height: 34) }.accessibilityLabel(model.text("切换会话", "Switch session"))
-            }.padding(.horizontal, 12).background(Palette.panel)
-            if runtime.phase == .connected, let message = runtime.message {
-                HStack(alignment: .top, spacing: 8) {
-                    Text(message).font(.footnote).frame(maxWidth: .infinity, alignment: .leading).accessibilityIdentifier("terminal-notice")
-                    Button { runtime.message = nil } label: { Image(systemName: "xmark") }.accessibilityLabel(model.text("关闭提示", "Dismiss notice"))
-                }.foregroundStyle(Palette.warning).padding(12).background(Palette.panel)
-            }
-            GeometryReader { geometry in
-                let windowSize = runtime.terminalView.window?.bounds.size ?? UIScreen.main.bounds.size
-                let twoColumns = TerminalDockGeometry.twoColumns(landscape: windowSize.width > windowSize.height, keyboardVisible: keyboardVisible, height: geometry.size.height)
-                let reserved = dockAvailable && toolbox.pinned
+        GeometryReader { page in
+            let landscape = page.size.width > page.size.height
+            let twoColumns = TerminalDockGeometry.twoColumns(landscape: landscape, keyboardVisible: keyboardVisible, height: page.size.height)
+            let reserved = dockAvailable && toolbox.pinned
+            ZStack(alignment: .topLeading) {
                 HStack(spacing: 0) {
-                    ZStack {
-                        NativeTerminal(runtime: runtime, settings: model.settings).clipped()
-                            .overlay { if !commandSheet { CursorRowButtons(runtime: runtime) } }
-                        if runtime.phase != .connected { connectionOverlay }
-                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    VStack(spacing: 0) {
+                        ZStack {
+                            NativeTerminal(runtime: runtime, settings: model.settings).clipped()
+                                .overlay { if connected && !editor { CursorRowButtons(runtime: runtime, trailingInset: Self.inset.trailing) } }
+                                .padding(Self.inset)
+                            notice
+                        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                        if editor { editorBar(landscape: landscape) }
+                    }
                     if reserved {
-                        dock(in: CGSize(width: twoColumns ? 96 : 48, height: geometry.size.height), twoColumns: twoColumns, reserved: true)
-                            .frame(width: twoColumns ? 96 : 48, height: geometry.size.height)
+                        dock(in: CGSize(width: twoColumns ? 96 : 48, height: page.size.height), twoColumns: twoColumns, reserved: true)
+                            .frame(width: twoColumns ? 96 : 48, height: page.size.height)
                     }
                 }
                 if dockAvailable && !reserved {
-                    if toolbox.dockVisible { dock(in: geometry.size, twoColumns: twoColumns, reserved: false) }
+                    if toolbox.dockVisible { dock(in: page.size, twoColumns: twoColumns, reserved: false) }
                     else if toolbox.ghostVisible {
-                        let frame = TerminalDockGeometry.frame(viewport: geometry.size, content: CGSize(width: 48, height: 48), avoiding: cursorFrame(in: geometry.size))
-                        GhostShortcuts(runtime: runtime, toolbox: $toolbox, center: CGPoint(x: frame.midX, y: frame.midY), viewport: geometry.size) {
+                        let frame = TerminalDockGeometry.frame(viewport: page.size, content: CGSize(width: 48, height: 48), avoiding: cursorFrame())
+                        GhostShortcuts(runtime: runtime, toolbox: $toolbox, center: CGPoint(x: frame.midX, y: frame.midY), viewport: page.size) {
                             withAnimation(.easeOut(duration: 0.18)) { toolbox.openDock(at: now) }
-                        }.transition(.opacity.combined(with: .offset(x: 20)))
+                        }.transition(.opacity.combined(with: .offset(x: 24)))
                     }
                 }
             }
-
-        }.pageBackground().navigationTitle(runtime.record.displayTitle).navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) { Button { runtime.toggleKeyboard() } label: { Image(systemName: "keyboard.chevron.compact.down") }.accessibilityLabel(model.text("切换键盘", "Toggle keyboard")).accessibilityIdentifier("terminal-keyboard") }
-            ToolbarItem(placement: .navigationBarTrailing) { Button { closeConfirm = true } label: { Image(systemName: "xmark") }.accessibilityLabel(model.text("关闭会话", "Close session")).accessibilityIdentifier("terminal-close") }
         }
-        .onAppear { toolbox.setPinned(model.settings.toolboxPinned, at: now) }
+        // No visible status bar: expose the phase for VoiceOver and UI tests.
+        .overlay(alignment: .topLeading) {
+            Color.clear.frame(width: 1, height: 1).accessibilityElement().accessibilityIdentifier("terminal-phase")
+                .accessibilityLabel(model.phaseText(runtime.phase))
+                .accessibilityValue((runtime.record.mode == .tmux ? "tmux" : "SSH") + " " + runtime.transportName)
+        }
+        // The terminal colour runs under the status bar and home indicator, like Android's edge-to-edge pane.
+        .background(Color(uiColor: runtime.terminalView.nativeBackgroundColor).ignoresSafeArea())
+        .foregroundStyle(Palette.foreground)
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
+        .onAppear {
+            toolbox.setPinned(model.settings.toolboxPinned, at: now)
+            runtime.onFontScaled = { size in model.settings.fontSize = size; model.saveSettings() }
+        }
         .onDisappear { toolbox.closeRing(); runtime.pendingPaste = nil; runtime.terminalView.resignFirstResponder() }
         .onChange(of: runtime.workspaceTouches) { _ in if dockAvailable { toolbox.workspaceTouch(at: now) } }
-        .onChange(of: runtime.phase) { phase in if phase == .connected { toolbox.wake(at: now) } else { toolbox.closeRing(); runtime.pendingPaste = nil } }
+        .onChange(of: runtime.phase) { phase in
+            if phase == .connected { toolbox.wake(at: now); runtime.message = nil }
+            else { toolbox.closeRing(); runtime.pendingPaste = nil }
+        }
         .onChange(of: model.settings.toolboxPinned) { pinned in if pinned != toolbox.pinned { toolbox.setPinned(pinned, at: now) } }
         .onChange(of: commandSheet) { _ in toolbox.closeRing() }
+        .onChange(of: editor) { _ in toolbox.closeRing() }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
             guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
             keyboardVisible = frame.height > 0 && frame.minY < UIScreen.main.bounds.maxY
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardVisible = false }
         .task(id: toolbox.deadline) {
             guard let deadline = toolbox.deadline else { return }
             do { try await Task.sleep(nanoseconds: UInt64(max(0, deadline - now) * 1_000_000_000)); withAnimation(.easeOut(duration: 0.4)) { toolbox.expire(at: now) } } catch { }
         }
-        .confirmationDialog(model.text("关闭会话？", "Close session?"), isPresented: $closeConfirm, titleVisibility: .visible) {
-            Button(model.text("关闭", "Close"), role: .destructive) { model.closeSession(runtime.record) }.accessibilityIdentifier("terminal-close-confirm")
-        } message: { Text(runtime.record.mode == .tmux ? model.text("远程 tmux 会话会继续运行，可随时恢复。", "The remote tmux session keeps running and can be resumed.") : model.text("普通 SSH 进程将随连接关闭。", "The plain SSH session will end.")) }
+        .alert(model.text("关闭此连接？", "Close this connection?"), isPresented: $closeConfirm) {
+            Button(model.text("取消", "Cancel"), role: .cancel) { }
+            Button(model.text("关闭连接", "Close connection"), role: .destructive) { model.closeSession(runtime.record) }.accessibilityIdentifier("terminal-close-confirm")
+        } message: {
+            Text(runtime.record.mode == .tmux ? model.text("远端 tmux 会话会继续运行，会话卡片保留，可稍后重连。", "The remote tmux session keeps running and its card stays, so you can reconnect later.")
+                 : model.text("普通 SSH shell 会结束；需要保留的任务请先放入 tmux。", "The plain SSH shell will end. Move work you need to keep into tmux first."))
+        }
+        .alert(model.text("修改会话标题", "Rename session"), isPresented: $renaming) {
+            TextField(model.sessionDefaultTitle(runtime.record), text: $renameText).accessibilityIdentifier("session-title-input")
+            Button(model.text("取消", "Cancel"), role: .cancel) { }
+            Button(model.text("保存", "Save")) { model.renameSession(runtime.record.id, title: String(renameText.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))) }
+        } message: { Text(model.text("主机名与会话标题在同一行显示。标题留空则显示会话编号。", "The host name and session title share one line. Leave the title empty to show the session number.")) }
         .modifier(TerminalPasteConfirmation(runtime: runtime, enabled: !commandSheet))
-        .sheet(isPresented: $commandSheet) { CommandSheet(runtime: runtime).environmentObject(model).presentationDetents([.medium, .large]) }
+        .sheet(isPresented: $commandSheet) { CommandSheet(runtime: runtime).environmentObject(model) }
         .sheet(item: $fileAction, onDismiss: {
             // The root launch sheet must wait until its child picker has gone.
             if let launchAfterFiles { self.launchAfterFiles = nil; model.sheet = launchAfterFiles }
@@ -92,58 +113,156 @@ struct TerminalScreen: View {
                 fileAction = nil
             }.environmentObject(model)
         }
-        .sheet(isPresented: $settingsSheet) { FingerprintReview(host: runtime.host).environmentObject(model) }
+        .sheet(isPresented: $reverifySheet) { FingerprintReview(host: runtime.host).environmentObject(model) }
     }
-    private var connectionOverlay: some View {
-        VStack(spacing: 12) {
-            if runtime.phase.active { ProgressView() }
-            Text(model.phaseText(runtime.phase)).font(.headline)
-            if let message = runtime.message { Text(message).font(.footnote).textSelection(.enabled).multilineTextAlignment(.center) }
-            if !runtime.phase.active {
-                Button(model.text("重新连接", "Reconnect")) { model.reconnect(runtime.record) }.buttonStyle(RoamButtonStyle(primary: true)).accessibilityIdentifier("terminal-reconnect")
-                if runtime.phase == .tmuxMissing {
-                    Button(model.text("使用普通 SSH", "Use plain SSH")) { model.reconnect(runtime.record, shell: true) }.buttonStyle(RoamButtonStyle())
-                    Button(model.text("安装 tmux", "Install tmux")) { model.sheet = .plugins(runtime.host) }
+
+    @ViewBuilder private var notice: some View {
+        if runtime.phase != .connected {
+            GoldenSectionLayout {
+                if runtime.phase.active {
+                    TerminalConnectionProgress(phase: runtime.phase) { runtime.close() }
+                } else {
+                    TerminalConnectionNotice(phase: runtime.phase, message: runtime.message,
+                                             onReconnect: { model.reconnect(runtime.record) },
+                                             onShell: { model.reconnect(runtime.record, shell: true) },
+                                             onReverify: { reverifySheet = true })
                 }
-                if runtime.phase == .hostKeyChanged { Button(model.text("查看并重新验证", "Review and verify again")) { settingsSheet = true } }
             }
-        }.padding(20).frame(maxWidth: 340).background(Palette.raised.opacity(0.97), in: RoundedRectangle(cornerRadius: 20)).padding(24).frame(maxWidth: .infinity)
+        } else if let message = runtime.message {
+            GoldenSectionLayout { TerminalInputNotice(message: message) { runtime.message = nil } }
+        }
     }
-    private func cursorFrame(in size: CGSize) -> CGRect? {
+
+    // MARK: Editor
+
+    @ViewBuilder private func editorBar(landscape: Bool) -> some View {
+        let field = DraftEditor(controller: draft, placeholder: model.text("输入文本后，在这里确认", "Type text, then confirm here"), maxLines: keyboardVisible ? 2 : (landscape ? 3 : 4))
+            .background(RoundedRectangle(cornerRadius: 10).stroke(Palette.secondary.opacity(0.7), lineWidth: 1))
+        let collapse = Button(model.text("收起", "Hide")) { editor = false; runtime.terminalView.resignFirstResponder(); hideKeyboard() }.buttonStyle(TextActionStyle())
+        let enter = Button { _ = runtime.send("\r") } label: { Text(landscape ? model.text("回车 ↵", "Enter ↵") : "↵").font(landscape ? .subheadline.weight(.medium) : .system(size: 22)) }
+            .buttonStyle(TextActionStyle()).disabled(!connected).accessibilityLabel(model.text("回车", "Enter")).accessibilityIdentifier("prompt-enter")
+        let send = Button(model.text("发送文本", "Send text")) { _ = runtime.pasteText(draft.text) }
+            .buttonStyle(FilledButtonStyle()).disabled(draft.text.isEmpty || !connected).accessibilityIdentifier("prompt-send")
+        if landscape {
+            HStack(spacing: 4) { field; DraftInputControls(controller: draft); collapse; enter; send }.padding(.horizontal, 4).padding(.vertical, 2)
+        } else {
+            VStack(spacing: 0) {
+                field
+                HStack(spacing: 0) { DraftInputControls(controller: draft); Spacer(); collapse.frame(minWidth: 48); enter.frame(minWidth: 48); send.frame(minWidth: 88) }
+            }.padding(4)
+        }
+    }
+    private func hideKeyboard() { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
+    /// Android stages clipboard text in the editor instead of typing it straight into the program.
+    private func pasteIntoEditor() {
+        guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
+        draft.insert(text); editor = true; runtime.terminalView.resignFirstResponder()
+    }
+
+    // MARK: Dock
+
+    private func cursorFrame() -> CGRect? {
         guard let row = runtime.cursorRowBounds else { return nil }
         let height: CGFloat = runtime.cursorRowKey == .arrows ? 64 : 32
-        let y = min(max(row.midY, height / 2), max(height / 2, size.height - height / 2))
-        return CGRect(x: max(0, size.width - 40), y: y - height / 2, width: 40, height: height)
+        let y = Self.inset.top + row.midY
+        return CGRect(x: runtime.terminalView.bounds.width + Self.inset.leading + Self.inset.trailing - 40, y: y - height / 2, width: 40, height: height)
     }
+    private func collapseIfFloating() { if !toolbox.pinned { toolbox.collapseDock(at: now) } }
     private func dock(in viewport: CGSize, twoColumns: Bool, reserved: Bool) -> some View {
-        let width: CGFloat = twoColumns ? 96 : 48, height: CGFloat = twoColumns ? 288 : 576
-        let frame = TerminalDockGeometry.frame(viewport: viewport, content: CGSize(width: width, height: height), endInset: reserved ? 0 : 8, avoiding: reserved ? nil : cursorFrame(in: viewport))
+        let controls = dockControls
+        let rows = twoColumns ? 1 + (controls.count + 1) / 2 : 2 + controls.count
+        let width: CGFloat = twoColumns ? 96 : 48, height = CGFloat(rows) * 48
+        let frame = TerminalDockGeometry.frame(viewport: viewport, content: CGSize(width: width, height: height + 12), endInset: reserved ? 0 : 8, avoiding: reserved ? nil : cursorFrame())
         return ScrollView(.vertical, showsIndicators: false) {
-            LazyVGrid(columns: Array(repeating: GridItem(.fixed(48), spacing: 0), count: twoColumns ? 2 : 1), spacing: 0) {
-                tool("xmark", model.text("收起操作栏", "Collapse tools"), closeAfter: false) {
-                    toolbox.collapseDock(at: now); model.settings.toolboxPinned = false; model.saveSettings()
-                }.accessibilityIdentifier("collapse-dock")
-                tool("keyboard", model.text("键盘", "Keyboard")) { runtime.toggleKeyboard() }
-                tool("doc.on.clipboard", model.text("粘贴", "Paste")) { runtime.paste() }
-                tool("selection.pin.in.out", model.text("选择", "Select")) { runtime.terminalView.selectAll() }
-                tool("doc.on.doc", model.text("复制", "Copy")) { runtime.copySelection() }
-                tool("folder", model.text("文件", "Files")) { model.path.append(.files(runtime.host.id, sessionID: runtime.record.id, directory: runtime.currentDirectory)) }
-                tool("square.and.arrow.up", model.text("上传文件", "Upload file")) { fileAction = .upload }.accessibilityIdentifier("upload-file")
-                tool("square.and.arrow.down", model.text("下载文件", "Download file")) { fileAction = .download }.accessibilityIdentifier("download-file")
-                tool("photo", model.text("插入图片", "Insert image")) { fileAction = .image }.accessibilityIdentifier("select-image")
-                tool("text.badge.plus", model.text("命令", "Commands")) { commandSheet = true }.accessibilityIdentifier("terminal-commands")
-                tool(toolbox.pinned ? "pin.slash" : "pin", toolbox.pinned ? model.text("取消固定操作栏", "Unpin tools") : model.text("固定操作栏", "Pin tools"), closeAfter: false) {
-                    let pinned = !toolbox.pinned; toolbox.setPinned(pinned, at: now); if !pinned { toolbox.openDock(at: now) }
-                    model.settings.toolboxPinned = pinned; model.saveSettings()
-                }.accessibilityIdentifier("terminal-pin-tools")
-                tool("gearshape", model.text("设置", "Settings")) { model.sheet = .settings }
-            }
+            VStack(spacing: 0) {
+                if twoColumns {
+                    HStack(spacing: 0) { collapseButton; sessionMenu }
+                    LazyVGrid(columns: [GridItem(.fixed(48), spacing: 0), GridItem(.fixed(48), spacing: 0)], spacing: 0) { ForEach(controls.indices, id: \.self) { controls[$0] } }
+                } else {
+                    collapseButton; sessionMenu
+                    ForEach(controls.indices, id: \.self) { controls[$0] }
+                }
+            }.padding(.vertical, 6)
         }.frame(width: frame.width, height: frame.height)
-            .background(Palette.raised.opacity(reserved ? 1 : 0.78), in: RoundedRectangle(cornerRadius: twoColumns ? 24 : 48))
-            .shadow(radius: reserved ? 0 : 4).position(x: frame.midX, y: frame.midY).accessibilityIdentifier("terminal-dock")
+            .background(reserved ? Color.clear : Palette.surfaceVariant.opacity(0.78), in: RoundedRectangle(cornerRadius: twoColumns ? 24 : 24))
+            .shadow(color: .black.opacity(reserved ? 0 : 0.25), radius: reserved ? 0 : 4, y: 2)
+            .position(x: frame.midX, y: frame.midY).accessibilityIdentifier("terminal-dock")
     }
-    private func tool(_ icon: String, _ label: String, closeAfter: Bool = true, action: @escaping () -> Void) -> some View {
-        Button { action(); if closeAfter && !toolbox.pinned { toolbox.collapseDock(at: now) } } label: { Image(systemName: icon).frame(width: 48, height: 48) }.accessibilityLabel(label)
+    private var dockControls: [AnyView] {
+        let files = connected
+        return [
+            AnyView(dockButton("ic_cloud_upload", model.text("上传文件", "Upload files"), id: "upload-file", enabled: files) { fileAction = .upload }),
+            AnyView(dockButton("ic_cloud_download", model.text("下载文件", "Download files"), id: "download-file", enabled: files) { fileAction = .download }),
+            AnyView(dockButton("ic_image", model.text("插入图片", "Insert image"), id: "select-image", enabled: files) { fileAction = .image }),
+            AnyView(dockButton("ic_commands", model.text("常用命令", "Common commands"), id: "common-commands", enabled: connected) { runtime.terminalView.resignFirstResponder(); commandSheet = true }),
+            AnyView(settingsMenu),
+        ]
+    }
+    private var collapseButton: some View {
+        Button {
+            runtime.controlArmed = false; runtime.shiftArmed = false
+            toolbox.collapseDock(at: now); model.settings.toolboxPinned = false; model.saveSettings()
+        } label: { AppIcon("ic_close", size: 20).frame(width: 48, height: 48).contentShape(Rectangle()) }
+            .buttonStyle(.plain).accessibilityLabel(model.text("收起操作栏", "Hide toolbar")).accessibilityIdentifier("collapse-dock")
+    }
+    private func dockButton(_ icon: String, _ label: String, id: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
+        Button { action(); collapseIfFloating() } label: { AppIcon(icon).frame(width: 48, height: 48).contentShape(Rectangle()) }
+            .buttonStyle(.plain).foregroundStyle(Palette.foreground.opacity(enabled ? 1 : 0.38)).disabled(!enabled)
+            .accessibilityLabel(label).accessibilityIdentifier(id)
+    }
+    private var openSessions: [SessionRecord] { model.records.filter { model.runtimes[$0.id] != nil } }
+    private var sessionMenu: some View {
+        Menu {
+            Button(model.text("返回主机列表", "Back to hosts")) { model.path = [] }
+            Button(model.text("返回主机详情", "Back to host details")) { model.path = [.host(runtime.host.id)] }
+            Button(model.text("修改会话标题", "Rename session")) { renameText = runtime.record.title; renaming = true }
+            if runtime.record.mode == .tmux {
+                Button(model.text("新会话", "New session")) {
+                    let host = model.host(runtime.host.id) ?? runtime.host
+                    model.launch(host, mode: host.mode, directory: "~", agent: nil, mosh: nil)
+                }.accessibilityIdentifier("new-session")
+            }
+            Divider()
+            ForEach(openSessions) { other in
+                let phase = model.runtimes[other.id]?.phase ?? .disconnected
+                Button((other.id == runtime.record.id ? "✓ " : "") + model.sessionTitle(other) + " · " + model.phaseText(phase)) {
+                    if other.id != runtime.record.id { model.openSession(other) }
+                }
+            }
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                AppIcon("ic_sessions")
+                Circle().fill(connected ? Palette.accent : Palette.danger).frame(width: 8, height: 8).offset(x: 3, y: -3)
+            }.foregroundStyle(Palette.accent).frame(width: 48, height: 48).contentShape(Rectangle())
+        }.onTapGesture { runtime.terminalView.resignFirstResponder() }
+            .accessibilityLabel(model.text("切换会话：", "Switch session: ") + model.sessionTitle(runtime.record)).accessibilityIdentifier("session-switcher")
+    }
+    private var settingsMenu: some View {
+        let size = Int(model.settings.fontSize.rounded())
+        return Menu {
+            Button(model.text("编辑文本", "Edit text")) { editor = true; runtime.terminalView.resignFirstResponder() }.accessibilityIdentifier("menu-edit-text")
+            Button(toolbox.pinned ? model.text("取消固定操作栏", "Unpin toolbar") : model.text("固定操作栏", "Pin toolbar")) {
+                let pinned = !toolbox.pinned; toolbox.setPinned(pinned, at: now); if !pinned { toolbox.openDock(at: now) }
+                model.settings.toolboxPinned = pinned; model.saveSettings()
+            }.accessibilityIdentifier("terminal-pin-tools")
+            Button(model.text("隐藏操作栏", "Hide toolbar")) {
+                toolbox.collapseDock(at: now); editor = false; runtime.terminalView.resignFirstResponder()
+                model.settings.toolboxPinned = false; model.saveSettings()
+            }
+            Button(model.text("粘贴", "Paste")) { pasteIntoEditor(); collapseIfFloating() }.accessibilityIdentifier("menu-paste")
+            Divider()
+            Button(model.text("增大字号 · \(size) pt", "Larger text · \(size) pt")) { setFontSize(model.settings.fontSize + 1) }
+            Button(model.text("减小字号 · \(size) pt", "Smaller text · \(size) pt")) { setFontSize(model.settings.fontSize - 1) }
+            Divider()
+            Button(model.text("关闭连接", "Close connection")) {
+                collapseIfFloating()
+                if runtime.phase.active { closeConfirm = true } else { model.closeSession(runtime.record) }
+            }.accessibilityIdentifier("terminal-close")
+        } label: { AppIcon("ic_settings").frame(width: 48, height: 48).contentShape(Rectangle()) }
+            .accessibilityLabel(model.text("终端设置", "Terminal settings")).accessibilityIdentifier("terminal-menu")
+    }
+    private func setFontSize(_ size: Double) {
+        model.settings.fontSize = min(28, max(8, size.rounded())); model.saveSettings(); collapseIfFloating()
     }
 }
 
@@ -157,122 +276,5 @@ private struct TerminalPasteConfirmation: ViewModifier {
             Button(model.text("发送", "Send")) { runtime.pendingPaste = nil; if runtime.pasteText(text, confirmed: true) { onSent() } }.disabled(runtime.phase != .connected).accessibilityIdentifier("terminal-paste-send")
             Button(model.text("取消", "Cancel"), role: .cancel) { runtime.pendingPaste = nil }.accessibilityIdentifier("terminal-paste-cancel")
         } message: { _ in Text(model.text("远端尚未启用 bracketed paste。文本中的换行可能立即执行命令，请确认当前程序能安全接收多行输入。", "The remote program has not enabled bracketed paste. Newlines may run commands immediately. Confirm that it can safely receive multiple lines.")) }
-    }
-}
-struct CommandSheet: View {
-    @EnvironmentObject var model: AppModel
-    @Environment(\.dismiss) var dismiss
-    @ObservedObject var runtime: SessionRuntime
-    @State private var connectionTarget: RemoteConnectionTarget
-    @State private var command = ""
-    @State private var query = ""
-    @State private var historyCommands: [String] = []
-    @State private var recentCommands: [String] = []
-    @State private var historySource = ""
-    @State private var historyFailure: String?
-    @State private var historyLoading = false
-    @State private var refreshID = 0
-    @State private var selectedHistory: String?
-    @State private var executionFailure: String?
-    @State private var running = false
-    @State private var executionCancellation: TransferCancellation?
-    init(runtime: SessionRuntime) {
-        self.runtime = runtime
-        _connectionTarget = State(initialValue: .session(runtime))
-    }
-    private var filteredHistory: [String] { ShellHistoryCommands.fuzzyFilter(ShellHistoryCommands.mergeRecent(recentCommands, saved: historyCommands), query: query) }
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 16) {
-                CommandDraftEditor(text: $command).font(.system(.body, design: .monospaced)).frame(minHeight: 90, maxHeight: 160).padding(8).background(Palette.panel, in: RoundedRectangle(cornerRadius: 12)).accessibilityLabel(model.text("命令草稿", "Command draft")).accessibilityIdentifier("command-draft")
-                HStack {
-                    Button(model.text("保存", "Save")) { model.saveCommand(command) }.buttonStyle(RoamButtonStyle())
-                    Button(model.text("插入", "Insert")) { insertCommand() }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("command-insert")
-                    Button(model.text("执行", "Run")) { Task { await runCommand() } }.buttonStyle(RoamButtonStyle(primary: true)).accessibilityIdentifier("command-run")
-                }.disabled(command.isEmpty || runtime.phase != .connected || running)
-                if let executionFailure { Text(executionFailure).font(.footnote).foregroundStyle(Palette.danger).accessibilityIdentifier("command-error") }
-                HStack {
-                    Image(systemName: "magnifyingglass").foregroundStyle(Palette.secondary)
-                    TextField(model.text("搜索命令", "Search commands"), text: $query).textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("history-search")
-                    Button { refreshID += 1 } label: { Image(systemName: "arrow.clockwise") }.disabled(historyLoading).accessibilityLabel(model.text("刷新 shell 历史", "Refresh shell history")).accessibilityIdentifier("history-refresh")
-                }
-                List {
-                    if !model.commands.isEmpty {
-                        Section(model.text("已保存", "Saved")) {
-                            ForEach(ShellHistoryCommands.fuzzyFilter(model.commands, query: query), id: \.self) { value in
-                                Button { command = value; selectedHistory = nil; executionFailure = nil } label: { commandLabel(value) }.swipeActions { Button(role: .destructive) { model.removeCommand(value) } label: { Label(model.text("删除", "Delete"), systemImage: "trash") } }
-                            }
-                        }
-                    }
-                    Section {
-                        if historyLoading { ProgressView().accessibilityIdentifier("history-loading") }
-                        if let historyFailure { Text(historyFailure).font(.footnote).foregroundStyle(Palette.secondary) }
-                        ForEach(Array(filteredHistory.enumerated()), id: \.element) { index, value in
-                            Button { command = value; selectedHistory = value; executionFailure = nil } label: { commandLabel(value) }.accessibilityIdentifier("history-command-\(index)")
-                        }
-                        if !historyLoading && historyFailure == nil && filteredHistory.isEmpty { Text(model.text("没有匹配的 shell 历史命令", "No matching shell history commands")).font(.footnote).foregroundStyle(Palette.secondary) }
-                    } header: { Text(historySource.isEmpty ? model.text("Shell 历史", "Shell history") : historySource).accessibilityIdentifier("history-source") }
-                }.scrollContentBackground(.hidden).accessibilityIdentifier("command-history-list")
-            }.padding(16).pageBackground().navigationTitle(model.text("常用命令", "Commands")).navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button(model.text("完成", "Done")) { dismiss() }.accessibilityIdentifier("command-done") } }
-        }.modifier(ChildModalPresence()).overlay { AuthenticationOverlay() }.modifier(TerminalPasteConfirmation(runtime: runtime, onSent: { dismiss() }))
-            .task(id: refreshID) { await refreshHistory() }
-            .onDisappear { executionCancellation?.cancel() }
-            .onChange(of: command) { value in if selectedHistory != value { selectedHistory = nil }; executionFailure = nil }
-    }
-    private func commandLabel(_ value: String) -> some View { Text(value).font(.system(.subheadline, design: .monospaced)).foregroundStyle(Palette.foreground).lineLimit(3) }
-    private func refreshHistory() async {
-        historyLoading = true; historyFailure = nil
-        let cancellation = TransferCancellation()
-        await withTaskCancellationHandler(operation: {
-            do {
-                let ssh = try await model.connection(for: connectionTarget)
-                let result = try await ShellHistoryCommands.load { path in
-                    try model.validate(connectionTarget)
-                    // Keep history in memory and read a bounded tail, including a truncation marker.
-                    let script = "f=\"$HOME/\(path)\"; [ -r \"$f\" ] || exit 1; n=$(wc -c < \"$f\") || exit 1; printf '%s\\n' \"$n\"; tail -c 262144 \"$f\""
-                    let response = try await performInBackground { try ssh.exec("/bin/sh -c " + RemoteCommands.shellQuote(script), input: Data(), timeout: 8, cancellation: cancellation) }
-                    guard response.status == 0, let newline = response.output.firstIndex(of: 10) else { return nil }
-                    let sizeLine = String(decoding: response.output[..<newline], as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard let size = Int64(sizeLine) else { return nil }
-                    return (String(decoding: response.output[response.output.index(after: newline)...], as: UTF8.self), size > 262144)
-                }
-                try Task.checkCancellation()
-                try model.validate(connectionTarget)
-                historyCommands = result?.commands ?? []; historySource = result?.source ?? ""
-                if result == nil { historyFailure = model.text("无法读取可用的 bash 或 zsh 历史。", "No usable bash or zsh history is available.") }
-            } catch { if !Task.isCancelled { historyFailure = error.localizedDescription } }
-        }, onCancel: { cancellation.cancel() })
-        if !Task.isCancelled { historyLoading = false }
-    }
-    private func insertCommand() {
-        do { try model.validate(connectionTarget) } catch { executionFailure = error.localizedDescription; return }
-        if runtime.pasteText(command) { dismiss() }
-        else if runtime.pendingPaste == nil { executionFailure = model.text("未发送：连接未就绪或输入队列已满。", "Not sent: connection unavailable or input queue full.") }
-    }
-    private func runCommand() async {
-        guard !running else { return }
-        running = true; executionFailure = nil
-        let cancellation = TransferCancellation(); executionCancellation = cancellation
-        defer { running = false; executionCancellation = nil }
-        let value = command, fromHistory = selectedHistory == command
-        do {
-            try model.validate(connectionTarget)
-            var fullScreen = runtime.terminalView.getTerminal().isCurrentBufferAlternate
-            if runtime.record.mode == .tmux {
-                let ssh = try await model.connection(for: connectionTarget)
-                let script = RemoteCommands.tmuxAlternateScreen(runtime.record.remoteName)
-                let result = try await performInBackground { try ssh.exec(script, input: Data(), timeout: 8, cancellation: cancellation) }
-                fullScreen = result.status != 0 || String(decoding: result.output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) != "0"
-            }
-            guard !cancellation.isCancelled, !Task.isCancelled else { return }
-            try model.validate(connectionTarget)
-            guard !fullScreen else { executionFailure = model.text("请先退出全屏程序，再执行 shell 命令。", "Exit the full-screen program before running a shell command."); return }
-            let bracketed = runtime.terminalView.getTerminal().bracketedPasteMode
-            let input = fromHistory ? try ShellHistoryCommands.executionInput(value, bracketed: bracketed) : (bracketed ? "\u{1b}[200~" + value + "\u{1b}[201~" : value) + "\r"
-            guard runtime.send(input) else { executionFailure = model.text("未发送：连接未就绪或输入队列已满。", "Not sent: connection unavailable or input queue full."); return }
-            if fromHistory { recentCommands = ShellHistoryCommands.mergeRecent([value], saved: recentCommands) }
-            dismiss()
-        } catch { executionFailure = error.localizedDescription }
     }
 }

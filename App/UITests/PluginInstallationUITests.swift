@@ -33,7 +33,7 @@ final class PluginInstallationUITests: RoamttyLiveUITestCase {
         waitForOutput(verified, surface: surface)
         waitForOutput("PLUGIN_VERSION_" + token + ":tmux ", surface: surface)
         capture("Newly installed tmux reports its actual remote version")
-        closeTerminal()
+        closePluginTerminal()
     }
 
     func testCancellingStreamingAptKeepsBothSSHConnectionsUsable() throws {
@@ -86,7 +86,7 @@ final class PluginInstallationUITests: RoamttyLiveUITestCase {
         try runCommand(stopped)
         waitForOutput(reusable, surface: cancelledHost, timeout: 20)
         capture("Remote apt has stopped, tmux remains absent and SSH is reusable")
-        closeTerminal()
+        closePluginTerminal()
         returnHome()
 
         let normalHost = app.buttons["host-UI Live Host"]
@@ -99,7 +99,7 @@ final class PluginInstallationUITests: RoamttyLiveUITestCase {
         let surface = try runCommand("test \"$ROAMTTY_PLUGIN_UI\" = '" + token + "' && " + emit(preserved))
         waitForOutput(preserved, surface: surface)
         capture("Cancelling another host's install preserves the original shell and its state")
-        closeTerminal()
+        closePluginTerminal()
     }
 
     private struct Configuration {
@@ -145,7 +145,7 @@ final class PluginInstallationUITests: RoamttyLiveUITestCase {
         challenge.tap(); challenge.typeText(password); app.buttons["auth-confirm"].tap()
         let surface = app.descendants(matching: .any)["terminal-surface"].firstMatch
         XCTAssertTrue(surface.waitForExistence(timeout: 20))
-        XCTAssertTrue(app.staticTexts["已连接"].waitForExistence(timeout: 20))
+        XCTAssertTrue(phase("已连接").waitForExistence(timeout: 20))
         return surface
     }
 
@@ -160,7 +160,7 @@ final class PluginInstallationUITests: RoamttyLiveUITestCase {
         }
         let picker = app.segmentedControls["host-auth-method"]
         reveal(picker)
-        let interactive = picker.buttons.matching(NSPredicate(format: "label == 'Interactive' OR label == '交互'")).firstMatch
+        let interactive = picker.buttons.matching(NSPredicate(format: "label == 'Interactive' OR label == '交互式认证'")).firstMatch
         XCTAssertTrue(interactive.exists); interactive.tap(); XCTAssertTrue(interactive.isSelected)
         XCTAssertFalse(app.secureTextFields["host-password"].exists)
         app.buttons["save-host"].tap()
@@ -217,20 +217,15 @@ final class PluginInstallationUITests: RoamttyLiveUITestCase {
         XCTAssertTrue(element.isHittable)
     }
 
-    private func returnToHost() {
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(app.buttons["host-detail-terminal"].waitForExistence(timeout: 8))
-    }
+    private func returnToHost() { leaveTerminal() }
 
     private func returnHome() {
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.buttons["add-host"].waitForExistence(timeout: 8))
     }
 
-    private func closeTerminal() {
-        app.buttons["terminal-close"].tap()
-        let confirm = app.buttons.matching(identifier: "terminal-close-confirm").firstMatch
-        XCTAssertTrue(confirm.waitForExistence(timeout: 5)); confirm.tap()
+    private func closePluginTerminal() {
+        closeTerminal()
         XCTAssertTrue(app.buttons["host-detail-terminal"].waitForExistence(timeout: 8))
     }
 

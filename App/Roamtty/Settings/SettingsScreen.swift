@@ -16,17 +16,13 @@ struct SettingsScreen: View {
             ScrollView {
                 VStack(spacing: 24) {
                     Panel(title: model.text("外观", "Appearance")) {
-                        HStack(spacing: 8) {
-                            themeButton(.system, model.text("跟随系统", "System"), "circle.lefthalf.filled")
-                            themeButton(.dark, model.text("深色", "Dark"), "moon.fill")
-                            themeButton(.light, model.text("浅色", "Light"), "sun.max.fill")
-                        }.padding(12)
+                        themeRow(.system, model.text("跟随系统", "System")).panelDivider()
+                        themeRow(.dark, model.text("深色", "Dark")).panelDivider()
+                        themeRow(.light, model.text("浅色", "Light"))
                     }
                     Panel(title: model.text("语言", "Language")) {
-                        HStack {
-                            Button { model.settings.language = "zh-Hans"; model.saveSettings() } label: { HStack { Text("简体中文"); if !model.english { Image(systemName: "checkmark") } } }.buttonStyle(RoamButtonStyle(primary: !model.english)).accessibilityIdentifier("language-zh").accessibilityAddTraits(!model.english ? .isSelected : [])
-                            Button { model.settings.language = "en"; model.saveSettings() } label: { HStack { Text("English"); if model.english { Image(systemName: "checkmark") } } }.buttonStyle(RoamButtonStyle(primary: model.english)).accessibilityIdentifier("language-en").accessibilityAddTraits(model.english ? .isSelected : [])
-                        }.padding(12)
+                        checkRow("简体中文", selected: !model.english, id: "language-zh") { model.settings.language = "zh-Hans"; model.saveSettings() }.panelDivider()
+                        checkRow("English", selected: model.english, id: "language-en") { model.settings.language = "en"; model.saveSettings() }
                     }
                     Panel(title: model.text("终端", "Terminal")) {
                         Picker(model.text("字体", "Font"), selection: $model.settings.font) {
@@ -83,8 +79,18 @@ struct SettingsScreen: View {
             }
         }
     }
-    private func themeButton(_ theme: AppTheme, _ title: String, _ image: String) -> some View {
-        Button { model.settings.theme = theme; model.saveSettings() } label: { VStack(spacing: 8) { Image(systemName: image).font(.title3); Text(title).font(.caption) }.padding(.vertical, 8) }.buttonStyle(RoamButtonStyle(primary: model.settings.theme == theme)).accessibilityIdentifier("theme-\(theme.rawValue)").accessibilityAddTraits(model.settings.theme == theme ? .isSelected : [])
+    private func themeRow(_ theme: AppTheme, _ title: String) -> some View {
+        checkRow(title, selected: model.settings.theme == theme, id: "theme-\(theme.rawValue)") { model.settings.theme = theme; model.saveSettings() }
+    }
+    /// Android `CheckRow`: a single-choice row with a trailing check on the selection.
+    private func checkRow(_ title: String, selected: Bool, id: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(title).foregroundStyle(Palette.foreground)
+                Spacer()
+                AppIcon("ic_check", size: 20).foregroundStyle(Palette.accent).opacity(selected ? 1 : 0)
+            }.font(.body).padding(.horizontal, 16).frame(minHeight: 52).contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityIdentifier(id).accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 struct HelpScreen: View {

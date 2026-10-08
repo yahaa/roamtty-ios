@@ -54,7 +54,7 @@ struct RootScreen: View {
             }
             if model.drawer {
                 Color.black.opacity(0.35).ignoresSafeArea().onTapGesture { withAnimation { model.drawer = false } }
-                DrawerScreen().frame(width: 300).transition(.move(edge: .leading))
+                DrawerScreen().frame(width: min(360, UIScreen.main.bounds.width * 0.82)).transition(.move(edge: .leading))
             }
             AuthenticationOverlay()
         }
@@ -109,20 +109,70 @@ struct RootScreen: View {
         model.path = [.host(hostID), .files(hostID)]
     }
 }
+/// Android `ItermuxDrawer`: brand header, Hosts with its count, the open sessions, then Settings and Help.
 struct DrawerScreen: View {
     @EnvironmentObject var model: AppModel
+    private var sessions: [SessionRecord] { model.records.filter { model.runtimes[$0.id] != nil } }
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) { GhostMark().frame(width: 48, height: 48); Text("Roamtty").font(.title2.weight(.semibold)) }.padding(.vertical, 24)
-            Button { model.path = []; model.drawer = false } label: { Label(model.text("主机", "Hosts"), systemImage: "server.rack").frame(maxWidth: .infinity, alignment: .leading).padding(16) }.background(Palette.accentPanel, in: RoundedRectangle(cornerRadius: 12)).accessibilityIdentifier("drawer-hosts")
-            drawerItem(model.text("设置", "Settings"), "gearshape", .settings).accessibilityIdentifier("open-settings")
-            drawerItem(model.text("使用指南", "Guide"), "questionmark.circle", .guide).accessibilityIdentifier("open-guide")
-            drawerItem(model.text("关于", "About"), "info.circle", .about).accessibilityIdentifier("open-about")
-            Spacer()
-            Text("Roamtty · SSH + tmux + mosh").font(.caption).foregroundStyle(Palette.secondary).padding(.bottom, 24)
-        }.padding(.horizontal, 16).frame(maxHeight: .infinity).background(Palette.background).foregroundStyle(Palette.foreground)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 0) {
+                Image("RoamttyLogo").resizable().scaledToFit().frame(width: 48, height: 48)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Roamtty").font(.system(size: 20, weight: .semibold))
+                    Text(model.text("远程终端", "Remote terminal")).font(.footnote).foregroundStyle(Palette.secondary)
+                }.padding(.leading, 14)
+                Spacer()
+                Button { close() } label: { AppIcon("ic_close").foregroundStyle(Palette.secondary).frame(width: 48, height: 48) }
+                    .accessibilityLabel(model.text("关闭", "Close"))
+            }.padding(.leading, 24).padding(.trailing, 12).padding(.top, 24).padding(.bottom, 20)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    item(model.text("主机", "Hosts"), icon: "ic_hosts", selected: model.path.isEmpty, badge: "\(model.hosts.count)") { model.path = []; close() }
+                        .accessibilityIdentifier("drawer-hosts")
+                    Divider().overlay(Palette.outline).padding(.horizontal, 24).padding(.vertical, 16)
+                    Text(model.text("当前会话", "Open sessions")).font(.subheadline.weight(.medium)).foregroundStyle(Palette.secondary)
+                        .padding(.horizontal, 28).padding(.vertical, 8)
+                    if sessions.isEmpty {
+                        Text(model.text("暂无会话", "No sessions")).font(.subheadline).foregroundStyle(Palette.secondary).padding(.horizontal, 28).padding(.vertical, 12)
+                    }
+                    ForEach(sessions) { record in sessionItem(record) }
+                }
+            }
+            Divider().overlay(Palette.outline)
+            VStack(spacing: 0) {
+                item(model.text("设置", "Settings"), icon: "ic_settings") { open(.settings) }.accessibilityIdentifier("open-settings")
+                item(model.text("帮助", "Help"), icon: "ic_help") { open(.guide) }.accessibilityIdentifier("open-guide")
+                item(model.text("关于", "About"), icon: "ic_preview") { open(.about) }.accessibilityIdentifier("open-about")
+            }.padding(.vertical, 8)
+        }.frame(maxHeight: .infinity).background(Palette.sheet.ignoresSafeArea()).foregroundStyle(Palette.foreground)
     }
-    private func drawerItem(_ title: String, _ icon: String, _ sheet: AppSheet) -> some View {
-        Button { model.drawer = false; model.sheet = sheet } label: { Label(title, systemImage: icon).frame(maxWidth: .infinity, alignment: .leading).padding(16) }
+    private func close() { withAnimation(.easeOut(duration: 0.2)) { model.drawer = false } }
+    private func open(_ sheet: AppSheet) { model.drawer = false; model.sheet = sheet }
+    private func item(_ title: String, icon: String, selected: Bool = false, badge: String? = nil, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                AppIcon(icon, size: 24)
+                Text(title).font(.subheadline.weight(.medium))
+                Spacer()
+                if let badge { Text(badge).font(.subheadline.weight(.medium)) }
+            }.padding(.leading, 16).padding(.trailing, 24).frame(height: 56)
+                .foregroundStyle(selected ? Palette.adaptive(0x3D332D, 0xECE2D8) : Palette.secondary)
+                .background(selected ? Palette.adaptive(0xECE4DB, 0x47413B) : Color.clear, in: Capsule()).contentShape(Capsule())
+        }.buttonStyle(.plain).padding(.horizontal, 12)
+    }
+    private func sessionItem(_ record: SessionRecord) -> some View {
+        let host = model.host(record.hostID)
+        let phase = model.runtimes[record.id]?.phase ?? .disconnected
+        return Button { model.drawer = false; model.openSession(record) } label: {
+            HStack(spacing: 12) {
+                HostSystemMark(system: host?.system ?? "UNKNOWN").frame(width: 32, height: 32)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.sessionTitle(record)).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.foreground).lineLimit(1)
+                    Text("\(host?.username ?? "")@\(host?.address ?? "")").font(.footnote).foregroundStyle(Palette.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                PhaseLabel(phase: phase)
+            }.padding(.leading, 16).padding(.trailing, 24).frame(minHeight: 56).contentShape(Capsule())
+        }.buttonStyle(.plain).padding(.horizontal, 12).accessibilityIdentifier("drawer-session-\(record.id)")
     }
 }

@@ -141,22 +141,17 @@ final class SessionCapacityUITests: RoamttyLiveUITestCase {
         Set(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'session-'")).allElementsBoundByIndex.map(\.identifier))
     }
 
-    private func returnToHostDetail() {
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(app.buttons["host-detail-terminal"].waitForExistence(timeout: 5))
-    }
+    private func returnToHostDetail() { leaveTerminal() }
 
     private func openSession(_ session: OwnedSession) {
         let card = app.buttons[session.cardID]
         revealHostControl(card); card.tap()
         XCTAssertTrue(app.descendants(matching: .any)["terminal-surface"].firstMatch.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["已连接"].waitForExistence(timeout: 10))
+        XCTAssertTrue(phase("已连接").waitForExistence(timeout: 10))
     }
 
     private func closeCurrentTerminal() {
-        app.buttons["terminal-close"].tap()
-        let confirm = app.buttons.matching(identifier: "terminal-close-confirm").firstMatch
-        XCTAssertTrue(confirm.waitForExistence(timeout: 5)); confirm.tap()
+        closeTerminal()
         XCTAssertTrue(app.buttons["host-detail-terminal"].waitForExistence(timeout: 5))
     }
 

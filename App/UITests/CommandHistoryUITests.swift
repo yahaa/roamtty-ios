@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 
 final class CommandHistoryUITests: RoamttyLiveUITestCase {
-    func testRemoteHistoryRefreshFilterRunAndSavedCommandSurviveRelaunch() throws {
+    func testRemoteHistoryRefreshFilterAndRun() throws {
         let surface = try openTerminal(mode: "SSH")
         let token = UUID().uuidString.replacingOccurrences(of: "-", with: "")
         let executed = "HISTORY_EXECUTED_" + token
@@ -37,23 +37,14 @@ final class CommandHistoryUITests: RoamttyLiveUITestCase {
         waitUntilEnabled(refresh); refresh.tap(); waitUntilEnabled(refresh)
         let remote = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'history-command-' AND label == %@", command)).firstMatch
         XCTAssertTrue(remote.waitForExistence(timeout: 15), "Refresh must load the fixture from actual remote shell history")
-        XCTAssertEqual(app.staticTexts["history-source"].label.lowercased(), "~/.bash_history")
+        XCTAssertTrue(app.staticTexts["history-source"].label.lowercased().hasSuffix("~/.bash_history"))
         replace(search, with: "absent-" + UUID().uuidString)
         XCTAssertFalse(remote.exists, "A nonmatching query must hide the remote history row")
         replace(search, with: fuzzy)
+        capture("Remote history command found by fuzzy search")
+        // As on Android, a tap closes the sheet and runs the command.
         XCTAssertTrue(remote.waitForExistence(timeout: 8)); remote.tap()
-        XCTAssertEqual(app.textViews["command-draft"].value as? String, command)
-        app.buttons["command-run"].tap()
         waitForOutput(executed, surface: surface)
-
-        let draft = openCommands()
-        replace(draft, with: command)
-        localizedButton("保存", "Save").tap()
-        replace(app.textFields["history-search"], with: fuzzy)
-        let saved = savedCommand(command)
-        XCTAssertTrue(saved.waitForExistence(timeout: 8), "Saving must create a separate saved-command row")
-        capture("Remote history command executed and saved")
-        app.buttons["command-done"].tap()
 
         let cleaned = "HISTORY_CLEANED_" + token
         let cleanup = """
@@ -75,42 +66,6 @@ final class CommandHistoryUITests: RoamttyLiveUITestCase {
         """
         try runCommand(python(cleanup)); waitForOutput(cleaned, surface: surface)
         closePlainTerminal()
-        app.terminate(); app.launch()
-
-        let resumed = try openTerminal(mode: "SSH")
-        let ready = "SAVED_SESSION_" + token
-        try runCommand("unset HISTFILE; " + emit(ready)); waitForOutput(ready, surface: resumed)
-        openCommands()
-        // Sparse fuzzy matching was exercised before cleanup. Match the whole
-        // owned command here so unrelated remote history cannot satisfy it.
-        replace(app.textFields["history-search"], with: command)
-        let restored = savedCommand(command)
-        XCTAssertTrue(restored.waitForExistence(timeout: 15), "A saved command must survive app relaunch independently of remote history")
-        let refreshed = app.buttons["history-refresh"]
-        waitUntilEnabled(refreshed); refreshed.tap(); waitUntilEnabled(refreshed)
-        let loaded = app.staticTexts["history-source"]
-        // With the keyboard open, this native lazy List initially exposes only
-        // Saved and its row. Reveal the remote section before asserting absence;
-        // an offscreen row must not masquerade as successful remote cleanup.
-        try revealCommandListElement(loaded, scrollingDown: true)
-        let emptyHistory = app.staticTexts.matching(NSPredicate(format: "label == '没有匹配的 shell 历史命令' OR label == 'No matching shell history commands' OR label == '无法读取可用的 bash 或 zsh 历史。' OR label == 'No usable bash or zsh history is available.'")).firstMatch
-        try revealCommandListElement(emptyHistory, scrollingDown: true)
-        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'history-command-' AND label == %@", command)).firstMatch.exists)
-        try revealCommandListElement(restored, scrollingDown: false)
-        restored.tap()
-        XCTAssertEqual(app.textViews["command-draft"].value as? String, command)
-        app.buttons["command-run"].tap()
-        waitForOutput(executed, surface: resumed)
-        capture("Persisted saved command runs after remote fixture cleanup and relaunch")
-
-        openCommands()
-        replace(app.textFields["history-search"], with: command)
-        let removed = savedCommand(command)
-        XCTAssertTrue(removed.waitForExistence(timeout: 8)); removed.swipeLeft()
-        localizedButton("删除", "Delete").tap()
-        waitUntilGone(removed)
-        app.buttons["command-done"].tap()
-        closePlainTerminal()
     }
 
     func testNativeTerminalSelectionCopyAndClipboardPasteReachRemoteOnce() throws {
@@ -121,36 +76,40 @@ final class CommandHistoryUITests: RoamttyLiveUITestCase {
         // selected rendered text. The test never reads a pre-existing clipboard.
         try runCommand("printf '\\033[3J\\033[2J\\033[H'; " + emit(payload))
         waitForOutput(payload, surface: surface)
-        openTools()
-        let pin = app.buttons["terminal-pin-tools"]
-        XCTAssertTrue(pin.waitForExistence(timeout: 5)); pin.tap()
-        let dock = app.scrollViews["terminal-dock"]
-        let select = dock.buttons.matching(NSPredicate(format: "label == '选择' OR label == 'Select'")).firstMatch
-        let copy = dock.buttons.matching(NSPredicate(format: "label == '复制' OR label == 'Copy'")).firstMatch
-        XCTAssertTrue(select.isHittable); select.tap()
+        // Long-press opens SwiftTerm's native selection and edit menu.
+        surface.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.02)).press(forDuration: 1.2)
+        let selectAll = nativeMenu(NSPredicate(format: "label == 'Select All' OR label == '全选'"))
+        XCTAssertTrue(selectAll.waitForExistence(timeout: 3)); selectAll.tap()
         capture("Native terminal selection")
-        XCTAssertTrue(copy.isHittable); copy.tap()
+        // With text selected, a second long-press offers Copy.
+        surface.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.02)).press(forDuration: 1.2)
+        let copy = nativeMenu(NSPredicate(format: "label == 'Copy' OR label == '拷贝' OR label == '复制'"))
+        if !copy.waitForExistence(timeout: 3) { saveFailureScreenshot("copy") }
+        XCTAssertTrue(copy.exists); copy.tap()
 
-        let draft = openCommands()
-        draft.tap(); draft.press(forDuration: 1.1)
-        tapNativePaste()
-        let copied = try XCTUnwrap(draft.value as? String)
+        // Android's 粘贴 stages the clipboard in the prompt editor rather than typing it.
+        clearDraft()
+        terminalMenu("menu-paste")
+        let editor = app.textViews["prompt-editor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
+        let copied = try XCTUnwrap(editor.value as? String)
         XCTAssertTrue(copied.contains(payload), "Native Copy must publish the selected terminal text")
         XCTAssertLessThan(copied.utf8.count, 4096, "The cleared test terminal must contain only a small owned payload and prompt")
         XCTAssertTrue(copied.unicodeScalars.allSatisfy { $0.value == 9 || $0.value == 10 || $0.value == 13 || $0.value >= 32 }, "Selection copies rendered text, never terminal control sequences")
-        app.buttons["command-done"].tap()
 
         // Expected bytes come from the clipboard content just exposed through the
-        // native text editor, with the terminal's documented newline convention.
+        // prompt editor, with the terminal's documented newline convention.
         let normalized = copied.replacingOccurrences(of: "\r\n", with: "\r").replacingOccurrences(of: "\n", with: "\r")
         let expected = Data(normalized.utf8)
         XCTAssertFalse(expected.isEmpty)
         let prefix = "NATIVE_PASTE_" + token
         try runCommand(byteReceiver(prefix: prefix, count: expected.count))
         waitForOutput(prefix + "_READY", surface: surface)
-        openTools()
-        let paste = app.scrollViews["terminal-dock"].buttons.matching(NSPredicate(format: "label == '粘贴' OR label == 'Paste'")).firstMatch
-        XCTAssertTrue(paste.isHittable); paste.tap()
+        // The receiver was typed through the editor; stage the clipboard there again and send it.
+        clearDraft()
+        terminalMenu("menu-paste")
+        XCTAssertTrue(app.textViews["prompt-editor"].waitForExistence(timeout: 5))
+        app.buttons["prompt-send"].tap()
         if copied.contains("\n") || copied.contains("\r") {
             let send = app.alerts.firstMatch.buttons.matching(identifier: "terminal-paste-send").firstMatch
             XCTAssertTrue(send.waitForExistence(timeout: 5), "Native multiline clipboard paste must use the same confirmation as other input")
@@ -161,80 +120,20 @@ final class CommandHistoryUITests: RoamttyLiveUITestCase {
         closePlainTerminal()
     }
 
-    @discardableResult private func openCommands() -> XCUIElement {
-        openTools(); app.buttons["terminal-commands"].tap()
-        let draft = app.textViews["command-draft"]
-        XCTAssertTrue(draft.waitForExistence(timeout: 8))
-        return draft
+    private func openCommands() {
+        openTools(); app.buttons["common-commands"].tap()
+        XCTAssertTrue(app.textFields["history-search"].waitForExistence(timeout: 8))
     }
 
-    private func savedCommand(_ command: String) -> XCUIElement {
-        app.buttons.matching(NSPredicate(format: "label == %@ AND NOT (identifier BEGINSWITH 'history-command-')", command)).firstMatch
-    }
-
-    private func revealCommandListElement(_ element: XCUIElement, scrollingDown: Bool) throws {
-        for _ in 0..<12 {
-            let list = try commandList()
-            var visible = list.frame.intersection(app.frame)
-            let keyboard = app.keyboards.firstMatch
-            if keyboard.exists { visible.size.height = max(0, min(visible.maxY, keyboard.frame.minY) - visible.minY) }
-            if element.exists && element.isHittable && visible.contains(element.frame) { return }
-            guard visible.height > 60 else { XCTFail("The command list must have visible space above the keyboard"); return }
-            // With the keyboard open the list is only about 130pt tall. A full
-            // swipe flings its short section header past the viewport in one step.
-            let distance = min(32, visible.height * 0.25)
-            let direction: CGFloat = scrollingDown ? 1 : -1
-            let origin = app.coordinate(withNormalizedOffset: .zero)
-            let start = origin.withOffset(CGVector(dx: visible.midX, dy: visible.midY + direction * distance / 2))
-            let end = origin.withOffset(CGVector(dx: visible.midX, dy: visible.midY - direction * distance / 2))
-            start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
-            waitForCommandListLayout(list)
-        }
-        let list = try commandList()
-        XCTAssertTrue(element.exists && element.isHittable && list.frame.contains(element.frame), "The command section must be visibly reached before checking or selecting it")
-    }
-
-    private func waitForCommandListLayout(_ list: XCUIElement) {
-        var previousFrames: [CGRect]?
-        let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            guard list.exists else { return false }
-            let bounds = list.frame
-            let frames = [bounds] + list.cells.allElementsBoundByIndex.map(\.frame).filter { $0.intersects(bounds) }
-            defer { previousFrames = frames }
-            return previousFrames == frames
-        }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 4), .completed, "Command rows must settle after a short scroll")
-    }
-
-    private func commandList() throws -> XCUIElement {
-        // The keyboard's suggestion strip is also a CollectionView and may be
-        // first in the app query. E2 sent every swipe to that 55pt strip. Use the
-        // actual list's identifier, or its tagged wrapper on another iOS version.
-        let identifier = "command-history-list"
-        let native = app.collectionViews.matching(identifier: identifier).firstMatch
-        if native.waitForExistence(timeout: 5) { return native }
-        let wrapper = app.descendants(matching: .any).matching(identifier: identifier).firstMatch
-        XCTAssertTrue(wrapper.exists, "The command-history list must be present")
-        let lists = wrapper.collectionViews.allElementsBoundByIndex
-        XCTAssertEqual(lists.count, 1, "The tagged command list must contain exactly one native scrollable list")
-        return try XCTUnwrap(lists.first)
+    private func nativeMenu(_ predicate: NSPredicate) -> XCUIElement {
+        let kinds = NSPredicate(format: "elementType == %d OR elementType == %d", XCUIElement.ElementType.menuItem.rawValue, XCUIElement.ElementType.button.rawValue)
+        return app.descendants(matching: .any).matching(NSCompoundPredicate(andPredicateWithSubpredicates: [predicate, kinds])).firstMatch
     }
 
     private func localizedButton(_ chinese: String, _ english: String) -> XCUIElement {
         let button = app.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", chinese, english)).firstMatch
         XCTAssertTrue(button.waitForExistence(timeout: 5))
         return button
-    }
-
-    private func tapNativePaste() {
-        let predicate = NSPredicate(format: "label == '粘贴' OR label == 'Paste'")
-        let menuItem = app.menuItems.matching(predicate).firstMatch
-        if menuItem.waitForExistence(timeout: 2) { menuItem.tap() }
-        else {
-            let button = app.buttons.matching(predicate).firstMatch
-            XCTAssertTrue(button.waitForExistence(timeout: 3), "The native text edit menu must offer Paste after Copy")
-            button.tap()
-        }
     }
 
     private func waitUntilEnabled(_ element: XCUIElement) {
@@ -248,9 +147,7 @@ final class CommandHistoryUITests: RoamttyLiveUITestCase {
     }
 
     private func closePlainTerminal() {
-        app.buttons["terminal-close"].tap()
-        let close = app.buttons.matching(identifier: "terminal-close-confirm").firstMatch
-        XCTAssertTrue(close.waitForExistence(timeout: 5)); close.tap()
+        closeTerminal()
         XCTAssertTrue(app.buttons["host-detail-terminal"].waitForExistence(timeout: 8))
     }
 

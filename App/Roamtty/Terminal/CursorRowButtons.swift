@@ -3,6 +3,8 @@ import SwiftUI
 struct CursorRowButtons: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var runtime: SessionRuntime
+    /// Android aligns the keys to the viewport's end, past the terminal's own end padding.
+    var trailingInset: CGFloat = 0
     var body: some View {
         GeometryReader { geometry in
             if runtime.phase == .connected, let row = runtime.cursorRowBounds {
@@ -18,7 +20,7 @@ struct CursorRowButtons: View {
                         cursorButton(label: model.text("发送 Esc", "Send Esc"), id: "cursor-escape") { runtime.sendCursorKey(.escape) }
                     }
                 }.frame(width: 40, height: height)
-                    .position(x: max(20, geometry.size.width - 20), y: min(max(row.midY, height / 2), max(height / 2, geometry.size.height - height / 2)))
+                    .position(x: max(20, geometry.size.width + trailingInset - 20), y: min(max(row.midY, height / 2), max(height / 2, geometry.size.height - height / 2)))
                     .animation(.easeInOut(duration: 0.12), value: runtime.cursorRowKey)
             }
         }

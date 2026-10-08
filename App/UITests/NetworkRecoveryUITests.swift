@@ -30,7 +30,7 @@ final class NetworkRecoveryUITests: RoamttyLiveUITestCase {
         let notice = app.staticTexts["terminal-notice"]
         XCTAssertTrue(notice.waitForExistence(timeout: 5))
         XCTAssertTrue(notice.label.contains("Mosh unavailable") && notice.label.contains("SSH"))
-        XCTAssertFalse(app.staticTexts["mosh"].exists)
+        XCTAssertFalse(terminalTransport.hasSuffix("mosh"))
         let after = try control("status")
         XCTAssertGreaterThan(after.counters.mosh, before.counters.mosh, "The real mosh-server must have bootstrapped successfully")
         XCTAssertGreaterThan(after.loopbackMoshServers, 0, "The actual UDP server must be isolated on loopback")
@@ -76,7 +76,7 @@ final class NetworkRecoveryUITests: RoamttyLiveUITestCase {
         XCTAssertEqual(fingerprint.label, original.fingerprints.b)
         XCTAssertNotEqual(fingerprint.label, original.fingerprints.a)
         app.buttons["auth-confirm"].tap()
-        XCTAssertTrue(app.staticTexts["已连接"].waitForExistence(timeout: 20))
+        XCTAssertTrue(phase("已连接").waitForExistence(timeout: 20))
         surface = app.descendants(matching: .any)["terminal-surface"].firstMatch
         _ = try runCommand("printf 'KEY_B_%s\\n' '\(suffix)'")
         waitForOutput("KEY_B_" + suffix, surface: surface)
@@ -108,13 +108,13 @@ final class NetworkRecoveryUITests: RoamttyLiveUITestCase {
     }
 
     private var reviewButton: XCUIElement {
-        app.buttons.matching(NSPredicate(format: "label == '查看并重新验证' OR label == 'Review and verify again'")).firstMatch
+        app.buttons.matching(NSPredicate(format: "label == '重新核验…' OR label == 'Verify again…'")).firstMatch
     }
     private func assertChangedKey() {
         XCTAssertTrue(reviewButton.waitForExistence(timeout: 15))
         XCTAssertFalse(app.staticTexts["auth-fingerprint"].exists, "A mismatched saved pin must block without offering implicit replacement")
         XCTAssertFalse(app.buttons["auth-confirm"].exists)
-        XCTAssertFalse(app.staticTexts["已连接"].exists)
+        XCTAssertFalse(phase("已连接").exists)
     }
     private func openRecoveryHost(expectedFingerprint: String) throws {
         let host = app.buttons["host-UI Live Host"]
@@ -131,13 +131,6 @@ final class NetworkRecoveryUITests: RoamttyLiveUITestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [sampled], timeout: timeout), .completed)
         XCTAssertTrue(app.descendants(matching: .any)["host-gauge-memory"].firstMatch.exists)
         XCTAssertTrue(app.descendants(matching: .any)["host-gauge-disk"].firstMatch.exists)
-    }
-    private func closeTerminal() {
-        let close = app.buttons["terminal-close"]
-        XCTAssertTrue(close.waitForExistence(timeout: 5)); close.tap()
-        let confirm = app.buttons["terminal-close-confirm"].firstMatch
-        XCTAssertTrue(confirm.waitForExistence(timeout: 5)); confirm.tap()
-        XCTAssertTrue(app.buttons["host-detail-terminal"].waitForExistence(timeout: 10))
     }
 
     private struct Configuration {

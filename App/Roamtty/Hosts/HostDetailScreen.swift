@@ -20,13 +20,18 @@ struct HostDetailScreen: View {
                             }.frame(maxWidth: .infinity, alignment: .leading)
                         }
                         HStack(spacing: 8) {
-                            Button { model.sheet = .launch(host, true) } label: { Label(model.text("AI 助手", "AI agent"), systemImage: "sparkles") }.buttonStyle(RoamButtonStyle(primary: true)).accessibilityIdentifier("host-detail-agent")
-                            Button { model.sheet = .launch(host, false) } label: { Label(model.text("终端", "Terminal"), systemImage: "terminal") }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-terminal")
-                            Button { model.path.append(.files(hostID)) } label: { Label(model.text("文件", "Files"), systemImage: "folder") }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-files")
+                            Button { model.sheet = .launch(host, true) } label: { actionLabel(model.text("AI 助手", "AI agent"), "ic_agent") }.buttonStyle(RoamButtonStyle(filled: true)).accessibilityIdentifier("host-detail-agent")
+                            Button { model.sheet = .launch(host, false) } label: { actionLabel(model.text("终端", "Terminal"), "ic_sessions") }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-terminal")
+                            Button { model.path.append(.files(hostID)) } label: { actionLabel(model.text("文件", "Files"), "ic_folder") }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-files")
                         }
                         Panel(title: model.text("会话  \(model.records.filter { $0.hostID == hostID }.count)", "Sessions  \(model.records.filter { $0.hostID == hostID }.count)")) {
                             let sessions = model.records.filter { $0.hostID == hostID }
-                            if sessions.isEmpty { InfoRow(title: model.text("暂无会话", "No sessions"), value: model.text("从上方开始", "Start above")) }
+                            if sessions.isEmpty {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(model.text("暂无会话", "No sessions")).font(.body)
+                                    Text(model.text("点上方“AI 助手”或“终端”开启新会话", "Tap “AI agent” or “Terminal” above to start one")).font(.footnote).foregroundStyle(Palette.secondary)
+                                }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                            }
                             ForEach(sessions) { record in SessionRow(record: record).panelDivider() }
                         }
                         monitorStatus(host)
@@ -34,9 +39,9 @@ struct HostDetailScreen: View {
                         Panel(title: model.text("主机信息", "Host information")) {
                             InfoRow(title: model.text("地址", "Address"), value: host.address).panelDivider()
                             InfoRow(title: model.text("端口", "Port"), value: String(host.port)).panelDivider()
-                            InfoRow(title: model.text("用户", "User"), value: host.username).panelDivider()
+                            InfoRow(title: model.text("用户名", "Username"), value: host.username).panelDivider()
                             InfoRow(title: model.text("认证方式", "Authentication"), value: authenticationLabel(host.auth)).panelDivider()
-                            InfoRow(title: model.text("默认会话", "Default session"), value: host.mode.rawValue).panelDivider()
+                            InfoRow(title: model.text("新会话", "New sessions"), value: host.mode == .tmux ? model.text("tmux · 可恢复", "tmux · resumable") : model.text("普通 SSH", "Plain SSH")).panelDivider()
                             InfoRow(title: model.text("插件", "Plugins"), value: host.plugins.map { $0.isEmpty ? model.text("未安装", "None installed") : $0.joined(separator: " · ") } ?? model.text("未检测", "Not detected"))
                             if let metrics = model.metrics[hostID] {
                                 if let hostname = metrics.hostname { InfoRow(title: model.text("主机名", "Hostname"), value: hostname).panelDivider() }
@@ -48,9 +53,9 @@ struct HostDetailScreen: View {
                     }.padding(16).frame(maxWidth: 720)
                 }.frame(maxWidth: .infinity).pageBackground().navigationTitle(host.name).navigationBarTitleDisplayMode(.inline)
                     .toolbar {
-                        ToolbarItem(placement: .navigationBarTrailing) { Button { model.sheet = .plugins(host) } label: { Image(systemName: "puzzlepiece.extension") }.accessibilityLabel(model.text("管理插件", "Manage plugins")).accessibilityIdentifier("host-detail-plugins") }
-                        ToolbarItem(placement: .navigationBarTrailing) { Button { model.sheet = .editor(host) } label: { Image(systemName: "pencil") }.accessibilityLabel(model.text("编辑主机", "Edit host")).accessibilityIdentifier("host-detail-edit") }
-                        ToolbarItem(placement: .navigationBarTrailing) { Menu { Button(model.text("删除主机", "Delete host"), role: .destructive) { deleteConfirm = true }.accessibilityIdentifier("host-delete") } label: { Image(systemName: "ellipsis") }.accessibilityIdentifier("host-detail-menu") }
+                        ToolbarItem(placement: .navigationBarTrailing) { Button { model.sheet = .plugins(host) } label: { AppIcon("ic_plugin", size: 24) }.accessibilityLabel(model.text("管理插件", "Manage plugins")).accessibilityIdentifier("host-detail-plugins") }
+                        ToolbarItem(placement: .navigationBarTrailing) { Button { model.sheet = .editor(host) } label: { AppIcon("ic_edit", size: 24) }.accessibilityLabel(model.text("编辑主机", "Edit host")).accessibilityIdentifier("host-detail-edit") }
+                        ToolbarItem(placement: .navigationBarTrailing) { Menu { Button(model.text("删除主机", "Delete host"), role: .destructive) { deleteConfirm = true }.accessibilityIdentifier("host-delete") } label: { AppIcon("ic_more", size: 24) }.accessibilityIdentifier("host-detail-menu") }
                     }
                     .onAppear { model.startMonitor(host) }
                     .task(id: host.address + ":" + String(host.port)) { while !Task.isCancelled { await model.probeHosts([host]); do { try await Task.sleep(nanoseconds: 15_000_000_000) } catch { break } } }
@@ -64,12 +69,29 @@ struct HostDetailScreen: View {
     private func authenticationLabel(_ method: AuthMethod) -> String {
         switch method {
         case .password: return model.text("密码", "Password")
-        case .key: return model.text("SSH 私钥", "SSH key")
-        case .interactive: return model.text("键盘交互", "Keyboard-interactive")
+        case .key: return model.text("私钥", "Private key")
+        case .interactive: return model.text("交互式认证", "Interactive")
         }
     }
+    private func actionLabel(_ title: String, _ icon: String) -> some View {
+        HStack(spacing: 8) { AppIcon(icon, size: 18); Text(title) }
+    }
     private func monitorStatus(_ host: Host) -> some View {
-        Panel(title: model.text("实时监控", "Live monitor")) {
+        let live = model.monitorStates[hostID].map { $0.phase == .connected && $0.sampled && !$0.reconnecting } ?? false
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text(model.text("实时监控", "Live monitor")).font(.subheadline.weight(.medium)).foregroundStyle(Palette.secondary)
+                Spacer()
+                if live {
+                    Circle().fill(Palette.success).frame(width: 6, height: 6)
+                    Text(model.text("每 3 秒刷新", "Refreshes every 3 seconds")).font(.caption).foregroundStyle(Palette.secondary).accessibilityIdentifier("host-monitor-status")
+                }
+            }.padding(.horizontal, 16)
+            if !live { monitorPanel(host) }
+        }
+    }
+    private func monitorPanel(_ host: Host) -> some View {
+        Panel {
             if let state = model.monitorStates[hostID] {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 8) {
@@ -103,19 +125,19 @@ struct SessionRow: View {
         HStack(spacing: 12) {
             Button { model.openSession(record) } label: {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(record.displayTitle).font(.subheadline).foregroundStyle(Palette.foreground)
+                    Text(model.sessionTitle(record)).font(.body).foregroundStyle(Palette.foreground).lineLimit(1)
                     HStack { PhaseLabel(phase: phase); Badge(text: record.mode == .tmux ? "tmux" : "SSH"); if model.runtimes[record.id]?.transportName == "mosh" { Badge(text: "mosh") } }
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }.accessibilityIdentifier("session-\(record.id)")
-            Button { title = record.title; edit = true } label: { Image(systemName: "pencil").frame(width: 36, height: 40) }.accessibilityLabel(model.text("修改会话标题", "Rename session")).accessibilityIdentifier("rename-session-\(record.id)")
-            Button(phase.active || record.mode == .shell ? model.text("关闭", "Close") : model.text("移除", "Remove")) { confirm = true }.font(.subheadline).accessibilityIdentifier("close-session-\(record.id)")
+            Button { title = record.title; edit = true } label: { AppIcon("ic_edit", size: 20).foregroundStyle(Palette.secondary).frame(width: 40, height: 40) }.accessibilityLabel(model.text("修改会话标题", "Rename session")).accessibilityIdentifier("rename-session-\(record.id)")
+            Button(phase.active || record.mode == .shell ? model.text("关闭", "Close") : model.text("移除", "Remove")) { confirm = true }.font(.subheadline.weight(.medium)).foregroundStyle(Palette.accent).accessibilityIdentifier("close-session-\(record.id)")
         }.padding(16)
             .alert(model.text("修改会话标题", "Rename session"), isPresented: $edit) {
                 TextField(model.text("标题", "Title"), text: $title).accessibilityIdentifier("session-title")
                 Button(model.text("保存", "Save")) { model.renameSession(record.id, title: title) }.accessibilityIdentifier("session-title-save")
                 Button(model.text("取消", "Cancel"), role: .cancel) {}
             }
-            .confirmationDialog(record.displayTitle, isPresented: $confirm, titleVisibility: .visible) {
+            .confirmationDialog(model.sessionTitle(record), isPresented: $confirm, titleVisibility: .visible) {
                 if phase.active || record.mode == .shell { Button(model.text("关闭连接", "Close connection"), role: .destructive) { model.closeSession(record) } }
                 else {
                     Button(model.text("仅移除此卡片", "Remove this card"), role: .destructive) { model.forgetSession(record, terminateRemote: false) }
@@ -136,11 +158,11 @@ struct MetricsPanel: View {
                 gauge(model.text("磁盘", "Disk"), value: metrics.disks.first?.percent, detail: usage(metrics.disks.first?.usedBytes, metrics.disks.first?.totalBytes), history: nil, id: "host-gauge-disk")
             }
             Panel {
-                InfoRow(title: model.text("负载 · 1 / 5 / 15 分钟", "Load · 1 / 5 / 15 min"), value: metrics.load.isEmpty ? "—" : metrics.load.map { String(format: "%.2f", $0) }.joined(separator: "  ")).panelDivider()
+                InfoRow(title: model.text("负载", "Load"), value: metrics.load.isEmpty ? "—" : metrics.load.map { String(format: "%.2f", $0) }.joined(separator: "  "), subtitle: model.text("1 / 5 / 15 分钟", "1 / 5 / 15 min")).panelDivider()
                 InfoRow(title: model.text("网络", "Network"), value: series.netRate.map { "↓ \(bytes($0.rxBytesPerSecond))/s   ↑ \(bytes($0.txBytesPerSecond))/s" } ?? "—").panelDivider().accessibilityIdentifier("host-network-rate")
                 InfoRow(title: model.text("运行时间", "Uptime"), value: metrics.uptimeSeconds.map(uptime) ?? "—").panelDivider()
-                if let total = metrics.swapTotalBytes, total > 0 { InfoRow(title: model.text("交换分区", "Swap"), value: usage(metrics.swapUsedBytes, total)).panelDivider() }
-                if let tasks = metrics.tasks { InfoRow(title: model.text("任务 · 运行中 / 总数", "Tasks · running / total"), value: tasks).panelDivider() }
+                if let total = metrics.swapTotalBytes, total > 0 { InfoRow(title: model.text("交换分区", "Swap"), value: "\(bytes(Double(metrics.swapUsedBytes ?? 0))) / \(bytes(Double(total)))").panelDivider() }
+                if let tasks = metrics.tasks { InfoRow(title: model.text("任务", "Tasks"), value: tasks, subtitle: model.text("运行中 / 总数", "running / total")).panelDivider() }
                 if let users = metrics.users { InfoRow(title: model.text("登录会话", "Login sessions"), value: String(users)).panelDivider() }
                 ForEach(Array(metrics.disks.dropFirst().enumerated()), id: \.offset) { _, disk in
                     InfoRow(title: disk.mount, value: "\(usage(disk.usedBytes, disk.totalBytes) ?? "—") · \(percent(disk.percent))").panelDivider()

@@ -124,6 +124,11 @@ private final class PromptAnswer {
     func text(_ chinese: String, _ english: String) -> String { self.english ? english : chinese }
     var colorScheme: ColorScheme? { settings.theme == .system ? nil : settings.theme == .dark ? .dark : .light }
     func host(_ id: String) -> Host? { hosts.first { $0.id == id } }
+    /// Android `TerminalConnection.titleForDisplay`: "host · title", or "host · 会话 N" without a title.
+    func sessionDefaultTitle(_ record: SessionRecord) -> String { "\(host(record.hostID)?.name ?? "") · " + text("会话 \(record.number)", "Session \(record.number)") }
+    func sessionTitle(_ record: SessionRecord) -> String {
+        record.title.isEmpty ? sessionDefaultTitle(record) : "\(host(record.hostID)?.name ?? "") · \(record.title)"
+    }
     func phaseText(_ phase: ConnectionPhase) -> String {
         switch phase {
         case .connecting: return text("连接中", "Connecting")

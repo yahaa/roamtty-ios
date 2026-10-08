@@ -17,6 +17,8 @@ struct GhostShortcuts: View {
     @State private var app = ScreenApp.shell
     @State private var submenu: [TerminalShortcut]?
     @State private var heldCenter: CGPoint?
+    /// The ring (and each sub-ring) springs out from the pet, as Android's does.
+    @State private var openScale: CGFloat = 0
     private var shortcuts: [TerminalShortcut] { submenu ?? app.shortcuts }
     private var anchor: CGPoint { heldCenter ?? center }
     private var arc: TerminalShortcutArc {
@@ -32,28 +34,31 @@ struct GhostShortcuts: View {
                     if let first = arc.angles.first, let last = arc.angles.last {
                         path.addArc(center: anchor, radius: arc.radius, startAngle: .degrees(last), endAngle: .degrees(first), clockwise: false)
                     }
-                }.stroke(Palette.accent.opacity(0.12), lineWidth: 14).allowsHitTesting(false)
+                }.stroke(Palette.accent.opacity(0.12 * openScale), lineWidth: 14).allowsHitTesting(false)
                 ForEach(Array(shortcuts.enumerated()), id: \.offset) { index, item in
                     let offset = arc.itemOffset(at: index)
                     Button { pick(item, byTap: true) } label: {
                         VStack(spacing: 1) {
-                            Text(item.label).font(.system(size: 11, weight: .bold, design: .monospaced))
+                            Text(item.label).font(.system(size: 11, weight: .bold, design: .monospaced)).lineLimit(1)
+                                .foregroundStyle(hovered == index ? Palette.onAccent : Palette.accent)
                             let hint = item.hint(english: model.english)
-                            if !hint.isEmpty { Text(hint).font(.system(size: 9)).lineLimit(1) }
-                        }.foregroundStyle(hovered == index ? Palette.accent : Palette.foreground).frame(width: 40, height: 40)
-                            .background(hovered == index || armed(item.action) ? Palette.accentPanel : Palette.raised.opacity(0.85), in: Circle())
-                            .overlay { Circle().stroke(Palette.outline.opacity(0.4), lineWidth: 1) }
-                            .scaleEffect(hovered == index ? 1.2 : 1)
+                            if !hint.isEmpty { Text(hint).font(.system(size: 9)).lineLimit(1).foregroundStyle(hovered == index ? Palette.onAccent : Palette.secondary) }
+                        }.frame(width: 40, height: 40)
+                            .background(hovered == index ? Palette.accent.opacity(0.9) : armed(item.action) ? Palette.accentPanel.opacity(0.8) : Palette.surfaceVariant.opacity(0.7), in: Circle())
+                            .overlay { Circle().stroke(hovered == index ? Palette.accent : Palette.outline.opacity(0.4), lineWidth: 1) }
+                            .shadow(color: .black.opacity(hovered == index ? 0.3 : 0), radius: 4)
+                            .scaleEffect((hovered == index ? 1.2 : 1) * openScale)
+                            .animation(.spring(response: 0.25, dampingFraction: 0.5), value: hovered)
                             .contentShape(Rectangle())
-                    }.buttonStyle(.plain).position(x: anchor.x + offset.x, y: anchor.y + offset.y)
+                    }.buttonStyle(.plain).position(x: anchor.x + offset.x * openScale, y: anchor.y + offset.y * openScale)
                         .allowsHitTesting(toolbox.ringPinned).accessibilityLabel(item.description(english: model.english)).accessibilityIdentifier(item.tag)
                 }
                 if let hovered, shortcuts.indices.contains(hovered) {
                     let right = anchor.x - arc.radius - 28, width = max(0, min(132, right - 8))
                     if width > 20 {
-                        Text(shortcuts[hovered].description(english: model.english)).font(.system(size: 11)).lineLimit(5)
-                            .padding(6).frame(width: width).background(Palette.raised.opacity(0.9), in: RoundedRectangle(cornerRadius: 8))
-                            .position(x: right - width / 2, y: anchor.y).allowsHitTesting(false)
+                        Text(shortcuts[hovered].description(english: model.english)).font(.system(size: 11)).lineLimit(5).foregroundStyle(Palette.inverseForeground)
+                            .padding(.horizontal, 8).padding(.vertical, 5).background(Palette.inverseSurface.opacity(0.75), in: RoundedRectangle(cornerRadius: 12))
+                            .frame(width: width, alignment: .trailing).position(x: right - width / 2, y: anchor.y).allowsHitTesting(false)
                     }
                 }
             }
@@ -64,11 +69,16 @@ struct GhostShortcuts: View {
                          onHoldStart: beginHold, onHoldMove: moveHold, onHoldEnd: endHold)
                 .frame(width: 48, height: 48).position(anchor)
         }.frame(width: viewport.width, height: viewport.height)
-            .onChange(of: toolbox.ringOpen) { open in if !open { submenu = nil; hovered = nil; heldCenter = nil } }
+            .onChange(of: toolbox.ringOpen) { open in if !open { submenu = nil; hovered = nil; heldCenter = nil; openScale = 0 } else { unfold() } }
+            .onChange(of: submenu?.count) { _ in if toolbox.ringOpen { unfold() } }
             .task(id: hovered) {
                 guard let index = hovered, shortcuts.indices.contains(index), case .menu(let items) = shortcuts[index].action else { return }
                 do { try await Task.sleep(nanoseconds: 350_000_000); submenu = items; hovered = nil; UIImpactFeedbackGenerator(style: .light).impactOccurred() } catch { }
             }
+    }
+    private func unfold() {
+        openScale = 0
+        if reduceMotion { openScale = 1 } else { withAnimation(.spring(response: 0.3, dampingFraction: 0.62)) { openScale = 1 } }
     }
     private func beginHold() {
         guard !toolbox.ringOpen else { return }

@@ -31,7 +31,7 @@ final class NavigationUITests: RoamttyLiveUITestCase {
         replace(app.textFields["host-name"], with: edited)
         replace(app.textFields["host-username"], with: "changed_" + suffix.lowercased())
         let mode = app.segmentedControls["host-session-mode"]
-        let ssh = mode.buttons["SSH"]
+        let ssh = mode.buttons["普通 SSH"]
         reveal(ssh, in: app.scrollViews["host-editor-scroll"])
         ssh.tap()
         XCTAssertTrue(ssh.isSelected)

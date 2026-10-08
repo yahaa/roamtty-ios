@@ -100,10 +100,10 @@ final class RoamttyUITests: RoamttyLiveUITestCase {
         launch.tap()
         let surface = app.descendants(matching: .any)["terminal-surface"].firstMatch
         XCTAssertTrue(surface.waitForExistence(timeout: 20))
-        let connected = app.staticTexts["已连接"]
+        let connected = phase("已连接")
         XCTAssertTrue(connected.waitForExistence(timeout: 20))
-        XCTAssertTrue(app.staticTexts["tmux"].exists)
-        XCTAssertEqual(app.staticTexts["mosh"].exists, preferMosh)
+        XCTAssertTrue(terminalTransport.hasPrefix("tmux"))
+        XCTAssertEqual(terminalTransport.hasSuffix("mosh"), preferMosh)
         let ghost = app.buttons["terminal-ghost"]
         if !preferMosh {
             expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: ghost)
@@ -119,19 +119,12 @@ final class RoamttyUITests: RoamttyLiveUITestCase {
             expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: functions)
             waitForExpectations(timeout: 6)
         }
-        surface.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.2)).tap()
-        XCTAssertTrue(ghost.waitForExistence(timeout: 3)); ghost.tap()
-        let commands = app.buttons["terminal-commands"]
-        XCTAssertTrue(commands.waitForExistence(timeout: 3)); commands.tap()
-        let draft = app.textViews["command-draft"]
-        XCTAssertTrue(draft.waitForExistence(timeout: 5)); draft.tap()
         shareDestination = "/tmp/roamtty-ios-ui-upload-" + UUID().uuidString
-        draft.typeText("test \"$PWD\" = /tmp && { printf 'ROAMTTY_UI_'; printf 'VERIFIED\\n'; }; mkdir -m 700 " + shareDestination + "; printf 'ROAMTTY_SFTP_PREVIEW\\n' > \"$HOME/roamtty-ui-preview.txt\"")
-        app.buttons["command-run"].tap()
+        try runCommand("test \"$PWD\" = /tmp && { printf 'ROAMTTY_UI_'; printf 'VERIFIED\\n'; }; mkdir -m 700 " + shareDestination + "; printf 'ROAMTTY_SFTP_PREVIEW\\n' > \"$HOME/roamtty-ui-preview.txt\"")
         expectation(for: NSPredicate(format: "value CONTAINS %@", "ROAMTTY_UI_VERIFIED"), evaluatedWith: surface)
         waitForExpectations(timeout: 20)
         let terminalScreenshot = XCTAttachment(screenshot: app.screenshot()); terminalScreenshot.name = "Live terminal output"; terminalScreenshot.lifetime = .keepAlways; add(terminalScreenshot)
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        leaveTerminal()
         XCTAssertTrue(app.buttons["host-detail-files"].waitForExistence(timeout: 5)); app.buttons["host-detail-files"].tap()
         let previewFile = app.buttons.containing(.staticText, identifier: "roamtty-ui-preview.txt").firstMatch
         XCTAssertTrue(previewFile.waitForExistence(timeout: 20)); previewFile.tap()
