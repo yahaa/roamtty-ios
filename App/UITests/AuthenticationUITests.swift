@@ -80,7 +80,7 @@ final class AuthenticationUITests: RoamttyLiveUITestCase {
         challenge.tap(); challenge.typeText(fixture.password)
         app.buttons["auth-confirm"].tap()
         assertLiveMetrics()
-        XCTAssertTrue(app.staticTexts["键盘交互"].exists || app.staticTexts["Keyboard-interactive"].exists)
+        XCTAssertTrue(app.staticTexts["交互式认证"].exists || app.staticTexts["Interactive"].exists)
         capture("Keyboard-interactive authentication and live metrics")
     }
 
@@ -162,7 +162,7 @@ final class AuthenticationUITests: RoamttyLiveUITestCase {
         reveal(picker)
         let chinese: String
         switch method {
-        case "Interactive": chinese = "交互"
+        case "Interactive": chinese = "交互式认证"
         case "Password": chinese = "密码"
         default: chinese = "私钥"
         }

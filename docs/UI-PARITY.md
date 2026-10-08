@@ -5,12 +5,24 @@ The UI reference is the current reachable Android UI in `../roamtty`, especially
 ## Navigation and design
 
 - Home contains hosts. Session cards belong to their host detail page; there is no separate home sessions tab.
-- Opening a session builds the route `host → terminal`. Back from terminal returns to that host, without closing the session.
+- Opening a session builds the route `host → terminal`. The terminal has no navigation bar; the session menu in the dock returns to the host list or host detail without closing the session.
 - Terminal-initiated file browsing carries the initiating session ID and working directory. Inserting a path or an uploaded file targets that session only.
-- The drawer contains Hosts, Settings, Guide, and About. Forms, launchers, plugins, previews, and transfers use native sheets.
+- The drawer matches Android: brand header with close, Hosts with its count, the open sessions, then Settings and Help (About is kept last for the third-party notices). Forms, launchers, plugins, previews, and transfers use native sheets.
 - The palette follows Android's warm charcoal/cream/peach tokens. Grouped panels use 16-point corners; row/control corners are 10–12; notices and sheets use 20–28. The layout uses a 4-point grid with 16-point page gutters.
 - Chinese and English switch immediately. Dark, light, and system appearance apply to sheets, terminal, and file previews.
 - App icon, home logo, and ghost artwork are rendered from Android's `scripts/render-launcher-icon.py` vector geometry. Fonts are copied from Android's bundled font assets. SwiftTerm uses the actual PostScript font names, with Symbols Nerd Font and Noto Symbols fallback descriptors.
+
+## Terminal (mirrors `TerminalPane.kt`)
+
+- Edge to edge: the terminal colour runs under the status bar and home indicator; text sits inside 10 / 6 / 6-point insets. No header, status strip or toolbar buttons.
+- Collapsed state: the toolbox ghost on the upper golden section, fading after 5 s idle; holding it opens the shortcut ring (accent labels, spring unfold, caption beside the ring, Fn sub-ring).
+- Dock (tap the ghost): close, session switcher (dot = connection state; menu: 返回主机列表 / 返回主机详情 / 修改会话标题 / 新会话 for tmux, then every open session with its phase), upload, download, insert image, 常用命令, terminal settings (编辑文本 / 固定·取消固定操作栏 / 隐藏操作栏 / 粘贴 / 增大·减小字号 / 关闭连接). Pinning reserves a 48-point column (96 in roomy landscape).
+- 编辑文本 opens Android's bottom prompt editor: ← → ⌫ (hold to clear), 收起, ↵, 发送文本. 粘贴 stages the clipboard there instead of typing it.
+- Connection states float over the preserved grid on the golden section: the animated-logo progress card with cancel, or the notice card (手动重连 / 改用普通 SSH / 重新核验…). Input warnings use the 提示 / 知道了 card.
+- 常用命令 is the shell-history sheet: title, 点按即执行, refresh, close, search, `❯` rows in the terminal font; a tap closes the sheet and runs the command.
+- Cursor-row keys (Esc / Enter / slash-menu arrows), tap-on-cursor-line keyboard, double tap Tab, triple tap paste, swipes and swipe-hold, pinch font size (persisted) are unchanged. iOS-only: a reading tap away from the cursor line hides the keyboard, since iPhone keyboards have no dismiss key and there is no Back button.
+- Icons are Android's vector drawables, converted by `scripts/import-android-icons.py` into `Assets.xcassets/Icons`. File icons use the generated port of `FileIconTheme.kt` (`Files/FileIcons.swift`).
+- UI tests read the phase from an invisible `terminal-phase` element (value: mode and transport). The launch sheet's tmux/SSH, mosh and typed-path controls exist only in Debug UI-test runs; Android has none.
 
 ## Feature map
 

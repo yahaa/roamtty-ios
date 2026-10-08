@@ -8,7 +8,7 @@ final class NativeFileWorkflowUITests: RoamttyLiveUITestCase {
         let base = fixturePath("folder-upload")
         try command("mkdir -m 700 " + quote(base), marker: "FOLDER_READY")
         openRemoteFolder(base)
-        app.buttons["files-upload"].tap()
+        filesMenu("files-upload")
         button("上传文件夹", "Upload folder").tap()
         selectDocument("roamtty-ui-folder", folder: true)
         let name = app.textFields["files-upload-name-0"]
@@ -33,7 +33,7 @@ final class NativeFileWorkflowUITests: RoamttyLiveUITestCase {
             XCTAssertEqual(app.textFields["launch-directory"].value as? String, base)
             app.buttons["launch-cancel"].tap()
             XCTAssertTrue(app.descendants(matching: .any)["terminal-surface"].firstMatch.waitForExistence(timeout: 8))
-            XCTAssertTrue(app.staticTexts["已连接"].exists)
+            XCTAssertTrue(phase("已连接").exists)
             XCTAssertFalse(app.buttons["files-picker-done"].exists)
         }
         try removeFixture(base)
@@ -64,7 +64,7 @@ final class NativeFileWorkflowUITests: RoamttyLiveUITestCase {
 
         // Verify publication through the actual Files picker, not a mocked job.
         openRemoteFolder(base)
-        app.buttons["files-upload"].tap(); button("上传文件", "Upload files").tap()
+        filesMenu("files-upload"); button("上传文件", "Upload files").tap()
         navigateToDocuments()
         let downloads = documentCell("Downloads")
         XCTAssertTrue(downloads.waitForExistence(timeout: 8)); downloads.tap()
@@ -139,7 +139,7 @@ final class NativeFileWorkflowUITests: RoamttyLiveUITestCase {
         app.buttons["files-action-download"].tap()
         completed("transfer-status-download-" + filename)
         app.buttons["transfer-done"].tap()
-        XCTAssertTrue(app.buttons["files-upload"].waitForExistence(timeout: 8)); app.buttons["files-upload"].tap()
+        filesMenu("files-upload")
         button("上传文件", "Upload files").tap()
         navigateToDocuments()
         let chosenFolder = documentCell("roamtty-ui-downloads")
@@ -208,7 +208,7 @@ final class NativeFileWorkflowUITests: RoamttyLiveUITestCase {
     }
     private func openRemoteFolder(_ path: String) {
         openTools(); app.buttons["download-file"].tap()
-        XCTAssertTrue(app.buttons["files-select"].waitForExistence(timeout: 10)); app.buttons["files-select"].tap()
+        filesMenu("files-select")
         let search = app.searchFields.firstMatch
         XCTAssertTrue(search.waitForExistence(timeout: 5)); replace(search, with: path); search.typeText("\n")
         let folder = app.buttons["files-entry-" + path]

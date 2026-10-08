@@ -11,10 +11,10 @@ struct HostsScreen: View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
                 HStack(spacing: 12) {
-                    Image(systemName: "server.rack").font(.system(size: 28, weight: .medium))
+                    AppIcon("ic_hosts", size: 30)
                     Text(model.text("主机", "Hosts")).font(.system(size: 30, weight: .semibold)).accessibilityAddTraits(.isHeader).accessibilityIdentifier("hosts-title")
                     Spacer()
-                    Button { model.sheet = .editor(nil) } label: { Image(systemName: "plus").font(.system(size: 25, weight: .regular)).frame(width: 48, height: 48) }.accessibilityLabel(model.text("添加主机", "Add host")).accessibilityIdentifier("add-host")
+                    Button { model.sheet = .editor(nil) } label: { AppIcon("ic_add", size: 26).frame(width: 48, height: 48) }.accessibilityLabel(model.text("添加主机", "Add host")).accessibilityIdentifier("add-host")
                 }.foregroundStyle(Palette.foreground).padding(.leading, 16).padding(.trailing, 8).padding(.bottom, 12)
                 if searching {
                     HStack(spacing: 10) {
@@ -36,10 +36,6 @@ struct HostsScreen: View {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 12)], spacing: 12) {
                             ForEach(filtered) { host in
                                 NavigationLink(value: AppRoute.host(host.id)) { HostCard(host: host) }.buttonStyle(.plain).accessibilityIdentifier("host-\(host.name)")
-                                    .contextMenu {
-                                        Button(model.text("编辑主机", "Edit host"), systemImage: "pencil") { model.sheet = .editor(host) }
-                                        Button(model.text("主机详情", "Host details"), systemImage: "server.rack") { model.path.append(.host(host.id)) }
-                                    }
                             }
                         }.padding(16)
                     }
@@ -51,34 +47,51 @@ struct HostsScreen: View {
                 while !Task.isCancelled { await model.probeHosts(model.hosts); do { try await Task.sleep(nanoseconds: 30_000_000_000) } catch { break } }
             }
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) { Button { withAnimation(.easeOut(duration: 0.2)) { model.drawer = true } } label: { Image(systemName: "line.3.horizontal").foregroundStyle(Palette.foreground) }.accessibilityLabel(model.text("打开菜单", "Open menu")).accessibilityIdentifier("open-drawer") }
-                ToolbarItem(placement: .navigationBarTrailing) { Button { withAnimation { searching.toggle() }; searchFocused = searching; if !searching { search = "" } } label: { Image(systemName: "magnifyingglass").foregroundStyle(Palette.foreground) }.accessibilityLabel(model.text("搜索主机", "Search hosts")).accessibilityIdentifier("search-hosts") }
+                ToolbarItem(placement: .navigationBarLeading) { Button { withAnimation(.easeOut(duration: 0.2)) { model.drawer = true } } label: { AppIcon("ic_sidebar", size: 24).foregroundStyle(Palette.foreground) }.accessibilityLabel(model.text("打开菜单", "Open menu")).accessibilityIdentifier("open-drawer") }
+                ToolbarItem(placement: .navigationBarTrailing) { Button { withAnimation { searching.toggle() }; searchFocused = searching; if !searching { search = "" } } label: { AppIcon("ic_search", size: 24).foregroundStyle(Palette.foreground) }.accessibilityLabel(model.text("搜索主机", "Search hosts")).accessibilityIdentifier("search-hosts") }
             }
     }
 }
+/// Android `HostCard`: system tile, name and endpoint, a ··· menu, then reachability and the host's tags.
 struct HostCard: View {
     @EnvironmentObject var model: AppModel
     let host: Host
+    @State private var deleteConfirm = false
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 0) {
                 HostSystemMark(system: host.system).frame(width: 44, height: 44)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(host.name).font(.headline).lineLimit(1)
-                    Text("\(host.username)@\(host.address)").font(.subheadline).foregroundStyle(Palette.secondary).lineLimit(1)
-                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(host.name).font(.system(size: 16, weight: .semibold)).lineLimit(1)
+                    Text("\(host.username)@\(host.address):" + String(host.port)).font(.system(size: 13)).foregroundStyle(Palette.secondary).lineLimit(1)
+                }.padding(.leading, 12)
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Palette.secondary)
+                Menu {
+                    Button { model.sheet = .launch(host, false) } label: { Label { Text(model.text("打开终端", "Open terminal")) } icon: { Image("ic_sessions") } }
+                    Button { model.sheet = .launch(host, true) } label: { Label { Text(model.text("AI 助手", "AI assistant")) } icon: { Image("ic_agent") } }
+                    Divider()
+                    Button { model.sheet = .editor(host) } label: { Label { Text(model.text("编辑主机", "Edit host")) } icon: { Image("ic_edit") } }
+                    Button { model.path = [.host(host.id), .files(host.id)] } label: { Label { Text(model.text("查看文件", "Browse files")) } icon: { Image("ic_folder") } }
+                    Button { model.sheet = .plugins(host) } label: { Label { Text(model.text("安装插件", "Install plugins")) } icon: { Image("ic_plugin") } }
+                    Divider()
+                    Button(role: .destructive) { deleteConfirm = true } label: { Label { Text(model.text("删除主机", "Delete host")) } icon: { Image("ic_delete") } }
+                } label: { AppIcon("ic_more").foregroundStyle(Palette.secondary).frame(width: 48, height: 48).contentShape(Rectangle()) }
+                    .accessibilityLabel(model.text("主机选项：", "Host options: ") + host.name).accessibilityIdentifier("host-menu-\(host.id)")
             }
-            HStack(spacing: 8) {
-                Badge(text: host.mode == .tmux ? "tmux" : "SSH")
-                Badge(text: host.auth == .key ? model.text("私钥", "Key") : host.auth == .interactive ? model.text("交互认证", "Interactive") : model.text("密码", "Password"))
-                Spacer()
-                let sessions = model.records.filter { $0.hostID == host.id }
-                Text(model.text("\(sessions.count) 个会话", "\(sessions.count) sessions")).font(.caption).foregroundStyle(Palette.secondary)
+            HStack(spacing: 6) {
+                ReachabilityLabel(state: model.reachability[host.id] ?? .checking).padding(.trailing, 2)
+                // Once probed, the card lists only the plugins the host actually has.
+                if let plugins = host.plugins { ForEach(["tmux", "mosh"].filter(plugins.contains), id: \.self) { Badge(text: $0) } }
+                else { Badge(text: host.mode == .tmux ? "tmux" : model.text("普通 SSH", "Plain SSH")) }
+                Badge(text: host.auth == .key ? model.text("私钥", "Key") : host.auth == .interactive ? model.text("交互式认证", "Interactive") : model.text("密码", "Password"))
+                if host.system.uppercased() == "UNKNOWN" { Badge(text: model.text("待检测系统", "System pending")) }
+            }.padding(.top, 12)
+        }.padding(.leading, 16).padding(.top, 14).padding(.trailing, 4).padding(.bottom, 16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Palette.panel, in: RoundedRectangle(cornerRadius: 16)).foregroundStyle(Palette.foreground)
+            .confirmationDialog(model.text("删除 \(host.name)？", "Delete \(host.name)?"), isPresented: $deleteConfirm, titleVisibility: .visible) {
+                Button(model.text("删除主机", "Delete host"), role: .destructive) { model.deleteHost(host) }
             }
-            ReachabilityLabel(state: model.reachability[host.id] ?? .checking)
-        }.padding(16).background(Palette.panel, in: RoundedRectangle(cornerRadius: 16)).foregroundStyle(Palette.foreground)
     }
 }
 struct HostSystemMark: View {
@@ -115,7 +128,7 @@ struct HostSystemMark: View {
                     Image("ic_os_" + info.asset).resizable().scaledToFit().frame(width: side * info.scale, height: side * info.scale)
                 } else {
                     Palette.accentPanel
-                    Image(systemName: "server.rack").font(.system(size: side * 0.5)).foregroundStyle(Palette.accent)
+                    AppIcon("ic_os_server", size: side * 0.5).foregroundStyle(Palette.adaptive(0x682F20, 0xF9D9C9))
                 }
             }.clipShape(RoundedRectangle(cornerRadius: side * 0.28)).accessibilityLabel(system)
         }

@@ -18,6 +18,22 @@ enum Palette {
     static let success = adaptive(0x2E7D4F, 0x7FD19B)
     static let warning = adaptive(0x9A6200, 0xF2C46D)
     static let danger = adaptive(0xB32631, 0xFFB4A8)
+    // Material roles used by Android's terminal chrome (ItermuxTheme.kt).
+    static let surface = adaptive(0xFFFDF9, 0x303230)
+    static let surfaceVariant = adaptive(0xF1EEE8, 0x353632)
+    static let sheet = adaptive(0xF6F3EE, 0x303230)
+    static let containerHighest = adaptive(0xE5E0D8, 0x484944)
+    static let onAccent = adaptive(0xFFFFFF, 0x442315)
+    static let inverseSurface = adaptive(0x31302D, 0xE6E2DC)
+    static let inverseForeground = adaptive(0xF4F0EA, 0x31302D)
+}
+
+/// Android's vector drawables, imported verbatim by scripts/import-android-icons.py.
+struct AppIcon: View {
+    let name: String
+    var size: CGFloat = 22
+    init(_ name: String, size: CGFloat = 22) { self.name = name; self.size = size }
+    var body: some View { Image(name).renderingMode(.template).resizable().scaledToFit().frame(width: size, height: size) }
 }
 extension UIColor {
     convenience init(hex: UInt32) {
@@ -41,10 +57,12 @@ struct InfoRow: View {
     let title: String
     var value: String? = nil
     var icon: String? = nil
+    var subtitle: String? = nil
     var body: some View {
         HStack(spacing: 12) {
             if let icon { Image(systemName: icon).foregroundStyle(Palette.accent).frame(width: 24) }
-            Text(title)
+            if let subtitle { VStack(alignment: .leading, spacing: 2) { Text(title); Text(subtitle).font(.footnote).foregroundStyle(Palette.secondary) } }
+            else { Text(title) }
             Spacer(minLength: 12)
             if let value { Text(value).foregroundStyle(Palette.secondary).multilineTextAlignment(.trailing).textSelection(.enabled) }
         }.font(.subheadline).padding(16).frame(minHeight: 52)
@@ -76,10 +94,12 @@ struct PhaseLabel: View {
 }
 struct RoamButtonStyle: ButtonStyle {
     var primary = false
+    /// Android's filled primary action: accent container, dark label.
+    var filled = false
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.subheadline.weight(.medium)).frame(maxWidth: .infinity).frame(minHeight: 44)
-            .foregroundStyle(primary ? Palette.accent : Palette.foreground)
-            .background(primary ? Palette.accentPanel : Palette.raised, in: RoundedRectangle(cornerRadius: 12))
+            .foregroundStyle(filled ? Palette.onAccent : primary ? Palette.accent : Palette.foreground)
+            .background(filled ? Palette.accent : primary ? Palette.accentPanel : Palette.raised, in: RoundedRectangle(cornerRadius: 12))
             .opacity(configuration.isPressed ? 0.65 : 1)
     }
 }

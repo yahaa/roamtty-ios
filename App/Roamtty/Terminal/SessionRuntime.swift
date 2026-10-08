@@ -18,6 +18,10 @@ import RoamttyTransport
     @Published var outputRevision = 0
     @Published private(set) var workspaceTouches = 0
     @Published var pendingPaste: String?
+    /// Shell history commands run from the commands sheet in this session, newest first (memory only).
+    var recentCommands: [String] = []
+    /// Pinch-to-zoom reports the settled font size so it persists like Android's.
+    var onFontScaled: ((Double) -> Void)?
     @Published private(set) var cursorRowBounds: CGRect?
     @Published private(set) var cursorRowKey: CursorRowKey = .escape
     let terminalView: TerminalView
@@ -412,6 +416,8 @@ import RoamttyTransport
         guard let row = cursorRowBounds else { return }
         let y = recognizer.location(in: terminalView).y - terminalView.contentOffset.y
         if TerminalCursorControls.tapHitsCursor(y: y, rowTop: row.minY, rowHeight: row.height, viewportHeight: terminalView.bounds.height) { terminalView.becomeFirstResponder() }
+        // iPhone keyboards have no dismiss key and there is no Back button: a reading tap elsewhere puts it away.
+        else if terminalView.isFirstResponder { terminalView.resignFirstResponder() }
     }
     @objc private func completionTap(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended, phase == .connected else { return }
@@ -486,6 +492,7 @@ import RoamttyTransport
     }
     @objc private func pinchFont(_ recognizer: UIPinchGestureRecognizer) {
         if recognizer.state == .began { inputGestureHadPinch = true; scrollGeneration = nil; swipeGeneration = nil; swipeHold?.cancel(); swipeHold = nil }
+        if recognizer.state == .ended { onFontScaled?(Double(terminalView.font.pointSize.rounded())); return }
         guard recognizer.state == .changed else { return }
         let size = min(28, max(8, terminalView.font.pointSize * recognizer.scale))
         terminalView.font = terminalView.font.withSize(size); recognizer.scale = 1

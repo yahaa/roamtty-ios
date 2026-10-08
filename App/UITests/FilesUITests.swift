@@ -8,7 +8,7 @@ final class FilesUITests: RoamttyLiveUITestCase {
         // A saved host edit must not retarget file actions from its already-connected
         // terminal. Port 1 cannot serve the fixture; all following uploads and remote
         // PNG checks must keep using the initiating session's original SSH connection.
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        leaveTerminal()
         let existingSession = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'session-'")).firstMatch
         XCTAssertTrue(existingSession.waitForExistence(timeout: 8))
         let sessionIdentifier = existingSession.identifier
@@ -22,14 +22,10 @@ final class FilesUITests: RoamttyLiveUITestCase {
         XCTAssertTrue(retainedSession.label.contains("已连接") || retainedSession.label.contains("Connected"), "Editing the saved endpoint must retain the original connected session")
         retainedSession.tap()
         XCTAssertTrue(surface.waitForExistence(timeout: 8))
-        XCTAssertTrue(app.staticTexts["已连接"].waitForExistence(timeout: 8))
+        XCTAssertTrue(phase("已连接").waitForExistence(timeout: 8))
         let submitted = "PHOTO_SENT_" + shortID()
-        openTools(); app.buttons["terminal-commands"].tap()
-        let draft = app.textViews["command-draft"]
-        XCTAssertTrue(draft.waitForExistence(timeout: 8))
-        replace(draft, with: emit(submitted) + "; :")
-        let insert = app.buttons.matching(NSPredicate(format: "label == '插入' OR label == 'Insert'")).firstMatch
-        XCTAssertTrue(insert.exists); insert.tap()
+        typeIntoTerminal(emit(submitted) + "; :")
+        app.buttons.matching(NSPredicate(format: "label == '收起' OR label == 'Hide'")).firstMatch.tap()
         XCTAssertTrue(surface.waitForExistence(timeout: 8))
 
         openTools(); app.buttons["select-image"].tap()
@@ -83,13 +79,11 @@ final class FilesUITests: RoamttyLiveUITestCase {
 
         // The retained tmux card must reconnect to the same original host, even
         // though the edited saved profile still has its deliberately invalid port.
-        app.buttons["terminal-close"].tap()
-        let close = app.buttons.matching(identifier: "terminal-close-confirm").firstMatch
-        XCTAssertTrue(close.waitForExistence(timeout: 5)); close.tap()
+        closeTerminal()
         XCTAssertTrue(retainedSession.waitForExistence(timeout: 8)); retainedSession.tap()
         let reconnect = app.buttons["terminal-reconnect"]
         XCTAssertTrue(reconnect.waitForExistence(timeout: 8)); reconnect.tap()
-        XCTAssertTrue(app.staticTexts["已连接"].waitForExistence(timeout: 20))
+        XCTAssertTrue(phase("已连接").waitForExistence(timeout: 20))
         let resumed = "ORIGINAL_SESSION_" + shortID()
         let replacementSurface = try runCommand(emit(resumed))
         waitForOutput(resumed, surface: replacementSurface)
@@ -154,7 +148,7 @@ final class FilesUITests: RoamttyLiveUITestCase {
         searchRemote(base + "/nst-/rst")
         let first = entry(base + "/nested-one/result.txt"), second = entry(base + "/nested-two/result.txt")
         XCTAssertTrue(first.waitForExistence(timeout: 15)); XCTAssertTrue(second.exists)
-        app.buttons["files-select"].tap(); first.tap(); second.tap()
+        filesMenu("files-select"); first.tap(); second.tap()
         for selected in [first, second] { XCTAssertTrue(["Selected", "已选择"].contains(selected.value as? String ?? "")) }
         capture("Fuzzy paths with selections from two folders")
         let batch = app.buttons["files-download-selected"]
@@ -310,14 +304,13 @@ final class FilesUITests: RoamttyLiveUITestCase {
 
     private func openRemoteFolder(_ path: String) {
         openTools(); app.buttons["download-file"].tap()
-        XCTAssertTrue(app.buttons["files-select"].waitForExistence(timeout: 10))
         // Direct download starts with selection enabled; management and preview need normal row actions.
-        app.buttons["files-select"].tap()
+        filesMenu("files-select")
         searchRemote(path)
         let folder = entry(path)
         XCTAssertTrue(folder.waitForExistence(timeout: 15)); folder.tap()
         XCTAssertTrue(app.buttons["files-breadcrumb-" + path].waitForExistence(timeout: 15), "Wait for the requested directory listing before performing mutations")
-        XCTAssertTrue(app.buttons["files-select"].waitForExistence(timeout: 8), "Opening a search result folder must restore the browser toolbar")
+        XCTAssertTrue(menu("files-options").waitForExistence(timeout: 8), "Opening a search result folder must restore the browser toolbar")
         XCTAssertTrue(app.buttons["files-picker-done"].exists, "Opening a folder must leave the picker dismissible")
     }
     private func closeRemoteBrowser() {
@@ -342,8 +335,11 @@ final class FilesUITests: RoamttyLiveUITestCase {
     }
     private func showTerminalKeyboard() {
         if app.keyboards.count == 0 {
-            let keyboard = app.buttons.matching(NSPredicate(format: "label == '切换键盘' OR label == 'Toggle keyboard'")).firstMatch
-            XCTAssertTrue(keyboard.exists); keyboard.tap()
+            // As on Android, a tap on the cursor's line opens the keyboard.
+            let surface = app.descendants(matching: .any)["terminal-surface"].firstMatch
+            let cursor = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'cursor-'")).firstMatch
+            XCTAssertTrue(cursor.waitForExistence(timeout: 6))
+            surface.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: surface.frame.width * 0.3, dy: cursor.frame.midY - surface.frame.minY)).tap()
         }
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
     }

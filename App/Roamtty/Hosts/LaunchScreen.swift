@@ -26,68 +26,63 @@ struct LaunchScreen: View {
     @State private var loadTask: Task<Void, Never>?
     @State private var loadCancellation: TransferCancellation?
     private var launchReady: Bool { !busy && error == nil && StartDirectory.isSupported(pathDraft) && StartDirectory.normalize(pathDraft) == directory }
-    private var permissionHint: String {
-        switch agentMode {
-        case .yolo: return model.text("跳过所有确认，直接执行", "Skip all confirmations and execute directly")
-        case .standard: return model.text("改文件或运行命令前先问你", "Ask before editing files or running commands")
-        case .readOnly:
-            switch agent {
-            case .claude: return model.text("先分析并制定计划，批准后开始修改", "Analyze and plan first; make changes after approval")
-            case .codex: return model.text("以只读沙箱启动，可在助手中调整权限", "Start in a read-only sandbox; permissions can be adjusted in the agent")
-            case .grok: return model.text("只读沙箱；状态与临时目录仍可写", "Read-only sandbox; state and temporary directories remain writable")
-            }
-        }
+    private var segments: [(name: String, path: String)] { StartDirectory.segments(directory) }
+    private var parent: String? {
+        if segments.count >= 2 { return segments[segments.count - 2].path }
+        if directory == "~", let homeDirectory, homeDirectory != "/" { return parentRemotePath(homeDirectory) }
+        return nil
+    }
+    private var folders: [RemoteEntry] { entries.filter { $0.isDirectory && (filter.isEmpty || $0.name.localizedCaseInsensitiveContains(filter.trimmingCharacters(in: .whitespaces))) } }
+    private var folderName: String { StartDirectory.isHome(directory) ? model.text("主目录", "home") : (directory.split(separator: "/").last.map(String.init) ?? "/") }
+    private var launchTitle: String {
+        let home = StartDirectory.isHome(directory)
+        if forAgent { return home ? model.text("在主目录启动 \(agent.shortLabel)", "Start \(agent.shortLabel) in home") : model.text("在 \(folderName) 启动 \(agent.shortLabel)", "Start \(agent.shortLabel) in \(folderName)") }
+        return home ? model.text("在主目录打开终端", "Open terminal in home") : model.text("在 \(folderName) 打开终端", "Open terminal in \(folderName)")
     }
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 16) {
-                if forAgent {
-                    Panel(title: model.text("AI 助手", "AI agent")) {
-                        Picker("Agent", selection: $agent) { Text("Claude Code").tag(CodingAgent.claude); Text("Codex").tag(CodingAgent.codex); Text("Grok").tag(CodingAgent.grok) }.pickerStyle(.segmented).padding(12).accessibilityIdentifier("launch-agent")
-                        Picker(model.text("权限模式", "Permission mode"), selection: $agentMode) {
-                            Text(agent == .claude ? model.text("计划", "Plan") : model.text("只读", "Read only")).tag(AgentMode.readOnly)
-                            Text(model.text("标准", "Standard")).tag(AgentMode.standard)
-                            Text("YOLO").tag(AgentMode.yolo)
-                        }.pickerStyle(.segmented).padding([.horizontal, .bottom], 12).accessibilityIdentifier("launch-agent-mode")
-                        if agentMode == .yolo { Label(permissionHint, systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(Palette.warning).padding([.horizontal, .bottom], 16).accessibilityIdentifier("launch-yolo-warning") }
-                        else { Text(permissionHint).font(.footnote).foregroundStyle(Palette.secondary).frame(maxWidth: .infinity, alignment: .leading).padding([.horizontal, .bottom], 16).accessibilityIdentifier("launch-permission-hint") }
-                        Text(AgentLaunch(agent: agent, directory: directory, mode: agentMode).agentCommand).font(.system(.caption, design: .monospaced)).foregroundStyle(Palette.secondary).frame(maxWidth: .infinity, alignment: .leading).padding([.horizontal, .bottom], 16).accessibilityIdentifier("launch-command-preview")
-                    }
-                } else {
-                    Picker(model.text("会话模式", "Session mode"), selection: Binding(get: { sessionMode }, set: { sessionMode = $0; sessionModeExplicit = true })) { Text("tmux").tag(SessionMode.tmux); Text("SSH").tag(SessionMode.shell) }.pickerStyle(.segmented).accessibilityIdentifier("launch-mode")
-                }
-                HStack {
-                    Button { navigate(parentRemotePath(directory == "~" ? homeDirectory ?? "/" : directory)) } label: { Image(systemName: "arrow.up").frame(width: 36, height: 36) }.disabled(directory == "/")
-                    TextField(model.text("工作目录", "Working directory"), text: $pathDraft).font(.system(.subheadline, design: .monospaced)).textInputAutocapitalization(.never).autocorrectionDisabled().onSubmit { navigate(pathDraft) }.accessibilityIdentifier("launch-directory")
-                    Button { navigate(pathDraft) } label: { Image(systemName: "arrow.right.circle") }.accessibilityLabel(model.text("打开目录", "Open folder")).accessibilityIdentifier("launch-open-directory")
-                }.padding(8).background(Palette.panel, in: RoundedRectangle(cornerRadius: 12))
-                if !recent.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(recent, id: \.self) { path in Button(URL(fileURLWithPath: path).lastPathComponent) { navigate(path) }.buttonStyle(.bordered).contextMenu { Button(model.text("移除", "Remove"), role: .destructive) { recent.removeAll { $0 == path }; persistRecent() } } } } }
-                }
-                HStack { Image(systemName: "magnifyingglass"); TextField(model.text("筛选文件夹", "Filter folders"), text: $filter).textInputAutocapitalization(.never).autocorrectionDisabled() }.font(.subheadline).foregroundStyle(Palette.secondary)
-                if busy { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
-                else if let error { VStack(spacing: 16) { Text(error).foregroundStyle(Palette.danger).accessibilityIdentifier("launch-error"); Button(model.text("重试", "Retry")) { navigate(pathDraft) }; Button(model.text("回到主目录", "Home folder")) { navigate("~") } }.frame(maxWidth: .infinity, maxHeight: .infinity) }
-                else {
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(entries.filter { $0.isDirectory && (filter.isEmpty || $0.name.localizedCaseInsensitiveContains(filter)) }) { entry in
-                                Button { navigate(entry.path) } label: { InfoRow(title: entry.name, icon: "folder").overlay(alignment: .trailing) { Image(systemName: "chevron.right").font(.caption).padding(16) } }.panelDivider()
-                            }
-                        }.background(Palette.panel, in: RoundedRectangle(cornerRadius: 16))
-                    }
-                }
-                Toggle(model.text("优先使用 mosh", "Prefer mosh"), isOn: Binding(get: { mosh }, set: { mosh = $0; moshExplicit = true })).font(.subheadline).accessibilityIdentifier("launch-mosh")
-                Button {
-                    guard launchReady else { return }
-                    let normalized = StartDirectory.normalize(directory)
-                    recent = StartDirectory.remember(recent: recent, directory: normalized); persistRecent()
-                    if forAgent { UserDefaults.standard.set(agent.rawValue, forKey: "launchAgent"); UserDefaults.standard.set(agentMode.rawValue, forKey: "launchAgentMode") }
-                    let launch = forAgent ? AgentLaunch(agent: agent, directory: normalized, mode: agentMode) : nil
-                    model.launch(host, mode: sessionMode, directory: normalized, agent: launch, mosh: moshExplicit ? mosh : nil)
-                } label: { Label(forAgent ? model.text("启动助手", "Start agent") : model.text("打开终端", "Open terminal"), systemImage: forAgent ? "sparkles" : "terminal") }.buttonStyle(RoamButtonStyle(primary: true)).disabled(!launchReady).accessibilityIdentifier("launch-session")
-            }.padding(16).pageBackground().navigationTitle(host.name).navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button(model.text("取消", "Cancel")) { dismiss() }.accessibilityIdentifier("launch-cancel") } }
-        }.task {
+        VStack(spacing: 0) {
+            HStack {
+                Text(forAgent ? model.text("用 AI 助手打开", "Open with an AI agent") : model.text("打开终端", "Open terminal")).font(.system(size: 20, weight: .semibold))
+                Spacer()
+                Button { dismiss() } label: { AppIcon("ic_close").frame(width: 48, height: 48) }.accessibilityLabel(model.text("关闭", "Close")).accessibilityIdentifier("launch-cancel")
+            }.padding(.leading, 24).padding(.trailing, 12).padding(.top, 16).padding(.bottom, 12)
+            if !recent.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) { ForEach(recent, id: \.self) { path in recentChip(path) } }.padding(.horizontal, 16)
+                }.padding(.bottom, 8)
+            }
+            VStack(spacing: 0) {
+                if filtering { filterBar } else { pathBar }
+                Divider().overlay(Palette.outline)
+                ZStack(alignment: .top) {
+                    if let error { centerNote(error, id: "launch-error", action: model.text("回到主目录", "Back to home")) { navigate("~") } }
+                    else if entries.isEmpty && busy { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
+                    else { folderList }
+                    if busy && !entries.isEmpty { ProgressView().progressViewStyle(.linear).tint(Palette.accent) }
+                }.frame(maxHeight: .infinity)
+            }.background(Palette.panel, in: RoundedRectangle(cornerRadius: 16)).clipShape(RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 16)
+            if forAgent { agentChooser }
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("--ui-testing") { testControls }
+            #endif
+            Button {
+                guard launchReady else { return }
+                let normalized = StartDirectory.normalize(directory)
+                recent = StartDirectory.remember(recent: recent, directory: normalized); persistRecent()
+                if forAgent { UserDefaults.standard.set(agent.rawValue, forKey: "launchAgent"); UserDefaults.standard.set(agentMode.rawValue, forKey: "launchAgentMode") }
+                let launch = forAgent ? AgentLaunch(agent: agent, directory: normalized, mode: agentMode) : nil
+                model.launch(host, mode: sessionMode, directory: normalized, agent: launch, mosh: moshExplicit ? mosh : nil)
+            } label: {
+                HStack(spacing: 8) {
+                    if forAgent { AppIcon("ic_agent", size: 18) }
+                    Text(launchTitle).lineLimit(1)
+                }.font(.subheadline.weight(.medium)).frame(maxWidth: .infinity).frame(minHeight: 48)
+                    .foregroundStyle(launchReady ? (yolo ? Palette.adaptive(0xFFFFFF, 0x5E1C17) : Palette.onAccent) : Palette.foreground.opacity(0.38))
+                    .background(launchReady ? (yolo ? Palette.danger : Palette.accent) : Palette.foreground.opacity(0.12), in: Capsule())
+                    .animation(.easeInOut(duration: 0.2), value: yolo)
+            }.buttonStyle(.plain).disabled(!launchReady).padding(.horizontal, 16).padding(.vertical, 12).accessibilityIdentifier("launch-session")
+        }.foregroundStyle(Palette.foreground).background(Palette.sheet.ignoresSafeArea())
+        .task {
             let currentHost = model.host(host.id) ?? host
             sessionMode = currentHost.newSessionMode; mosh = currentHost.plugins?.contains("mosh") == true
             recent = StartDirectory.sanitizeRecent(UserDefaults.standard.stringArray(forKey: "recentFolders-\(host.id)") ?? [])
@@ -98,8 +93,148 @@ struct LaunchScreen: View {
             if !moshExplicit { mosh = plugins?.contains("mosh") == true }
             if !sessionModeExplicit { sessionMode = (model.host(host.id) ?? host).newSessionMode }
         }
-            .onDisappear { loadTask?.cancel(); loadCancellation?.cancel(); loadRevision += 1 }
+        .onDisappear { loadTask?.cancel(); loadCancellation?.cancel(); loadRevision += 1 }
     }
+    private var yolo: Bool { forAgent && agentMode == .yolo }
+    @State private var filtering = false
+    /// Tappable crumbs (`~ › work › app`); the arrow steps up past home, the magnifier filters long lists.
+    private var pathBar: some View {
+        HStack(spacing: 0) {
+            Button { if let parent { navigate(parent) } } label: { AppIcon("ic_arrow_up", size: 20).frame(width: 40, height: 40) }
+                .disabled(parent == nil).foregroundStyle(Palette.foreground.opacity(parent == nil ? 0.38 : 1))
+                .accessibilityLabel(model.text("上一级", "Up one level")).accessibilityIdentifier("launch-parent")
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 0) {
+                        ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
+                            let last = index == segments.count - 1
+                            if index > 0 { AppIcon("ic_chevron_right", size: 14).foregroundStyle(Palette.adaptive(0x827A70, 0x9A9890)) }
+                            Button { if !last { navigate(segment.path) } } label: {
+                                Text(segment.name).font(last ? .subheadline.weight(.semibold) : .subheadline).foregroundStyle(last ? Palette.foreground : Palette.accent)
+                                    .lineLimit(1).fixedSize().padding(.horizontal, 6).padding(.vertical, 10)
+                            }.buttonStyle(.plain).id(index).accessibilityIdentifier("launch-crumb-\(index)")
+                        }
+                    }
+                }.onChange(of: directory) { _ in withAnimation { proxy.scrollTo(segments.count - 1, anchor: .trailing) } }
+            }.accessibilityIdentifier("launch-path")
+            if entries.filter(\.isDirectory).count > 8 {
+                Button { filtering = true } label: { AppIcon("ic_search", size: 20).foregroundStyle(Palette.secondary).frame(width: 40, height: 40) }
+                    .accessibilityLabel(model.text("筛选当前目录", "Filter this folder")).accessibilityIdentifier("launch-filter-toggle")
+            }
+        }.padding(.horizontal, 4).frame(minHeight: 48)
+    }
+    @FocusState private var filterFocused: Bool
+    private var filterBar: some View {
+        HStack(spacing: 0) {
+            Button { filtering = false; filter = "" } label: { AppIcon("ic_chevron_left", size: 20).frame(width: 40, height: 40) }
+                .accessibilityLabel(model.text("关闭筛选", "Close filter")).accessibilityIdentifier("launch-filter-close")
+            TextField(model.text("筛选当前目录", "Filter this folder"), text: $filter).focused($filterFocused).textInputAutocapitalization(.never).autocorrectionDisabled()
+                .submitLabel(.go).onSubmit { if let first = folders.first { navigate(first.path) } }.padding(.horizontal, 6).accessibilityIdentifier("launch-filter")
+            if !filter.isEmpty { Button { filter = "" } label: { AppIcon("ic_clear", size: 18).foregroundStyle(Palette.secondary).frame(width: 40, height: 40) } }
+        }.padding(.horizontal, 4).frame(minHeight: 48).onAppear { filterFocused = true }
+    }
+    private var folderList: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                if folders.isEmpty {
+                    Text(entries.contains(where: \.isDirectory) ? model.text("没有匹配的文件夹", "No matching folders") : model.text("这里没有子文件夹", "No subfolders here"))
+                        .font(.subheadline).foregroundStyle(Palette.secondary).frame(maxWidth: .infinity, alignment: .leading).padding(24)
+                }
+                ForEach(folders) { entry in
+                    Button { navigate(entry.path) } label: {
+                        HStack(spacing: 12) {
+                            RemoteFileIcon(name: entry.name, directory: true, size: 22)
+                            Text(entry.name).font(.body).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                            AppIcon("ic_chevron_right", size: 18).foregroundStyle(Palette.secondary)
+                        }.padding(.horizontal, 16).padding(.vertical, 6).frame(minHeight: 44).contentShape(Rectangle())
+                    }.buttonStyle(.plain).disabled(busy)
+                        .overlay(alignment: .bottom) { Rectangle().fill(Palette.outline).frame(height: 0.5).padding(.leading, 50) }
+                        .accessibilityIdentifier("launch-folder-\(entry.name)")
+                }
+            }.opacity(busy ? 0.5 : 1)
+        }.accessibilityIdentifier("launch-folders")
+    }
+    private func centerNote(_ message: String, id: String = "launch-note", action: String, perform: @escaping () -> Void) -> some View {
+        VStack(spacing: 8) {
+            Text(message).font(.subheadline).foregroundStyle(Palette.secondary).multilineTextAlignment(.center).accessibilityIdentifier(id)
+            Button(action, action: perform).buttonStyle(TextActionStyle()).accessibilityIdentifier("launch-note-action")
+        }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    private func recentChip(_ path: String) -> some View {
+        let selected = StartDirectory.normalize(path) == directory
+        let name = StartDirectory.isHome(path) ? model.text("主目录", "home") : (path.split(separator: "/").last.map(String.init) ?? "/")
+        return HStack(spacing: 8) {
+            AppIcon("ic_history", size: 16)
+            Text(name).font(.subheadline.weight(.medium)).lineLimit(1)
+            Button { recent.removeAll { $0 == path }; persistRecent() } label: { AppIcon("ic_clear", size: 16) }.buttonStyle(.plain)
+                .accessibilityLabel(model.text("移除 \(path)", "Remove \(path)"))
+        }.padding(.horizontal, 8).frame(height: 32).foregroundStyle(selected ? Palette.adaptive(0x3D332D, 0xECE2D8) : Palette.secondary)
+            .background(selected ? Palette.adaptive(0xECE4DB, 0x47413B) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+            .overlay { if !selected { RoundedRectangle(cornerRadius: 8).stroke(Palette.outline, lineWidth: 1) } }
+            .contentShape(Rectangle()).onTapGesture { navigate(path) }
+    }
+    /// Agent and permission as two pickers on one line; YOLO is red, and its "!" says what it allows.
+    private var agentChooser: some View {
+        HStack(spacing: 8) {
+            Menu {
+                Picker("", selection: $agent) {
+                    ForEach(CodingAgent.allCases) { option in Text(option.shortLabel + "  ·  " + option.command).tag(option) }
+                }
+            } label: { pickerField { AgentBadge(agent: agent, size: 20); Text(agent.shortLabel).font(.subheadline.weight(.medium)).lineLimit(1) } }
+                .accessibilityIdentifier("launch-agent")
+            Menu {
+                Picker("", selection: $agentMode) {
+                    ForEach(AgentMode.allCases) { option in Text(modeLabel(option) + " — " + modeHint(option)).tag(option) }
+                }
+            } label: {
+                pickerField(border: yolo ? Palette.danger : nil) {
+                    Text(modeLabel(agentMode)).font(.subheadline.weight(.medium)).foregroundStyle(yolo ? Palette.danger : Palette.foreground).lineLimit(1)
+                    if yolo { AppIcon("ic_alert", size: 18).foregroundStyle(Palette.danger).accessibilityLabel(modeHint(.yolo)).accessibilityIdentifier("launch-yolo-warning") }
+                }
+            }.accessibilityIdentifier("launch-agent-mode")
+        }.padding(.horizontal, 16).padding(.top, 12)
+    }
+    private func pickerField<Content: View>(border: Color? = nil, @ViewBuilder _ content: () -> Content) -> some View {
+        HStack(spacing: 8) { content(); Spacer(minLength: 0); AppIcon("ic_expand_down", size: 18).foregroundStyle(Palette.secondary) }
+            .padding(.leading, 12).padding(.trailing, 6).frame(minHeight: 44).foregroundStyle(Palette.foreground)
+            .background(Palette.panel, in: RoundedRectangle(cornerRadius: 12))
+            .overlay { RoundedRectangle(cornerRadius: 12).stroke(border ?? Palette.outline, lineWidth: border == nil ? 0.5 : 1) }
+    }
+    private func modeLabel(_ mode: AgentMode) -> String {
+        switch mode {
+        case .readOnly: return agent == .claude ? model.text("计划", "Plan") : model.text("只读", "Read only")
+        case .standard: return model.text("普通", "Standard")
+        case .yolo: return "YOLO"
+        }
+    }
+    private func modeHint(_ mode: AgentMode) -> String {
+        switch mode {
+        case .yolo: return model.text("跳过所有确认，直接执行", "Skip all confirmations and execute directly")
+        case .standard: return model.text("改文件或运行命令前先问你", "Ask before editing files or running commands")
+        case .readOnly:
+            switch agent {
+            case .claude: return model.text("先分析并制定计划，批准后开始修改", "Analyze and plan first; make changes after approval")
+            case .codex: return model.text("以只读沙箱启动，可在助手中调整权限", "Start in a read-only sandbox; permissions can be adjusted in the agent")
+            case .grok: return model.text("只读沙箱；状态与临时目录仍可写", "Read-only sandbox; state and temporary directories remain writable")
+            }
+        }
+    }
+    #if DEBUG
+    /// UI tests only: Android has no per-launch mode, mosh or typed path, but the suite needs them deterministically.
+    private var testControls: some View {
+        VStack(spacing: 6) {
+            Picker("", selection: Binding(get: { sessionMode }, set: { sessionMode = $0; sessionModeExplicit = true })) { Text("tmux").tag(SessionMode.tmux); Text("SSH").tag(SessionMode.shell) }.pickerStyle(.segmented).accessibilityIdentifier("launch-mode")
+            HStack {
+                TextField("", text: $pathDraft).font(.caption.monospaced()).textInputAutocapitalization(.never).autocorrectionDisabled().onSubmit { navigate(pathDraft) }.accessibilityIdentifier("launch-directory")
+                Toggle("mosh", isOn: Binding(get: { mosh }, set: { mosh = $0; moshExplicit = true })).font(.caption).fixedSize().accessibilityIdentifier("launch-mosh")
+            }
+            if forAgent {
+                Text(AgentLaunch(agent: agent, directory: directory, mode: agentMode).agentCommand).font(.caption2.monospaced()).accessibilityIdentifier("launch-command-preview")
+                Text(modeHint(agentMode)).font(.caption2).accessibilityIdentifier("launch-permission-hint")
+            }
+        }.padding(.horizontal, 16).padding(.top, 8).opacity(0.6)
+    }
+    #endif
     private func navigate(_ path: String) {
         loadTask?.cancel(); loadCancellation?.cancel(); loadRevision += 1
         let revision = loadRevision, cancellation = TransferCancellation()

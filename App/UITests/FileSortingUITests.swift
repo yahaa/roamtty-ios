@@ -34,10 +34,11 @@ final class FileSortingUITests: RoamttyLiveUITestCase {
             let initial = criterion.startsDescending ? criterion.descending : criterion.ascending
             let opposite = criterion.startsDescending ? criterion.ascending : criterion.descending
             assertVisibleOrder([folder] + initial, in: base)
-            toggleDescending()
+            // As on Android, choosing the current sort again reverses it.
+            chooseSort(chinese: criterion.chinese, english: criterion.english)
             assertVisibleOrder([folder] + opposite, in: base)
             capture(criterion.english + " sorts with folders first and ascending name ties")
-            toggleDescending()
+            chooseSort(chinese: criterion.chinese, english: criterion.english)
             assertVisibleOrder([folder] + initial, in: base)
             chooseSort(chinese: criterion.chinese, english: criterion.english)
             assertVisibleOrder([folder] + opposite, in: base)
@@ -53,28 +54,23 @@ final class FileSortingUITests: RoamttyLiveUITestCase {
         let copy = app.buttons["files-copy-current-path"]
         XCTAssertTrue(copy.waitForExistence(timeout: 3)); copy.tap()
         done.tap(); waitUntilGone(done)
-        openTools(); app.buttons["terminal-commands"].tap()
-        let draft = app.textViews["command-draft"]
-        XCTAssertTrue(draft.waitForExistence(timeout: 5)); replace(draft, with: "")
-        draft.press(forDuration: 1.1)
-        let paste = nativeMenuItem(NSPredicate(format: "label == 'Paste' OR label == '粘贴'"))
-        XCTAssertTrue(paste.waitForExistence(timeout: 5)); paste.tap()
-        XCTAssertEqual(draft.value as? String, base, "Copy current path must copy the resolved directory, without a file name")
-        app.buttons["command-done"].tap()
+        clearDraft()
+        terminalMenu("menu-paste")
+        let editor = app.textViews["prompt-editor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
+        XCTAssertEqual(editor.value as? String, base, "Copy current path must copy the resolved directory, without a file name")
+        app.buttons.matching(NSPredicate(format: "label == '收起' OR label == 'Hide'")).firstMatch.tap()
         let cleaned = "SORT_FIXTURE_CLEANED_" + nonce()
         try runCommand("rm -rf -- " + quote(base) + " && test ! -e " + quote(base) + " && " + emit(cleaned))
         waitForOutput(cleaned, surface: surface)
-        app.buttons["terminal-close"].tap()
-        let close = app.buttons.matching(identifier: "terminal-close-confirm").firstMatch
-        XCTAssertTrue(close.waitForExistence(timeout: 5)); close.tap()
+        closeTerminal()
         XCTAssertTrue(app.buttons["host-detail-terminal"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'session-'")).count, 0)
     }
 
     private func openRemoteFolder(_ path: String) {
         openTools(); app.buttons["download-file"].tap()
-        let select = app.buttons["files-select"]
-        XCTAssertTrue(select.waitForExistence(timeout: 10)); select.tap()
+        filesMenu("files-select")
         let search = app.searchFields.firstMatch
         if !search.exists { app.swipeDown() }
         XCTAssertTrue(search.waitForExistence(timeout: 5)); replace(search, with: path)
@@ -87,22 +83,10 @@ final class FileSortingUITests: RoamttyLiveUITestCase {
     }
 
     private func chooseSort(chinese: String, english: String) {
-        openOptions()
-        let choiceLabels = NSPredicate(format: "label == %@ OR label == %@", chinese, english)
-        // Depending on the OS, a Picker inside Menu exposes its choices inline
-        // or behind a Sort submenu. Both routes still select the native control.
-        if !nativeMenuItem(choiceLabels).waitForExistence(timeout: 1) {
-            let submenu = nativeMenuItem(NSPredicate(format: "label == '排序' OR label == 'Sort' OR label BEGINSWITH '排序,' OR label BEGINSWITH 'Sort,'"))
-            XCTAssertTrue(submenu.waitForExistence(timeout: 3)); submenu.tap()
-        }
-        let choice = nativeMenuItem(choiceLabels)
+        let sort = app.descendants(matching: .any).matching(identifier: "files-sort").firstMatch
+        XCTAssertTrue(sort.waitForExistence(timeout: 5)); sort.tap()
+        let choice = nativeMenuItem(NSPredicate(format: "label == %@ OR label == %@", chinese, english))
         XCTAssertTrue(choice.waitForExistence(timeout: 3)); choice.tap()
-    }
-
-    private func toggleDescending() {
-        openOptions()
-        let descending = nativeMenuItem(NSPredicate(format: "label == '降序' OR label == 'Descending'"))
-        XCTAssertTrue(descending.waitForExistence(timeout: 3)); descending.tap()
     }
 
     private func openOptions() {

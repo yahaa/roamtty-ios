@@ -59,25 +59,93 @@ class RoamttyLiveUITestCase: XCTestCase {
         waitForExpectations(timeout: 25); launch.tap()
         let surface = app.descendants(matching: .any)["terminal-surface"].firstMatch
         XCTAssertTrue(surface.waitForExistence(timeout: 20))
-        XCTAssertTrue(app.staticTexts["已连接"].waitForExistence(timeout: 20))
+        waitForConnected()
         return surface
     }
 
+    /// The terminal has no status bar; an invisible element carries the connection phase.
+    func phase(_ label: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'terminal-phase' AND label == %@", label)).firstMatch
+    }
+    func waitForConnected(timeout: Double = 20) {
+        XCTAssertTrue(phase("已连接").waitForExistence(timeout: timeout), "The terminal must connect")
+    }
+
+    /// Shows the dock: wakes the toolbox ghost with a reading tap, then taps it.
     func openTools() {
-        if app.buttons["terminal-commands"].exists { return }
+        if app.buttons["common-commands"].exists && app.buttons["common-commands"].isHittable { return }
+        // The toolbox steps aside while the prompt editor is open, as on Android.
+        if app.textViews["prompt-editor"].exists { app.buttons.matching(NSPredicate(format: "label == '收起' OR label == 'Hide'")).firstMatch.tap() }
         let surface = app.descendants(matching: .any)["terminal-surface"].firstMatch
         XCTAssertTrue(surface.waitForExistence(timeout: 8))
-        surface.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.2)).tap()
         let ghost = app.buttons["terminal-ghost"]
-        XCTAssertTrue(ghost.waitForExistence(timeout: 3)); ghost.tap()
-        XCTAssertTrue(app.buttons["terminal-commands"].waitForExistence(timeout: 3))
+        // A reading tap wakes the ghost; one landing while the keyboard slides away can be absorbed, so retry.
+        for _ in 0..<3 where !ghost.exists {
+            surface.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.2)).tap()
+            if ghost.waitForExistence(timeout: 2) { break }
+        }
+        if !ghost.exists { saveFailureScreenshot("openTools") }
+        XCTAssertTrue(ghost.exists); ghost.tap()
+        XCTAssertTrue(app.buttons["common-commands"].waitForExistence(timeout: 3))
+    }
+
+    /// "tmux SSH", "SSH mosh" …: the session mode and the transport carrying it.
+    var terminalTransport: String { app.descendants(matching: .any)["terminal-phase"].firstMatch.value as? String ?? "" }
+
+    /// Back to the host page through the session menu (the terminal has no navigation bar).
+    func leaveTerminal() {
+        openTools(); app.buttons["session-switcher"].tap()
+        let back = app.buttons.matching(NSPredicate(format: "label == '返回主机详情' OR label == 'Back to host details'")).firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 3)); back.tap()
+        XCTAssertTrue(app.buttons["host-detail-terminal"].waitForExistence(timeout: 5))
+    }
+
+    /// Chooses an item of the file browser's ··· menu (批量下载, 上传, 新建文件夹 …).
+    func filesMenu(_ item: String) {
+        let options = app.descendants(matching: .any).matching(identifier: "files-options").firstMatch
+        XCTAssertTrue(options.waitForExistence(timeout: 10)); options.tap()
+        let entry = app.descendants(matching: .any).matching(identifier: item).firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 3)); entry.tap()
+    }
+
+    /// Chooses an item of the dock's terminal-settings menu (编辑文本, 固定操作栏, 粘贴, 关闭连接 …).
+    func terminalMenu(_ item: String) {
+        openTools(); app.buttons["terminal-menu"].tap()
+        let entry = app.buttons[item]
+        XCTAssertTrue(entry.waitForExistence(timeout: 3)); entry.tap()
+    }
+
+    /// Closes the connection through the settings menu and confirms when it is still live.
+    func closeTerminal() {
+        terminalMenu("terminal-close")
+        let confirm = app.buttons.matching(identifier: "terminal-close-confirm").firstMatch
+        if confirm.waitForExistence(timeout: 3) { confirm.tap() }
+        XCTAssertTrue(app.buttons["host-detail-terminal"].waitForExistence(timeout: 10), "Closing returns to the host page")
+    }
+
+    /// Empties the prompt editor (holding ⌫ clears it) and puts it away, so a paste stages only the clipboard.
+    func clearDraft() {
+        let editor = app.textViews["prompt-editor"]
+        if !editor.exists { terminalMenu("menu-edit-text") }
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
+        app.descendants(matching: .any)["draft-delete"].firstMatch.press(forDuration: 1)
+        XCTAssertEqual(editor.value as? String ?? "", "")
+        app.buttons.matching(NSPredicate(format: "label == '收起' OR label == 'Hide'")).firstMatch.tap()
+    }
+
+    /// Stages [text] in the prompt editor and sends it as one paste, without Enter.
+    func typeIntoTerminal(_ text: String) {
+        let editor = app.textViews["prompt-editor"]
+        if !editor.exists { terminalMenu("menu-edit-text") }
+        XCTAssertTrue(editor.waitForExistence(timeout: 5)); replace(editor, with: text)
+        app.buttons["prompt-send"].tap()
     }
 
     @discardableResult func runCommand(_ text: String) throws -> XCUIElement {
-        openTools(); app.buttons["terminal-commands"].tap()
-        let draft = app.textViews["command-draft"]
-        XCTAssertTrue(draft.waitForExistence(timeout: 8)); replace(draft, with: text)
-        app.buttons["command-run"].tap()
+        typeIntoTerminal(text)
+        app.buttons["prompt-enter"].tap()
+        // Put the editor away so later gestures and screenshots see the whole terminal.
+        app.buttons.matching(NSPredicate(format: "label == '收起' OR label == 'Hide'")).firstMatch.tap()
         let surface = app.descendants(matching: .any)["terminal-surface"].firstMatch
         XCTAssertTrue(surface.waitForExistence(timeout: 10))
         return surface
@@ -114,6 +182,14 @@ class RoamttyLiveUITestCase: XCTestCase {
         }
         field.typeText(text)
         XCTAssertEqual(field.value as? String, text, "Replacing an input must remove its entire previous value")
+    }
+
+    /// Also writes the screen to the host's /tmp/roamtty-parity, which survives without the result bundle.
+    func saveFailureScreenshot(_ name: String) {
+        let directory = URL(fileURLWithPath: "/tmp/roamtty-parity")
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? XCUIScreen.main.screenshot().pngRepresentation.write(to: directory.appendingPathComponent("fail-" + name + ".png"))
+        capture("Failure: " + name)
     }
 
     func capture(_ name: String) {

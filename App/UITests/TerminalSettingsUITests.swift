@@ -7,7 +7,7 @@ final class TerminalSettingsUITests: RoamttyLiveUITestCase {
         let token = UUID().uuidString.replacingOccurrences(of: "-", with: "")
         try runCommand("export ROAMTTY_UI_RECOVERY='\(token)'; printf 'RECOVERY_'; printf 'READY\\n'")
         waitForOutput("RECOVERY_READY", surface: surface)
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        leaveTerminal()
 
         let session = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "session-")).firstMatch
         XCTAssertTrue(session.waitForExistence(timeout: 5))
@@ -20,7 +20,9 @@ final class TerminalSettingsUITests: RoamttyLiveUITestCase {
         app.alerts.firstMatch.buttons.matching(identifier: "session-title-save").firstMatch.tap()
         waitFor(NSPredicate(format: "label CONTAINS %@", title), element: app.buttons[identifier])
         app.buttons[identifier].tap()
-        XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5))
+        waitForConnected()
+        openTools()
+        XCTAssertTrue(app.buttons["session-switcher"].label.contains(title), "The session menu must show the renamed title")
         closeTerminal()
         XCTAssertTrue(app.buttons[identifier].waitForExistence(timeout: 5), "Closing tmux must retain its session card")
 
@@ -30,8 +32,9 @@ final class TerminalSettingsUITests: RoamttyLiveUITestCase {
         XCTAssertTrue(restored.waitForExistence(timeout: 5))
         XCTAssertTrue(restored.label.contains(title), "The renamed card must survive an app restart")
         restored.tap()
-        XCTAssertTrue(app.staticTexts["已连接"].waitForExistence(timeout: 20))
-        XCTAssertTrue(app.navigationBars[title].exists)
+        XCTAssertTrue(phase("已连接").waitForExistence(timeout: 20))
+        openTools()
+        XCTAssertTrue(app.buttons["session-switcher"].label.contains(title))
         let resumed = try runCommand("test \"$ROAMTTY_UI_RECOVERY\" = '\(token)' && { printf 'RECOVERY_'; printf 'PRESERVED\\n'; }")
         waitForOutput("RECOVERY_PRESERVED", surface: resumed)
         capture("Renamed tmux session resumed after app restart")
@@ -47,12 +50,11 @@ final class TerminalSettingsUITests: RoamttyLiveUITestCase {
         defer { XCUIDevice.shared.orientation = .portrait }
         let surface = try openTerminal()
         let originalWidth = surface.frame.width
-        openTools()
-        let pin = app.buttons["terminal-pin-tools"]
-        XCTAssertTrue(pin.waitForExistence(timeout: 3)); pin.tap()
+        terminalMenu("terminal-pin-tools")
+        let pin = app.buttons["terminal-menu"]
         waitFor(NSPredicate { _, _ in surface.frame.width < originalWidth - 40 }, element: surface)
         surface.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.2)).tap()
-        XCTAssertTrue(app.buttons["terminal-commands"].exists, "Pinned tools must stay open when touching the terminal")
+        XCTAssertTrue(app.buttons["common-commands"].exists, "Pinned tools must stay open when touching the terminal")
         XCTAssertLessThan(surface.frame.width, originalWidth - 40)
         capture("Pinned tools reserve terminal columns")
         XCUIDevice.shared.orientation = .landscapeLeft
@@ -63,14 +65,14 @@ final class TerminalSettingsUITests: RoamttyLiveUITestCase {
             dock.swipeUp()
         }
         XCTAssertTrue(pin.isHittable)
-        XCTAssertTrue(app.buttons["terminal-commands"].isHittable)
+        XCTAssertTrue(app.buttons["common-commands"].isHittable)
         XCTAssertLessThanOrEqual(surface.frame.maxX, pin.frame.minX + 2, "Landscape tools must reserve columns, not cover terminal cells")
         capture("Pinned tools and terminal in landscape")
         XCUIDevice.shared.orientation = .portrait
         waitFor(NSPredicate { _, _ in surface.frame.height > surface.frame.width }, element: surface)
         XCTAssertTrue(pin.isHittable)
         XCTAssertLessThan(surface.frame.width, originalWidth - 40)
-        pin.tap()
+        terminalMenu("terminal-pin-tools")
         waitFor(NSPredicate { _, _ in abs(surface.frame.width - originalWidth) < 2 }, element: surface)
         app.buttons["collapse-dock"].tap()
 
@@ -94,20 +96,20 @@ final class TerminalSettingsUITests: RoamttyLiveUITestCase {
         waitForOutput("ROAMTTY_PASTE_READY", surface: surface)
         let payload = "alpha\nbeta\n"
         openCommandDraft(payload)
-        app.buttons["command-insert"].tap()
+        app.buttons["prompt-send"].tap()
         let cancel = app.alerts.firstMatch.buttons.matching(identifier: "terminal-paste-cancel").firstMatch
         XCTAssertTrue(cancel.waitForExistence(timeout: 3), "Unbracketed multiline input must ask before sending")
         capture("Multiline paste confirmation")
         cancel.tap()
-        XCTAssertEqual(app.textViews["command-draft"].value as? String, payload)
-        app.buttons["command-done"].tap()
+        XCTAssertEqual(app.textViews["prompt-editor"].value as? String, payload)
+        app.buttons.matching(NSPredicate(format: "label == '收起' OR label == 'Hide'")).firstMatch.tap()
         XCTAssertTrue(surface.waitForExistence(timeout: 5))
         let noBytes = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS %@", "ROAMTTY_PASTE_RECEIVED"), object: surface)
         noBytes.isInverted = true
         XCTAssertEqual(XCTWaiter.wait(for: [noBytes], timeout: 2), .completed, "Cancelling must send no bytes to the waiting remote process")
 
         openCommandDraft(payload)
-        app.buttons["command-insert"].tap()
+        app.buttons["prompt-send"].tap()
         let send = app.alerts.firstMatch.buttons.matching(identifier: "terminal-paste-send").firstMatch
         XCTAssertTrue(send.waitForExistence(timeout: 3)); send.tap()
         waitForOutput("ROAMTTY_PASTE_BYTES=616c7068610d626574610d", surface: surface)
@@ -179,35 +181,27 @@ final class TerminalSettingsUITests: RoamttyLiveUITestCase {
         capture("Live tmux and mosh detection")
         app.buttons["plugins-done"].tap()
         app.buttons["host-detail-agent"].tap()
-        let agents = app.segmentedControls["launch-agent"]
-        let modes = app.segmentedControls["launch-agent-mode"]
-        XCTAssertTrue(agents.waitForExistence(timeout: 10))
-        agents.buttons["Claude Code"].tap()
-        let plan = modes.buttons["计划"]
-        XCTAssertTrue(plan.exists); plan.tap(); XCTAssertTrue(plan.isSelected)
-        XCTAssertEqual(app.staticTexts["launch-command-preview"].label, "claude --permission-mode plan")
+        let preview = app.staticTexts["launch-command-preview"]
+        XCTAssertTrue(app.buttons["launch-agent"].waitForExistence(timeout: 10))
+        pick("launch-agent", "Claude")
+        pick("launch-agent-mode", "计划")
+        XCTAssertEqual(preview.label, "claude --permission-mode plan")
         XCTAssertTrue(app.staticTexts["launch-permission-hint"].label.contains("批准"))
-        agents.buttons["Codex"].tap()
-        let readOnly = modes.buttons["只读"]
-        XCTAssertTrue(readOnly.exists); readOnly.tap(); XCTAssertTrue(readOnly.isSelected)
-        XCTAssertEqual(app.staticTexts["launch-command-preview"].label, "codex --sandbox read-only")
-        agents.buttons["Grok"].tap(); modes.buttons["YOLO"].tap()
-        XCTAssertTrue(modes.buttons["YOLO"].isSelected)
+        pick("launch-agent", "Codex"); pick("launch-agent-mode", "只读")
+        XCTAssertEqual(preview.label, "codex --sandbox read-only")
+        pick("launch-agent", "Grok"); pick("launch-agent-mode", "YOLO")
         XCTAssertTrue(app.descendants(matching: .any)["launch-yolo-warning"].firstMatch.exists)
-        XCTAssertEqual(app.staticTexts["launch-command-preview"].label, "grok --always-approve")
-        modes.buttons["标准"].tap()
+        XCTAssertEqual(preview.label, "grok --always-approve")
+        pick("launch-agent-mode", "普通")
         XCTAssertFalse(app.descendants(matching: .any)["launch-yolo-warning"].firstMatch.exists)
-        XCTAssertEqual(app.staticTexts["launch-command-preview"].label, "grok")
+        XCTAssertEqual(preview.label, "grok")
 
         let launch = app.buttons["launch-session"]
         let directory = app.textFields["launch-directory"]
-        replace(directory, with: "/tmp/roamtty-missing-" + UUID().uuidString)
-        XCTAssertFalse(launch.isEnabled, "Editing an unvalidated folder must disable launch")
-        app.buttons["launch-open-directory"].tap()
+        replace(directory, with: "/tmp/roamtty-missing-" + UUID().uuidString); directory.typeText("\n")
         XCTAssertTrue(app.staticTexts["launch-error"].waitForExistence(timeout: 10))
         XCTAssertFalse(launch.isEnabled, "A failed folder request must not launch in the previous directory")
-        replace(directory, with: "/tmp")
-        app.buttons["launch-open-directory"].tap()
+        replace(directory, with: "/tmp"); directory.typeText("\n")
         waitFor(NSPredicate(format: "isEnabled == true"), element: launch, timeout: 15)
         XCTAssertFalse(app.staticTexts["launch-error"].exists)
         XCTAssertEqual(directory.value as? String, "/tmp")
@@ -223,12 +217,6 @@ final class TerminalSettingsUITests: RoamttyLiveUITestCase {
         XCTAssertTrue(app.buttons["settings-done"].waitForExistence(timeout: 5))
     }
 
-    private func closeTerminal() {
-        app.buttons["terminal-close"].tap()
-        let confirm = app.buttons.matching(identifier: "terminal-close-confirm").firstMatch
-        XCTAssertTrue(confirm.waitForExistence(timeout: 3)); confirm.tap()
-        XCTAssertTrue(app.buttons["host-detail-terminal"].waitForExistence(timeout: 5))
-    }
 
     private func openShortcutRing(surface: XCUIElement) {
         surface.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.2)).tap()
@@ -236,10 +224,17 @@ final class TerminalSettingsUITests: RoamttyLiveUITestCase {
         XCTAssertTrue(ghost.waitForExistence(timeout: 3)); ghost.press(forDuration: 0.4)
     }
 
+    /// Chooses the option starting with [prefix] from one of the launch sheet's pickers.
+    private func pick(_ picker: String, _ prefix: String) {
+        app.buttons[picker].tap()
+        let option = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
+        XCTAssertTrue(option.waitForExistence(timeout: 3)); option.tap()
+    }
+
     private func openCommandDraft(_ text: String) {
-        openTools(); app.buttons["terminal-commands"].tap()
-        let draft = app.textViews["command-draft"]
-        XCTAssertTrue(draft.waitForExistence(timeout: 5)); replace(draft, with: text)
+        let editor = app.textViews["prompt-editor"]
+        if !editor.exists { terminalMenu("menu-edit-text") }
+        XCTAssertTrue(editor.waitForExistence(timeout: 5)); replace(editor, with: text)
     }
 
     private func revealSettings(_ element: XCUIElement) {
@@ -265,9 +260,11 @@ final class TerminalSettingsUITests: RoamttyLiveUITestCase {
         XCTAssertEqual(element.value as? String, on ? "1" : "0")
     }
 
-    private func waitFor(_ predicate: NSPredicate, element: XCUIElement, timeout: Double = 5) {
+    private func waitFor(_ predicate: NSPredicate, element: XCUIElement, timeout: Double = 5, line: UInt = #line) {
         let check = XCTNSPredicateExpectation(predicate: predicate, object: element)
-        XCTAssertEqual(XCTWaiter.wait(for: [check], timeout: timeout), .completed)
+        let result = XCTWaiter.wait(for: [check], timeout: timeout)
+        if result != .completed { saveFailureScreenshot("waitFor-\(line)") }
+        XCTAssertEqual(result, .completed, line: line)
     }
 
     /// The UI sends every byte through the real PTY. A bounded receiver restores
