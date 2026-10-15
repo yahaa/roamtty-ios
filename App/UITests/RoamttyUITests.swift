@@ -3,10 +3,10 @@ import XCTest
 final class RoamttyUITests: RoamttyLiveUITestCase {
     private var shareDestination = ""
     func testHomeContainsHostsAndEditorValidatesRequiredFields() {
-        XCTAssertTrue(app.buttons["add-host"].waitForExistence(timeout: 5))
+        XCTAssertTrue(addHostButton.waitForExistence(timeout: 5))
         XCTAssertFalse(app.tabBars.element.exists)
         capture("Host home — dark")
-        app.buttons["add-host"].tap()
+        addHostButton.tap()
         app.buttons["save-host"].tap()
         XCTAssertTrue(app.staticTexts["editor-error"].waitForExistence(timeout: 2))
         app.textFields["host-name"].tap()
@@ -73,6 +73,7 @@ final class RoamttyUITests: RoamttyLiveUITestCase {
     }
     private func openLivePreview(preferMosh: Bool) throws {
         guard ProcessInfo.processInfo.environment["ROAMTTY_TEST_HOST"] != nil else { throw XCTSkip("Set ROAMTTY_TEST_HOST, PORT, USERNAME and PASSWORD to exercise a real SSH server") }
+        showHostsTab()
         let host = app.buttons["host-UI Live Host"]
         XCTAssertTrue(host.waitForExistence(timeout: 5)); host.tap()
         let trust = app.buttons["auth-confirm"]
@@ -141,8 +142,8 @@ final class RoamttyUITests: RoamttyLiveUITestCase {
         XCTAssertTrue(app.staticTexts["Appearance"].waitForExistence(timeout: 2))
         app.buttons["theme-light"].tap()
         app.buttons["settings-done"].tap()
-        XCTAssertTrue(app.staticTexts["hosts-title"].waitForExistence(timeout: 3))
-        XCTAssertEqual(app.staticTexts["hosts-title"].label, "Hosts")
+        XCTAssertTrue(app.buttons["home-tab-hosts"].waitForExistence(timeout: 3))
+        XCTAssertEqual(app.buttons["home-tab-hosts"].label, "Hosts")
         capture("Host home — light English")
     }
 }

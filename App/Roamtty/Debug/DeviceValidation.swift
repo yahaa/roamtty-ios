@@ -24,6 +24,14 @@ enum DeviceValidation {
             }
             guard active else { runner.finish(); return }
             try await performInBackground { runner.run() }
+            // The app's own reachability probe: online only once the fixture's sshd greets it.
+            let online = await ReachabilityProbe.measure(address: fixture.address, port: fixture.port)
+            let closed = await ReachabilityProbe.measure(address: fixture.address, port: 9)
+            runner.check("ssh_greeting_reachability") {
+                guard case .online(let latency) = online else { throw DeviceFailure("The fixture's sshd did not answer the probe") }
+                if case .online = closed { throw DeviceFailure("A port without sshd counted as online") }
+                return ["sshdOnline": "true", "latencyRecorded": latency >= 0 ? "true" : "false", "closedPortOffline": "true"]
+            }
 
             // Navigate the real app using an in-memory fixture host. Nothing is added
             // to the user's host database, keychain or persistent trust store.
@@ -31,6 +39,13 @@ enum DeviceValidation {
             let previousPath = model.path
             model.hosts.append(host)
             if let metrics = runner.displayMetrics { model.metrics[host.id] = metrics }
+            model.path = []; model.homeTab = .sessions
+            _ = await waitUntilActive()
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            runner.check("home_sessions_snapshot") { try snapshot(model, folder: folder, name: "home-sessions.png", screen: "HomeSessionsTab") }
+            model.homeTab = .hosts
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            runner.check("home_hosts_snapshot") { try snapshot(model, folder: folder, name: "home-hosts.png", screen: "HomeHostsTab") }
             model.path = [.host(host.id)]
             _ = await waitUntilActive()
             try? await Task.sleep(nanoseconds: 800_000_000)
@@ -59,6 +74,16 @@ enum DeviceValidation {
         }
     }
 
+    @MainActor private static func snapshot(_ model: AppModel, folder: URL, name: String, screen: String) throws -> [String: String] {
+        guard model.authentication == nil, model.sheet == nil, model.error == nil, !model.drawer, UIApplication.shared.applicationState == .active,
+              let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).flatMap(\.windows).first(where: { $0.isKeyWindow }),
+              window.bounds.width > 0, window.bounds.height > 0 else { throw DeviceFailure("App window unavailable") }
+        var rendered = false
+        let png = UIGraphicsImageRenderer(bounds: window.bounds).pngData { _ in rendered = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) }
+        guard rendered else { throw DeviceFailure("App window rendering failed") }
+        try png.write(to: folder.appendingPathComponent(name), options: .atomic)
+        return ["artifact": name, "screen": screen, "method": "App-owned window capture"]
+    }
     @MainActor private static func waitUntilActive() async -> Bool {
         let deadline = Date().addingTimeInterval(15)
         while UIApplication.shared.applicationState != .active {
@@ -226,10 +251,40 @@ private final class DeviceValidationRunner {
             sftp(client)
             tmux(client)
             mosh(client)
+            agentHooks(client)
         } else {
-            for name in ["sftp_binary_roundtrip", "tmux_isolation_and_reattach", "mosh_udp_roundtrip"] {
+            for name in ["sftp_binary_roundtrip", "tmux_isolation_and_reattach", "mosh_udp_roundtrip", "agent_hooks_status_restart_kill"] {
                 check(name) { throw DeviceFailure("Password connection unavailable") }
             }
+        }
+    }
+
+    /// What starting an agent writes on the host, the status poll, the pane restart and closing, as the app runs them.
+    private func agentHooks(_ ssh: SSHConnection) {
+        check("agent_hooks_status_restart_kill") {
+            func sh(_ script: String) throws -> (Int32, String) {
+                let result = try ssh.exec("/bin/sh -s", input: Data((RemoteCommands.pathSetup + "\n" + script).utf8), timeout: 15)
+                return (result.status, String(decoding: result.output, as: UTF8.self))
+            }
+            try require(try sh("command -v tmux").0 == 0, "Fixture tmux unavailable")
+            let name = "roamtty-" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased()
+            defer { _ = try? sh(RemoteCommands.killTmux(name)) }
+            for (file, content, executable) in [(AgentHooks.scriptName, AgentHooks.script, false), (AgentHooks.hostFile(.claude).name, AgentHooks.hostFile(.claude).content, false)] {
+                guard let command = RemoteCommands.writeHostFile(file, executable: executable) else { throw DeviceFailure("Invalid hook file name") }
+                try require(try ssh.exec(command, input: Data(content.utf8), timeout: 10).status == 0, "Writing \(file) failed")
+            }
+            try require(try sh("cd /tmp && tmux new-session -d -s \(name) -x 80 -y 24 && tmux send-keys -t \(name) 'sleep 600' Enter && sleep 1").0 == 0, "tmux session did not start")
+            let pane = try sh("tmux display-message -p -t \(name) '#{pane_id}'").1.trimmingCharacters(in: .whitespacesAndNewlines)
+            for (event, json) in [("prompt", #"{"prompt":"device check"}"#), ("tool", #"{"tool_name":"Bash","tool_input":{"command":"make test"}}"#)] {
+                try require(try sh("printf '%s' '\(json)' | TMUX_PANE='\(pane)' sh \"$HOME/.roamtty/agent-hook.sh\" claude \(event)").0 == 0, "Hook \(event) failed")
+            }
+            let poll = String(decoding: try ssh.exec(RemoteCommands.agentStatus(name), input: Data(), timeout: 10).output, as: UTF8.self)
+            guard let status = AgentStatus.parse(poll) else { throw DeviceFailure("No agent status reported") }
+            try require(status.state == .working && status.task == "device check" && agentActivity(status) == "Running make test", "Agent status mismatch")
+            let restart = try ssh.exec(RemoteCommands.restartPane(name), input: Data(), timeout: 10)
+            try require(restart.status == 0 && String(decoding: restart.output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == "sleep 600", "Pane restart did not report its program")
+            try require(try sh(RemoteCommands.killTmux(name)).0 == 0 && (try sh("tmux has-session -t =\(name) 2>/dev/null").0) != 0, "tmux session was not ended")
+            return ["hooksInstalled": "true", "statusWorking": "true", "restartReportedProgram": "true", "sessionEnded": "true"]
         }
     }
 

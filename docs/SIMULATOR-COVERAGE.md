@@ -1,5 +1,22 @@
 # Simulator acceptance coverage
 
+## 2026-10-15: Android parity to `5fc87b3`
+
+Source: this branch's final working tree (home sessions/hosts tabs, agent status, close/force delete/restart, pet arrow keys, terminal URLs, SSH greeting probe).
+
+| Evidence | Artifact | Result |
+| --- | --- | --- |
+| Full simulator UI run, all 36 methods with the recovery and plugin fixtures | `TestResults/Simulator-20261015-161729.xcresult` | **36 total: 35 passed, 1 failed.** `testAgentLauncherModesAndInstalledPluginsReflectLiveHost` failed opening a launch-sheet menu (passed in the earlier batch and twice alone). |
+| TerminalSettingsUITests after the menu-retry test fix | latest `TestResults/Simulator-*.xcresult` on the Mac | **5 passed, 0 failed.** |
+| Baseline check | `8ce6404` worktree, `TestResults/Simulator-20261015-160005.xcresult` | The two NetworkRecovery methods also failed on the previous commit (changed-key review had no reconnect; the mosh fallback notice was cleared on connect). Both now follow Android and pass. |
+| Linux Core and live transport | `scripts/test-linux.sh` | **193 total: 191 passed, 2 sudo-fixture skips, 0 failed**, including `AgentHooksLiveTests` against real OpenSSH and tmux. |
+| Terminal URL finder on SwiftTerm 1.13.0 | `scripts/test-terminal-url.sh` | **518/518** Android `TerminalUrlTest` checks. |
+| Physical functional diagnostic, iPhone 16 Pro | Debug build, `Documents/Validation/report.json` | **18/18 passed**, including `agent_hooks_status_restart_kill`, `ssh_greeting_reachability` and home/host screenshots. The signed Release build was reinstalled afterwards. Physical XCTest UI automation was not attempted. |
+
+The 36th method is the new `SessionCapacityUITests` flow (eight isolated sessions on the home list, 强制删除 keeps the remote tmux session). `TerminalSettingsUITests` replaces the rename test with `testTmuxSessionSurvivesAppRelaunchAndCloseEndsIt`.
+
+## 2026-10-08
+
 Updated 2026-10-08. Scope is the reachable Android UI mapped in [UI-PARITY.md](UI-PARITY.md). Build success, Core tests, functional device diagnostics and XCTest UI execution are separate evidence. Skipped tests and partially completed methods do not count as passed.
 
 The complete 35-method simulator run passed 34 methods and failed one history-test interaction. The corrected history method and both plugin methods passed on final production source in the focused run; its preview method exposed a test-only native accessibility-role mismatch. The corrected preview query passed its complete focused rerun. **All 35 distinct UI methods now have passing execution evidence across the full run and focused reruns; this is not a single clean 35-test run.** Linux passed 160 of 162 Core/live tests, with two sudo-fixture skips and no failures; a separate isolated SSH suite passed all 12 tests, including both skipped cases. macOS passed 131 with 31 service-dependent skips and no failures. The latest signed Release 10 is installed and launched on the iPhone. Earlier physical diagnostics passed 14/14, but the two final-source attempts failed to reach the private SSH fixture; those attempts are not counted as passes.

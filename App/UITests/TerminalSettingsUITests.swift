@@ -2,48 +2,28 @@ import Foundation
 import XCTest
 
 final class TerminalSettingsUITests: RoamttyLiveUITestCase {
-    func testTmuxRenameCloseAndAppRelaunchPreserveRemoteShell() throws {
+    func testTmuxSessionSurvivesAppRelaunchAndCloseEndsIt() throws {
         let surface = try openTerminal()
         let token = UUID().uuidString.replacingOccurrences(of: "-", with: "")
         try runCommand("export ROAMTTY_UI_RECOVERY='\(token)'; printf 'RECOVERY_'; printf 'READY\\n'")
         waitForOutput("RECOVERY_READY", surface: surface)
-        leaveTerminal()
 
-        let session = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "session-")).firstMatch
-        XCTAssertTrue(session.waitForExistence(timeout: 5))
-        let identifier = session.identifier
-        let recordID = String(identifier.dropFirst("session-".count))
-        let title = "Recovery " + String(token.prefix(8))
-        app.buttons["rename-session-" + recordID].tap()
-        let titleField = app.alerts.firstMatch.textFields.firstMatch
-        XCTAssertTrue(titleField.waitForExistence(timeout: 3)); replace(titleField, with: title)
-        app.alerts.firstMatch.buttons.matching(identifier: "session-title-save").firstMatch.tap()
-        waitFor(NSPredicate(format: "label CONTAINS %@", title), element: app.buttons[identifier])
-        app.buttons[identifier].tap()
-        waitForConnected()
-        openTools()
-        XCTAssertTrue(app.buttons["session-switcher"].label.contains(title), "The session menu must show the renamed title")
-        closeTerminal()
-        XCTAssertTrue(app.buttons[identifier].waitForExistence(timeout: 5), "Closing tmux must retain its session card")
-
+        // The session list, not the host page, holds sessions; a relaunch restores the card and opening it reconnects.
         app.terminate(); app.launch()
-        try openHost()
-        let restored = app.buttons[identifier]
-        XCTAssertTrue(restored.waitForExistence(timeout: 5))
-        XCTAssertTrue(restored.label.contains(title), "The renamed card must survive an app restart")
-        restored.tap()
-        XCTAssertTrue(phase("已连接").waitForExistence(timeout: 20))
-        openTools()
-        XCTAssertTrue(app.buttons["session-switcher"].label.contains(title))
+        showSessionsTab()
+        let card = sessionCards.firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 8), "The tmux card must survive an app restart")
+        let identifier = card.identifier
+        card.tap()
+        XCTAssertTrue(phase("已连接").waitForExistence(timeout: 25), "A restored session reconnects as soon as it is opened")
+        XCTAssertFalse(app.buttons["terminal-reconnect"].exists, "No reconnect button while it reconnects by itself")
         let resumed = try runCommand("test \"$ROAMTTY_UI_RECOVERY\" = '\(token)' && { printf 'RECOVERY_'; printf 'PRESERVED\\n'; }")
         waitForOutput("RECOVERY_PRESERVED", surface: resumed)
-        capture("Renamed tmux session resumed after app restart")
+        capture("tmux session resumed after app restart")
 
+        // Closing ends the remote tmux session without asking; its card goes.
         closeTerminal()
-        app.buttons["close-session-" + recordID].tap()
-        let terminate = app.buttons.matching(identifier: "终止远程 tmux 并移除").firstMatch
-        XCTAssertTrue(terminate.waitForExistence(timeout: 3)); terminate.tap()
-        waitFor(NSPredicate(format: "exists == false"), element: app.buttons[identifier], timeout: 15)
+        waitFor(NSPredicate(format: "exists == false"), element: app.descendants(matching: .any)[identifier].firstMatch, timeout: 15)
     }
 
     func testPinnedToolsReserveWidthAndFunctionShortcutsReachRemote() throws {
@@ -138,10 +118,10 @@ final class TerminalSettingsUITests: RoamttyLiveUITestCase {
         revealSettings(hiddenFiles)
         setSwitch(hiddenFiles, on: true)
         app.buttons["settings-done"].tap()
-        XCTAssertEqual(app.staticTexts["hosts-title"].label, "Hosts")
+        XCTAssertEqual(app.buttons["home-tab-hosts"].label, "Hosts")
         app.terminate(); app.launch()
-        XCTAssertTrue(app.staticTexts["hosts-title"].waitForExistence(timeout: 8))
-        XCTAssertEqual(app.staticTexts["hosts-title"].label, "Hosts")
+        XCTAssertTrue(app.buttons["home-tab-hosts"].waitForExistence(timeout: 8))
+        XCTAssertEqual(app.buttons["home-tab-hosts"].label, "Hosts")
 
         openSettings()
         XCTAssertTrue(app.buttons["language-en"].isSelected)
@@ -163,12 +143,12 @@ final class TerminalSettingsUITests: RoamttyLiveUITestCase {
         XCTAssertTrue(app.buttons["theme-dark"].isSelected)
         XCTAssertTrue(app.buttons["language-zh"].isSelected)
         app.buttons["settings-done"].tap()
-        XCTAssertEqual(app.staticTexts["hosts-title"].label, "主机")
+        XCTAssertEqual(app.buttons["home-tab-hosts"].label, "主机")
     }
 
     func testAgentLauncherModesAndInstalledPluginsReflectLiveHost() throws {
         try openHost()
-        app.buttons["host-detail-plugins"].tap()
+        hostMenu("host-detail-plugins")
         for name in ["tmux", "mosh"] {
             let installed = app.descendants(matching: .any)["plugin-installed-" + name].firstMatch
             XCTAssertTrue(installed.waitForExistence(timeout: 20), "The live fixture must report \(name) installed")
@@ -208,7 +188,7 @@ final class TerminalSettingsUITests: RoamttyLiveUITestCase {
         capture("Agent modes and validated remote launch directory")
         app.buttons["launch-cancel"].tap()
         XCTAssertTrue(app.buttons["host-detail-agent"].waitForExistence(timeout: 5))
-        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "session-")).count, 0, "Cancelling the launcher must create no session")
+        XCTAssertEqual(sessionCards.count, 0, "Cancelling the launcher must create no session")
     }
 
     private func openSettings() {
@@ -226,9 +206,13 @@ final class TerminalSettingsUITests: RoamttyLiveUITestCase {
 
     /// Chooses the option starting with [prefix] from one of the launch sheet's pickers.
     private func pick(_ picker: String, _ prefix: String) {
-        app.buttons[picker].tap()
         let option = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
-        XCTAssertTrue(option.waitForExistence(timeout: 3)); option.tap()
+        // A tap landing while the previous menu is still closing does not open the next one: try once more.
+        for _ in 0..<2 where !option.exists {
+            app.buttons[picker].tap()
+            _ = option.waitForExistence(timeout: 3)
+        }
+        XCTAssertTrue(option.exists); option.tap()
     }
 
     private func openCommandDraft(_ text: String) {

@@ -71,8 +71,7 @@ final class TerminalGestureUITests: RoamttyLiveUITestCase {
 
     private func closePlainTerminal() {
         closeTerminal()
-        XCTAssertTrue(app.buttons["host-detail-terminal"].waitForExistence(timeout: 8))
-        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'session-'")).count, 0, "Explicitly closing plain SSH must remove its session card")
+        XCTAssertEqual(homeSessionCards().count, 0, "Explicitly closing plain SSH must remove its session card")
     }
 
     private func receiver(prefix: String, count: Int, bracketed: Bool = false, reportProgress: Bool = false) -> String {

@@ -81,20 +81,24 @@ struct TerminalConnectionNotice: View {
     @EnvironmentObject var model: AppModel
     let phase: ConnectionPhase
     let message: String?
-    let onReconnect: () -> Void
+    /// Nil while the terminal reconnects by itself.
+    let onReconnect: (() -> Void)?
     let onShell: () -> Void
     let onReverify: () -> Void
+    /// iOS has no Back button and the terminal no navigation bar: the notice leads back to where it was opened from.
+    var onLeave: (() -> Void)? = nil
     var body: some View {
         TerminalNoticeCard(title: model.phaseText(phase), id: "terminal-connection-notice") {
             if let message, !message.isEmpty {
                 Text(message).font(.subheadline).textSelection(.enabled).accessibilityIdentifier("terminal-notice")
             }
         } actions: {
+            if let onLeave { Button(model.text("返回", "Back"), action: onLeave).buttonStyle(TextActionStyle()).accessibilityIdentifier("terminal-leave") }
             if phase == .hostKeyChanged {
                 Button(model.text("重新核验…", "Verify again…"), action: onReverify).buttonStyle(FilledButtonStyle()).accessibilityIdentifier("terminal-reverify")
             } else {
                 if phase == .tmuxMissing { Button(model.text("改用普通 SSH", "Use plain SSH"), action: onShell).buttonStyle(TextActionStyle()).accessibilityIdentifier("terminal-use-shell") }
-                Button(model.text("手动重连", "Reconnect"), action: onReconnect).buttonStyle(FilledButtonStyle()).accessibilityIdentifier("terminal-reconnect")
+                if let onReconnect { Button(model.text("重新连接", "Reconnect"), action: onReconnect).buttonStyle(FilledButtonStyle()).accessibilityIdentifier("terminal-reconnect") }
             }
         }
     }

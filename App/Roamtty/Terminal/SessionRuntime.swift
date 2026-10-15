@@ -18,6 +18,20 @@ import RoamttyTransport
     @Published var outputRevision = 0
     @Published private(set) var workspaceTouches = 0
     @Published var pendingPaste: String?
+    /// Why the terminal is not connected: a drop or a restore reconnects by itself (Android `reconnectsOnOpen`).
+    @Published var end: SessionEnd?
+    /// The agent this session was started to run; restored sessions tell it by their title.
+    @Published var launchedAgent: CodingAgent?
+    /// What an agent started with hooks reports in this tmux session; nil for none, or while the host is out of reach.
+    @Published private(set) var agentStatus: AgentStatus?
+    /// When `agentStatus` was last read, so its elapsed time can move on between polls.
+    private(set) var agentStatusAt = Date()
+    /// The folder the tmux pane was last seen in, agent or not; empty until the first poll answers.
+    @Published private(set) var paneDirectory = ""
+    /// A double tap (Tab) brings the Up/Down/Left keys around the toolbox pet; each one restarts their idle clock.
+    @Published private(set) var petArrowTouches = 0
+    /// The cursor line starts with `/`, so its command menu keeps the pet's arrow keys up.
+    @Published private(set) var slashCommandLine = false
     /// Shell history commands run from the commands sheet in this session, newest first (memory only).
     var recentCommands: [String] = []
     /// Pinch-to-zoom reports the settled font size so it persists like Android's.
@@ -62,10 +76,15 @@ import RoamttyTransport
     private var scrollAccumulator = TerminalScrollAccumulator()
     private var sendingScrollEvent = false
     private var inputGestureHadPinch = false
+    private var agentPoll: Task<Void, Never>?
+    /// Shown as the 提示 card once the SSH fallback connects (Android `moshFallback` → `inputWarning`).
+    private var fallbackNotice: String?
+    static let moshFallbackNotice = "mosh 无法连接（可能未放行 UDP 60000–61000），已改用 SSH。 / Mosh unavailable (UDP 60000–61000 may be blocked), so this session uses SSH."
 
     init(record: SessionRecord, host: Host, loginSnapshot: SessionLoginSnapshot? = nil) {
         self.record = record; self.host = host
         self.loginSnapshot = loginSnapshot ?? SessionLoginSnapshot(host: host)
+        self.launchedAgent = CodingAgent.fromTitle(record.title)
         terminalView = AccessibleTerminalView(frame: .zero)
         super.init()
         terminalView.terminalDelegate = self
@@ -125,7 +144,9 @@ import RoamttyTransport
     func clearLoginCredentials() { loginSnapshot.clear() }
     func connect(ssh: SSHConnection, credentials: Credentials, preferMosh: Bool, directory: String, agent: AgentLaunch?) {
         loginSnapshot = SessionLoginSnapshot(host: host, credentials: credentials)
-        self.ssh = ssh; currentDirectory = directory; phase = .connecting
+        self.ssh = ssh; currentDirectory = directory; phase = .connecting; end = nil
+        if let agent { launchedAgent = agent.agent }
+        let hooks = agent.flatMap { $0.reportsStatus ? $0.agent : nil }
         let token = generation
         ssh.onPhase = { [weak self] value in DispatchQueue.main.async { guard self?.generation == token else { return }; self?.phase = value == .connected && self?.startupSent == false ? .connecting : value } }
         let startup: String? = agent?.commandLine ?? StartDirectory.command(directory)
@@ -135,6 +156,8 @@ import RoamttyTransport
             do {
                 try await performInBackground {
                     try ssh.connect()
+                    // The hook script and the agent's hook file go on the host before it starts; a failure only costs the status.
+                    if let hooks { Self.installAgentHooks(ssh, agent: hooks, cancellation: lifetime) }
                     if preferMosh {
                         do {
                             let previous = mode == .tmux ? try Self.tmuxClients(ssh, name: name, cancellation: lifetime) : []
@@ -152,7 +175,7 @@ import RoamttyTransport
                         } catch {
                             let canFallback = DispatchQueue.main.sync { () -> Bool in
                                 guard let self, self.generation == token, !self.startupSent else { return false }
-                                self.cancelStartup(); self.mosh?.close(); self.mosh = nil; self.transportName = "SSH"; self.message = "Mosh unavailable · SSH"
+                                self.cancelStartup(); self.mosh?.close(); self.mosh = nil; self.transportName = "SSH"; self.fallbackNotice = Self.moshFallbackNotice
                                 return true
                             }
                             // Commitment and fallback are one main-thread transaction, so no
@@ -171,7 +194,7 @@ import RoamttyTransport
                     try ssh.runTerminal { data in DispatchQueue.main.sync { self?.receive(data, token: token, attempt: attempt) } }
                 }
                 guard self?.generation == token else { return }
-                self?.cancelStartup(); self?.phase = .disconnected
+                self?.cancelStartup(); self?.end = .ended; self?.phase = .disconnected
             } catch { guard self?.generation == token else { return }; self?.cancelStartup(); self?.fail(error) }
         }
     }
@@ -201,7 +224,10 @@ import RoamttyTransport
             }
         }
         // Acceptance is irreversible: any later transport failure must not replay startup input.
-        startupSent = true; phase = .connected
+        startupSent = true; phase = .connected; end = nil
+        // Messages from earlier attempts go; the fallback notice of this one stays to be read.
+        message = fallbackNotice; fallbackNotice = nil
+        startAgentStatusPolling()
         startupTask?.cancel(); startupTask = nil; startupCancellation?.cancel(); startupCancellation = nil
         startupTimeoutTask?.cancel(); startupTimeoutTask = nil
     }
@@ -241,6 +267,13 @@ import RoamttyTransport
             }, onCancel: { cancellation.cancel() })
         }
     }
+    nonisolated private static func installAgentHooks(_ ssh: SSHConnection, agent: CodingAgent, cancellation: TransferCancellation) {
+        let file = AgentHooks.hostFile(agent)
+        for (name, content, executable) in [(AgentHooks.scriptName, AgentHooks.script, false), (file.name, file.content, file.executable)] {
+            guard let command = RemoteCommands.writeHostFile(name, executable: executable),
+                  let result = try? ssh.exec(command, input: Data(content.utf8), timeout: 8, cancellation: cancellation), result.status == 0 else { return }
+        }
+    }
     nonisolated private static func tmuxClients(_ ssh: SSHConnection, name: String, cancellation: TransferCancellation, timeout: TimeInterval = 2) throws -> Set<String> {
         let target = "=" + RemoteCommands.sanitizeSessionName(name)
         let script = RemoteCommands.pathSetup + "; tmux list-clients -t " + RemoteCommands.shellQuote(target) + " -F '__ROAMTTY_CLIENT__#{client_pid}|#{client_tty}' 2>/dev/null"
@@ -254,6 +287,8 @@ import RoamttyTransport
     }
     func fail(_ error: Error) {
         pendingPaste = nil
+        stopAgentStatusPolling()
+        end = Self.end(after: error, wasConnected: startupSent)
         if (error as? RoamError) == .authentication { loginSnapshot.invalidateAuthentication() }
         onFailure?(error)
         if let error = error as? RoamError {
@@ -266,6 +301,15 @@ import RoamttyTransport
             }
         } else { phase = .failed }
         message = error.localizedDescription
+    }
+    /// A login that failed or was refused waits for the user; a connection lost after it was up drops, and a host
+    /// that could not be reached may be back later.
+    static func end(after error: Error, wasConnected: Bool) -> SessionEnd {
+        switch error as? RoamError {
+        case .authentication, .hostKeyChanged, .rejected, .cancelled, .tmuxMissing, .sessionLimit, .invalid: return .ended
+        case .timeout: return wasConnected ? .dropped : .unreachable
+        default: return wasConnected ? .dropped : .unreachable
+        }
     }
     @discardableResult func send(_ string: String) -> Bool { send(Data(string.utf8)) }
     @discardableResult func send(_ data: Data) -> Bool {
@@ -281,10 +325,84 @@ import RoamttyTransport
         generation = UUID(); worker?.cancel(); worker = nil; mosh?.close(); mosh = nil
         lifetimeCancellation.cancel(); cancelStartup()
         cursorTimer?.cancel(); keyboardHide?.cancel(); cursorControls = TerminalCursorControls(); cursorRowBounds = nil; cursorRowKey = .escape
+        stopAgentStatusPolling()
         let connection = ssh; ssh = nil; DispatchQueue.global(qos: .utility).async { connection?.disconnect() }
-        phase = .disconnected; terminalView.resignFirstResponder()
+        end = .ended; phase = .disconnected; terminalView.resignFirstResponder()
     }
     func probe() { mosh?.probe() }
+
+    // MARK: Agent status (Android TerminalConnection.agentStatus)
+
+    private func startAgentStatusPolling() {
+        agentPoll?.cancel()
+        guard record.mode == .tmux else { return }
+        agentPoll = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.phase == .connected else { return }
+                let status = await self.pollAgentStatus()
+                // An agent shows up within seconds of starting; without one the poll can be lazy.
+                do { try await Task.sleep(nanoseconds: status != nil ? 3_000_000_000 : 10_000_000_000) } catch { return }
+            }
+        }
+    }
+    private func stopAgentStatusPolling() { agentPoll?.cancel(); agentPoll = nil; agentStatus = nil }
+
+    /// Asks the host what the agent is doing now and shows it; a poll that got no answer keeps what was shown.
+    @discardableResult func pollAgentStatus() async -> AgentStatus? {
+        guard record.mode == .tmux, let ssh, ssh.isConnected else { return agentStatus }
+        let command = RemoteCommands.agentStatus(record.remoteName), cancellation = lifetimeCancellation
+        let output = try? await performInBackground { () -> String? in
+            let result = try ssh.exec(command, input: Data(), timeout: 5, cancellation: cancellation)
+            return String(decoding: result.output, as: UTF8.self)
+        }
+        guard self.ssh === ssh, phase == .connected else { return agentStatus }
+        // Only an answer without an agent clears it.
+        guard let answer = output else { return agentStatus }
+        let status = AgentStatus.parse(answer)
+        agentStatusAt = Date()
+        if agentStatus != status { agentStatus = status }
+        let directory = AgentStatus.directory(answer)
+        if !directory.isEmpty && directory != paneDirectory { paneDirectory = directory }
+        return status
+    }
+
+    /// Answers the agent's request for permission with its default choice (Enter: "Yes" in Claude Code, Codex and
+    /// Grok). Asks the host first, so a request already answered on another screen gets no stray Enter.
+    func approveAgent() async -> Bool {
+        guard phase == .connected, await pollAgentStatus()?.state == .waiting else { return false }
+        return send("\r")
+    }
+
+    /// Sends `text` to an agent that finished its turn, as if typed at its prompt and submitted. Only an idle agent
+    /// takes a new prompt. The text goes as a paste when the agent accepts one, so its characters are not read as
+    /// keys, and Enter follows a moment later: sent together, the agents take it as part of the paste.
+    func followUpAgent(_ text: String) async -> Bool {
+        let line = text.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces)
+        guard !line.isEmpty, phase == .connected, await pollAgentStatus()?.state == .idle else { return false }
+        let input = terminalView.getTerminal().bracketedPasteMode ? "\u{1b}[200~" + line + "\u{1b}[201~" : line
+        guard send(input) else { return false }
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        return send("\r")
+    }
+
+    /// Restarts the tmux pane in its folder and types its foreground program again; false when tmux was not reached.
+    func restartPane() async -> Bool {
+        guard record.mode == .tmux, phase == .connected, let ssh else { return false }
+        let command = RemoteCommands.restartPane(record.remoteName), cancellation = lifetimeCancellation
+        guard let result = try? await performInBackground({ try ssh.exec(command, input: Data(), timeout: 10, cancellation: cancellation) }), result.status == 0 else { return false }
+        let program = String(decoding: result.output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !program.isEmpty, !program.contains("\n") else { return true }
+        // Let the fresh shell print its prompt before the command echoes.
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        return send(program + "\r")
+    }
+
+    /// Ends this session's tmux session on the server over the live connection; false when it could not.
+    func killRemoteSession() async -> Bool {
+        guard record.mode == .tmux, let ssh, ssh.isConnected else { return false }
+        let script = RemoteCommands.killTmux(record.remoteName)
+        return (try? await performInBackground { try ssh.exec(HostPluginProbe.command, input: Data(script.utf8), timeout: 15) })?.status == 0
+    }
     func toggleKeyboard() { if terminalView.isFirstResponder { terminalView.resignFirstResponder() } else { terminalView.becomeFirstResponder() } }
     func paste() { terminalView.paste(nil) }
     @discardableResult func pasteText(_ text: String, confirmed: Bool = false) -> Bool {
@@ -410,7 +528,9 @@ import RoamttyTransport
         }
     }
     @objc private func cursorTap(_ recognizer: UITapGestureRecognizer) {
-        guard recognizer.state == .ended, phase == .connected else { return }
+        guard recognizer.state == .ended else { return }
+        if let link = link(at: recognizer.location(in: terminalView)) { open(link); return }
+        guard phase == .connected else { return }
         UIMenuController.shared.hideMenu()
         refreshCursor()
         guard let row = cursorRowBounds else { return }
@@ -422,11 +542,17 @@ import RoamttyTransport
     @objc private func completionTap(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended, phase == .connected else { return }
         clearModifiers()
-        if send("\t") { wakeCursor(dismissSlash: true) }
+        if send("\t") { wakeCursor(); petArrowTouches += 1 }
     }
     @objc private func pasteTap(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended, phase == .connected else { return }
         clearModifiers(); paste()
+    }
+    /// The Up/Down/Left keys around the toolbox pet.
+    func sendPetArrow(_ final: String) {
+        let control = controlArmed, shift = shiftArmed
+        clearModifiers(); terminalView.scroll(toPosition: 1)
+        if send(TerminalKeys.arrow(final, applicationCursor: terminalView.getTerminal().applicationCursor, control: control, shift: shift)) { petArrowTouches += 1 }
     }
     func sendCursorKey(_ key: CursorRowKey, up: Bool = false) {
         let control = controlArmed, shift = shiftArmed
@@ -436,7 +562,6 @@ import RoamttyTransport
         switch key {
         case .enter: value = "\r"
         case .escape: value = "\u{1b}"
-        case .arrows: value = TerminalKeys.arrow(up ? "A" : "B", applicationCursor: terminalView.getTerminal().applicationCursor, control: control, shift: shift)
         }
         guard send(value) else { return }
         if key != .escape { wakeCursor() }
@@ -450,8 +575,8 @@ import RoamttyTransport
         scheduleCursorTimer(typing: true)
         if data == Data([13]) || data == Data([10]) { hideKeyboardSoon() }
     }
-    private func wakeCursor(dismissSlash: Bool = false) {
-        cursorControls.wake(at: Date.timeIntervalSinceReferenceDate, dismissSlash: dismissSlash)
+    private func wakeCursor() {
+        cursorControls.wake(at: Date.timeIntervalSinceReferenceDate)
         updateCursorKey(); scheduleCursorTimer(typing: false)
     }
     private func scheduleCursorTimer(typing: Bool) {
@@ -466,7 +591,8 @@ import RoamttyTransport
     private func hideKeyboardSoon() {
         keyboardHide?.cancel()
         keyboardHide = Task { [weak self] in
-            do { try await Task.sleep(nanoseconds: 3_000_000_000); self?.terminalView.resignFirstResponder() } catch { }
+            // Enter puts the keyboard away after 15 s without typing, so a follow-up line can still be typed.
+            do { try await Task.sleep(nanoseconds: 15_000_000_000); self?.terminalView.resignFirstResponder() } catch { }
         }
     }
     private func updateCursorKey() {
@@ -487,6 +613,7 @@ import RoamttyTransport
         if visible {
             let terminal = view.getTerminal()
             if let row = terminal.getLine(row: terminal.getCursorLocation().y) { cursorControls.observe(row: row.translateToString(trimRight: true)) }
+            if slashCommandLine != cursorControls.onSlashLine { slashCommandLine = cursorControls.onSlashLine }
             updateCursorKey()
         }
     }
@@ -522,6 +649,21 @@ import RoamttyTransport
         if controlArmed { controlArmed = false; terminalView.controlModifier = false }
     }
     func scrolled(source: TerminalView, position: Double) { queueCursorRefresh() }
+    /// The complete HTTP(S) URL under a tap, including soft and TUI hard wraps and scrolled history.
+    private func link(at point: CGPoint) -> String? {
+        let terminal = terminalView.getTerminal(), optimal = terminalView.getOptimalFrameSize()
+        let cell = CGSize(width: optimal.width / CGFloat(max(1, terminal.cols)), height: optimal.height / CGFloat(max(1, terminal.rows)))
+        let x = point.x - terminalView.contentOffset.x, y = point.y - terminalView.contentOffset.y
+        guard cell.width > 0, cell.height > 0, x >= 0, y >= 0 else { return nil }
+        return TerminalUrl.at(SwiftTermTextGrid(terminal: terminal), column: Int(x / cell.width), row: Int(y / cell.height))
+    }
+    /// iOS hands GitHub and other universal links to their app when it is installed, else to the browser.
+    private func open(_ link: String) {
+        guard let url = terminalLinkTarget(link) else { return }
+        UIApplication.shared.open(url) { [weak self] opened in
+            if !opened { self?.message = "无法打开链接：\(link) / Cannot open link: \(link)" }
+        }
+    }
     func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
         guard let url = URL(string: link), ["https", "http", "mailto"].contains(url.scheme?.lowercased() ?? "") else { return }
         UIApplication.shared.open(url)

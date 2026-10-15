@@ -7,6 +7,8 @@ struct HostEditorScreen: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
     let original: Host?
+    /// Set when the form fills in a new host on the way to a new session: the agent it starts, or nil for a terminal.
+    var forSession: CodingAgent?? = nil
     @State private var host: Host
     @State private var port = "22"
     @State private var password = ""
@@ -14,7 +16,12 @@ struct HostEditorScreen: View {
     @State private var privateKey: Data?
     @State private var importKey = false
     @State private var validation: String?
-    init(original: Host?) { self.original = original; _host = State(initialValue: original ?? Host()); _port = State(initialValue: String(original?.port ?? 22)) }
+    init(original: Host?, forSession: CodingAgent?? = nil) {
+        self.original = original; self.forSession = forSession
+        // A session started from here would otherwise ask for the password again right after saving.
+        _host = State(initialValue: original ?? Host(savePassword: forSession != nil))
+        _port = State(initialValue: String(original?.port ?? 22))
+    }
     private var authFooter: String {
         switch host.auth {
         case .password: return model.text("密码仅在勾选后才会在本机加密保存。留空可在连接时输入。", "The password is saved on this device, encrypted, only when enabled. Leave it empty to enter it when connecting.")
@@ -56,16 +63,18 @@ struct HostEditorScreen: View {
                             FormField(label: original?.savePassword == true ? model.text("新密码（留空保留原密码）", "New password (empty keeps the saved one)") : model.text("密码", "Password"), text: $password, id: "host-password", secure: true)
                         } else if host.auth == .key {
                             Divider().overlay(Palette.outline).padding(.leading, 16)
+                            // The trailing action stays one short word, so the title keeps its width in any language; the whole row opens the picker.
                             HStack(spacing: 12) {
                                 AppIcon("ic_keys").foregroundStyle(Palette.secondary)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(host.keyLabel ?? model.text("尚未导入私钥", "No private key imported")).lineLimit(1)
-                                    if host.keyLabel != nil { Text(model.text("已导入私钥", "Private key imported")).font(.footnote).foregroundStyle(Palette.secondary) }
+                                    Text(host.keyLabel == nil ? model.text("支持 Ed25519 / RSA 私钥", "Ed25519 or RSA key") : model.text("已导入私钥", "Private key imported")).font(.footnote).foregroundStyle(Palette.secondary)
                                 }
                                 Spacer(minLength: 8)
-                                Button(host.keyLabel == nil ? model.text("导入 Ed25519 / RSA 私钥", "Import Ed25519 / RSA key") : model.text("更换私钥", "Replace key")) { importKey = true }
-                                    .buttonStyle(TextActionStyle()).accessibilityIdentifier("host-import-key")
-                            }.padding(.horizontal, 16).frame(minHeight: 56).panelDivider()
+                                Button(host.keyLabel == nil ? model.text("导入", "Import") : model.text("更换", "Replace")) { importKey = true }
+                                    .buttonStyle(TextActionStyle()).lineLimit(1).fixedSize().accessibilityIdentifier("host-import-key").accessibilityValue(host.keyLabel ?? "")
+                            }.padding(.horizontal, 16).frame(minHeight: 56).contentShape(Rectangle()).onTapGesture { importKey = true }
+                                .panelDivider()
                             FormField(label: model.text("私钥口令（仅用于本次连接，可留空）", "Key passphrase (this connection only, optional)"), text: $passphrase, id: "host-key-passphrase", secure: true)
                         }
                     }
@@ -79,10 +88,10 @@ struct HostEditorScreen: View {
                     }
                 }.padding(16).frame(maxWidth: 720)
             }.accessibilityIdentifier("host-editor-scroll").frame(maxWidth: .infinity).pageBackground()
-                .navigationTitle(original == nil ? model.text("添加主机", "Add host") : model.text("编辑主机", "Edit host")).navigationBarTitleDisplayMode(.inline)
+                .navigationTitle(forSession != nil ? model.text("新建会话", "New session") : original == nil ? model.text("添加主机", "Add host") : model.text("编辑主机", "Edit host")).navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button(model.text("取消", "Cancel")) { dismiss() }.foregroundStyle(Palette.accent).accessibilityIdentifier("cancel-host-editor") }
-                    ToolbarItem(placement: .confirmationAction) { Button(model.text("保存", "Save")) { save() }.fontWeight(.semibold).foregroundStyle(Palette.accent).accessibilityIdentifier("save-host") }
+                    ToolbarItem(placement: .confirmationAction) { Button(forSession != nil ? model.text("下一步", "Next") : model.text("保存", "Save")) { save() }.fontWeight(.semibold).foregroundStyle(Palette.accent).accessibilityIdentifier("save-host") }
                 }
         }.fileImporter(isPresented: $importKey, allowedContentTypes: [.data, .plainText]) { result in
             do {
@@ -120,8 +129,14 @@ struct HostEditorScreen: View {
         do {
             guard let value = Int(port) else { throw RoamError.invalid(model.text("端口必须为 1–65535", "Port must be between 1 and 65535")) }
             host.port = value
+            // A blank name falls back to the address, so a host filled in for a new session needs no name.
+            if host.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { host.name = host.address.trimmingCharacters(in: .whitespacesAndNewlines) }
             try model.saveHost(host, password: password, key: privateKey, passphrase: passphrase)
-            password = ""; passphrase = ""; privateKey = nil; dismiss()
+            password = ""; passphrase = ""; privateKey = nil
+            // 下一步 goes straight on to the launch sheet for the chosen kind of session.
+            if let forSession, let saved = model.host(host.id) {
+                model.replaceSheet(with: .launch(saved, forSession != nil, agent: forSession, newSession: true))
+            } else { dismiss() }
         } catch { validation = error.localizedDescription }
     }
 }
@@ -190,11 +205,15 @@ struct FingerprintReview: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) var dismiss
     let host: Host
+    /// Android removes the old record and reconnects at once, so the new fingerprint is shown for approval.
+    var onRemoved: (() -> Void)? = nil
     var body: some View {
         NavigationStack {
             VStack(spacing: 24) {
                 EmptyMessage(icon: "exclamationmark.shield", title: model.text("服务器指纹已变化", "Host key changed"), message: model.text("这可能是服务器重装或连接被拦截。请通过可信渠道核对新的指纹，再移除之前的记录。", "This can mean the server was reinstalled or the connection was intercepted. Verify the new fingerprint through a trusted channel before removing the previous record."))
-                Button(model.text("移除旧指纹", "Remove previous fingerprint"), role: .destructive) { model.forgetPin(host); dismiss() }.buttonStyle(RoamButtonStyle())
+                Button(onRemoved == nil ? model.text("移除旧指纹", "Remove previous fingerprint") : model.text("移除旧记录并重连", "Remove and reconnect"), role: .destructive) {
+                    model.forgetPin(host); dismiss(); onRemoved?()
+                }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("fingerprint-remove")
                 Spacer()
             }.padding(16).pageBackground().navigationTitle(host.name).navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button(model.text("取消", "Cancel")) { dismiss() } } }

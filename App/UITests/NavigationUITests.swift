@@ -26,7 +26,7 @@ final class NavigationUITests: RoamttyLiveUITestCase {
         XCTAssertFalse(search.exists)
         XCTAssertTrue(card.waitForExistence(timeout: 3)); card.tap()
 
-        app.buttons["host-detail-edit"].tap()
+        hostMenu("host-detail-edit")
         let edited = "Edited " + suffix
         replace(app.textFields["host-name"], with: edited)
         replace(app.textFields["host-username"], with: "changed_" + suffix.lowercased())
@@ -41,6 +41,7 @@ final class NavigationUITests: RoamttyLiveUITestCase {
         XCTAssertFalse(app.buttons["host-" + name].exists)
         XCTAssertTrue(app.buttons["host-" + edited].waitForExistence(timeout: 3))
         app.terminate(); app.launch()
+        showHostsTab()
         let saved = app.buttons["host-" + edited]
         XCTAssertTrue(saved.waitForExistence(timeout: 8))
         XCTAssertTrue(saved.label.contains("changed_" + suffix.lowercased()))
@@ -67,10 +68,10 @@ final class NavigationUITests: RoamttyLiveUITestCase {
         saved.tap()
         openDeleteConfirmation()
         app.buttons.matching(identifier: "host-delete-confirm").firstMatch.tap()
-        XCTAssertTrue(app.buttons["add-host"].waitForExistence(timeout: 5))
+        XCTAssertTrue(addHostButton.waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["host-" + edited].exists)
         app.terminate(); app.launch()
-        XCTAssertTrue(app.buttons["add-host"].waitForExistence(timeout: 8))
+        XCTAssertTrue(addHostButton.waitForExistence(timeout: 8))
         XCTAssertFalse(app.buttons["host-" + edited].exists, "Deletion must survive an app restart")
     }
 
@@ -85,15 +86,15 @@ final class NavigationUITests: RoamttyLiveUITestCase {
         XCTAssertTrue(app.staticTexts["editor-error"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["cancel-host-editor"].exists)
         app.buttons["cancel-host-editor"].tap()
-        XCTAssertTrue(app.buttons["add-host"].waitForExistence(timeout: 5))
+        XCTAssertTrue(addHostButton.waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["host-" + name].exists)
-        app.buttons["add-host"].tap()
+        addHostButton.tap()
         XCTAssertTrue(app.textFields["host-name"].waitForExistence(timeout: 3))
         XCTAssertNotEqual(app.textFields["host-name"].value as? String, name)
         XCTAssertEqual(app.textFields["host-port"].value as? String, "22")
         app.buttons["cancel-host-editor"].tap()
         app.terminate(); app.launch()
-        XCTAssertTrue(app.buttons["add-host"].waitForExistence(timeout: 8))
+        XCTAssertTrue(addHostButton.waitForExistence(timeout: 8))
         XCTAssertFalse(app.buttons["host-" + name].exists)
     }
 
@@ -104,7 +105,7 @@ final class NavigationUITests: RoamttyLiveUITestCase {
         openDrawerItem("open-guide")
         XCTAssertTrue(app.navigationBars["Guide"].waitForExistence(timeout: 5))
         let guide = app.scrollViews["guide-scroll"]
-        for title in ["Connect a host", "Resume work", "Terminal gestures", "Transfer files"] {
+        for title in ["Connect a host", "Sessions and AI agents", "Terminal gestures", "Transfer files"] {
             let section = app.staticTexts[title]
             reveal(section, in: guide)
             XCTAssertTrue(section.isHittable)
@@ -127,8 +128,8 @@ final class NavigationUITests: RoamttyLiveUITestCase {
         capture("About privacy and open-source notices")
         app.buttons["about-done"].tap()
         openDrawerItem("drawer-hosts")
-        XCTAssertTrue(app.buttons["add-host"].isHittable)
-        XCTAssertEqual(app.staticTexts["hosts-title"].label, "Hosts")
+        XCTAssertTrue(addHostButton.isHittable)
+        XCTAssertEqual(app.buttons["home-tab-hosts"].label, "Hosts")
         XCTAssertFalse(app.buttons["open-guide"].exists, "Selecting Hosts must close the drawer")
 
         openDrawerItem("open-settings")
@@ -137,11 +138,11 @@ final class NavigationUITests: RoamttyLiveUITestCase {
         XCTAssertTrue(app.navigationBars["使用指南"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["连接主机"].exists)
         app.buttons["guide-done"].tap()
-        XCTAssertEqual(app.staticTexts["hosts-title"].label, "主机")
+        XCTAssertEqual(app.buttons["home-tab-hosts"].label, "主机")
     }
 
     private func openEditor(name: String, username: String, port: String) {
-        XCTAssertTrue(app.buttons["add-host"].waitForExistence(timeout: 8)); app.buttons["add-host"].tap()
+        XCTAssertTrue(addHostButton.waitForExistence(timeout: 8)); addHostButton.tap()
         for (identifier, value) in [("host-name", name), ("host-address", "127.0.0.1"), ("host-port", port), ("host-username", username)] {
             let field = app.textFields[identifier]
             XCTAssertTrue(field.waitForExistence(timeout: 3))

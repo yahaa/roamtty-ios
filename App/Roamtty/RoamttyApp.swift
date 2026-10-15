@@ -43,7 +43,11 @@ struct RootScreen: View {
                                 // Recreate UIKit and sheet state with that runtime instance.
                                 TerminalScreen(runtime: runtime).id(ObjectIdentifier(runtime))
                             }
-                            else { EmptyMessage(title: model.text("会话已关闭", "Session closed"), message: model.text("返回主机详情重新连接。", "Return to this host to connect again.")) }
+                            else if let record = model.records.first(where: { $0.id == id }) {
+                                // A session restored from the journal reconnects as soon as it is shown.
+                                Color.clear.onAppear { model.openRestored(record) }
+                            }
+                            else { EmptyMessage(title: model.text("会话已关闭", "Session closed"), message: model.text("返回会话列表重新连接。", "Return to the session list to connect again.")) }
                         case .files(let id, let sessionID, let directory):
                             if let host = model.host(id) {
                                 let target = model.connectionTarget(hostID: id, sessionID: sessionID)
@@ -62,8 +66,12 @@ struct RootScreen: View {
             ZStack {
                 switch sheet {
                 case .editor(let host): HostEditorScreen(original: host)
+                case .newHost(let agent): HostEditorScreen(original: nil, forSession: .some(agent))
+                case .newSession: NewSessionSheet()
                 case .settings: SettingsScreen()
-                case .launch(let host, let agent, let directory): LaunchScreen(host: host, forAgent: agent, initialDirectory: directory)
+                case .launch(let host, let agent, let directory, let picked, let newSession):
+                    LaunchScreen(host: host, forAgent: agent, initialDirectory: directory, initialAgent: picked,
+                                 title: newSession ? model.text("选择工作目录", "Choose a working folder") : nil)
                 case .plugins(let host): PluginsScreen(host: host)
                 case .guide: HelpScreen()
                 case .about: AboutScreen()
@@ -112,7 +120,7 @@ struct RootScreen: View {
 /// Android `ItermuxDrawer`: brand header, Hosts with its count, the open sessions, then Settings and Help.
 struct DrawerScreen: View {
     @EnvironmentObject var model: AppModel
-    private var sessions: [SessionRecord] { model.records.filter { model.runtimes[$0.id] != nil } }
+    private var sessions: [SessionRecord] { model.sessionsByActivity }
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 0) {
@@ -127,7 +135,8 @@ struct DrawerScreen: View {
             }.padding(.leading, 24).padding(.trailing, 12).padding(.top, 24).padding(.bottom, 20)
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    item(model.text("主机", "Hosts"), icon: "ic_hosts", selected: model.path.isEmpty, badge: "\(model.hosts.count)") { model.path = []; close() }
+                    // Hosts is a tab of the home page: a plain row like Settings, its count in a small muted chip.
+                    item(model.text("主机", "Hosts"), icon: "ic_hosts", badge: "\(model.hosts.count)") { model.path = []; model.homeTab = .hosts; close() }
                         .accessibilityIdentifier("drawer-hosts")
                     Divider().overlay(Palette.outline).padding(.horizontal, 24).padding(.vertical, 16)
                     Text(model.text("当前会话", "Open sessions")).font(.subheadline.weight(.medium)).foregroundStyle(Palette.secondary)
@@ -154,7 +163,10 @@ struct DrawerScreen: View {
                 AppIcon(icon, size: 24)
                 Text(title).font(.subheadline.weight(.medium))
                 Spacer()
-                if let badge { Text(badge).font(.subheadline.weight(.medium)) }
+                if let badge {
+                    Text(badge).font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.secondary)
+                        .padding(.horizontal, 8).padding(.vertical, 2).background(Palette.containerHighest, in: RoundedRectangle(cornerRadius: 8))
+                }
             }.padding(.leading, 16).padding(.trailing, 24).frame(height: 56)
                 .foregroundStyle(selected ? Palette.adaptive(0x3D332D, 0xECE2D8) : Palette.secondary)
                 .background(selected ? Palette.adaptive(0xECE4DB, 0x47413B) : Color.clear, in: Capsule()).contentShape(Capsule())
@@ -163,9 +175,9 @@ struct DrawerScreen: View {
     private func sessionItem(_ record: SessionRecord) -> some View {
         let host = model.host(record.hostID)
         let phase = model.runtimes[record.id]?.phase ?? .disconnected
-        return Button { model.drawer = false; model.openSession(record) } label: {
+        return Button { model.drawer = false; model.path = []; model.openSession(record) } label: {
             HStack(spacing: 12) {
-                HostSystemMark(system: host?.system ?? "UNKNOWN").frame(width: 32, height: 32)
+                SessionIcon(record: record, size: 32)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(model.sessionTitle(record)).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.foreground).lineLimit(1)
                     Text("\(host?.username ?? "")@\(host?.address ?? "")").font(.footnote).foregroundStyle(Palette.secondary).lineLimit(1)

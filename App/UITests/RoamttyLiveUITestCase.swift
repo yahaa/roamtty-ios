@@ -34,8 +34,55 @@ class RoamttyLiveUITestCase: XCTestCase {
         }
     }
 
+    /// The home page opens on its sessions tab; host cards and + live on the hosts tab.
+    func showHostsTab() {
+        let tab = app.buttons["home-tab-hosts"]
+        if tab.waitForExistence(timeout: 2), tab.isHittable, !tab.isSelected { tab.tap() }
+    }
+    func showSessionsTab() {
+        let tab = app.buttons["home-tab-sessions"]
+        if tab.waitForExistence(timeout: 2), tab.isHittable, !tab.isSelected { tab.tap() }
+    }
+    var addHostButton: XCUIElement { showHostsTab(); return app.buttons["add-host"] }
+    /// A session card on the home sessions tab (not its title, status or action children).
+    var sessionCards: XCUIElementQuery {
+        app.descendants(matching: .any).matching(NSPredicate(format: "identifier MATCHES %@", "^home-session-[0-9A-Fa-f-]{36}$"))
+    }
+
+    /// The home session cards, reached back from a host page or file browser.
+    func homeSessionCards() -> XCUIElementQuery {
+        for _ in 0..<3 where !app.buttons["home-tab-sessions"].exists && app.navigationBars.buttons.count > 0 {
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+        }
+        showSessionsTab()
+        return sessionCards
+    }
+    /// The status line of a home session card ("已连接", "等待确认" …).
+    func sessionStatus(_ cardID: String) -> XCUIElement {
+        app.descendants(matching: .any)["home-session-status-" + String(cardID.dropFirst("home-session-".count))].firstMatch
+    }
+    func sessionConnected(_ cardID: String) -> Bool {
+        let label = sessionStatus(cardID).label
+        return label.contains("已连接") || label.contains("Connected")
+    }
+    /// Detaches the tmux client, which leaves its card disconnected, and goes back from the terminal.
+    func detachTerminal() throws {
+        try runCommand("tmux detach-client")
+        let back = app.buttons["terminal-leave"]
+        XCTAssertTrue(back.waitForExistence(timeout: 10)); back.tap()
+    }
+
+    /// Chooses an item of the host page's ⋯ menu (安装插件, 编辑主机, 删除主机).
+    func hostMenu(_ item: String) {
+        let menu = app.buttons["host-detail-menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 8)); menu.tap()
+        let entry = app.buttons[item]
+        XCTAssertTrue(entry.waitForExistence(timeout: 3)); entry.tap()
+    }
+
     func openHost() throws {
         guard ProcessInfo.processInfo.environment["ROAMTTY_TEST_HOST"] != nil else { throw XCTSkip("A live SSH fixture is required") }
+        showHostsTab()
         let host = app.buttons["host-UI Live Host"]
         XCTAssertTrue(host.waitForExistence(timeout: 8)); host.tap()
         let trust = app.buttons["auth-confirm"]
@@ -115,12 +162,12 @@ class RoamttyLiveUITestCase: XCTestCase {
         XCTAssertTrue(entry.waitForExistence(timeout: 3)); entry.tap()
     }
 
-    /// Closes the connection through the settings menu and confirms when it is still live.
+    /// Closes the session through the session menu: it ends on the server, without asking, and the session list shows.
     func closeTerminal() {
-        terminalMenu("terminal-close")
-        let confirm = app.buttons.matching(identifier: "terminal-close-confirm").firstMatch
-        if confirm.waitForExistence(timeout: 3) { confirm.tap() }
-        XCTAssertTrue(app.buttons["host-detail-terminal"].waitForExistence(timeout: 10), "Closing returns to the host page")
+        openTools(); app.buttons["session-switcher"].tap()
+        let close = app.buttons["close-session"]
+        XCTAssertTrue(close.waitForExistence(timeout: 3)); close.tap()
+        XCTAssertTrue(app.buttons["add-session"].waitForExistence(timeout: 10), "Closing returns to the session list")
     }
 
     /// Empties the prompt editor (holding ⌫ clears it) and puts it away, so a paste stages only the clipboard.

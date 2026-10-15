@@ -28,6 +28,33 @@ public enum RemoteCommands {
         let name = sanitizeSessionName(name)
         return pathSetup + "\ntmux has-session -t =\(name) 2>/dev/null || exit 0\nexec tmux kill-session -t =\(name)\n"
     }
+    /// One line `pane_command|state|since|agent|tool|detail|worked|task|reply` of what an agent reports through the
+    /// session options `@roamtty_agent`, `@roamtty_worked`, `@roamtty_task` and `@roamtty_reply` (empty when it
+    /// reports nothing), the pane's folder, then the host's clock for the elapsed time.
+    public static func agentStatus(_ name: String) -> String {
+        let name = sanitizeSessionName(name)
+        return "/bin/sh -c " + shellQuote(pathSetup + "; tmux display-message -p -t \(name) " +
+            "\"#{pane_current_command}|#{@roamtty_agent}|#{@roamtty_worked}|#{@roamtty_task}|#{@roamtty_reply}\" 2>/dev/null && " +
+            "tmux display-message -p -t \(name) \"#{pane_current_path}\" 2>/dev/null; date +%s")
+    }
+    /// Restarts `name`'s pane in the folder it is in, ending whatever runs there. Prints the command line of the pane's
+    /// foreground program (nothing when only the shell ran) so it can be typed into the fresh shell. tmux before 2.6
+    /// has no `respawn-pane -c`, so it falls back to a plain respawn.
+    public static func restartPane(_ name: String) -> String {
+        let name = sanitizeSessionName(name)
+        return "/bin/sh -c " + shellQuote(pathSetup + "; " +
+            "p=$(tmux display-message -p -t \(name) \"#{pane_pid}\") && [ -n \"$p\" ] || exit 1; " +
+            "d=$(tmux display-message -p -t \(name) \"#{pane_current_path}\"); " +
+            "ps -A -ww -o ppid= -o stat= -o args= | while read q s a; do [ \"$q\" = \"$p\" ] || continue; " +
+            "case \"$s\" in *+*) printf \"%s\\n\" \"$a\"; break;; esac; done; " +
+            "tmux respawn-pane -k ${d:+-c \"$d\"} -t \(name) 2>/dev/null || exec tmux respawn-pane -k -t \(name)")
+    }
+    /// Writes its standard input to `~/.roamtty/<name>`, replacing it; `name` is a plain file name.
+    public static func writeHostFile(_ name: String, executable: Bool = false) -> String? {
+        guard !name.isEmpty, !name.hasPrefix("."), name.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) || "-_.".unicodeScalars.contains($0) }) else { return nil }
+        let chmod = executable ? " && chmod +x \"$HOME/.roamtty/\(name)\"" : ""
+        return "/bin/sh -c " + shellQuote("mkdir -p \"$HOME/.roamtty\" && cat > \"$HOME/.roamtty/\(name)\"" + chmod)
+    }
     public static func tmuxAlternateScreen(_ name: String) -> String {
         // The colon selects the active pane. A session-only target produces an empty format value.
         let target = "=" + sanitizeSessionName(name) + ":"
@@ -52,6 +79,10 @@ public enum CodingAgent: String, Codable, CaseIterable, Identifiable, Sendable {
     public var readOnlyFlag: String { self == .claude ? "--permission-mode plan" : "--sandbox read-only" }
     public var yoloFlag: String { switch self { case .claude: return "--dangerously-skip-permissions"; case .codex: return "--dangerously-bypass-approvals-and-sandbox"; case .grok: return "--always-approve" } }
     public static func from(_ value: String?) -> Self { value.flatMap(Self.init(rawValue:)) ?? .codex }
+    /// The agent a hook reported itself as (its `command`), or nil for one this app does not know.
+    public static func fromCommand(_ value: String?) -> Self? { allCases.first { $0.command == value } }
+    /// The agent a session named by `AgentLaunch.title` was started for, or nil for any other title.
+    public static func fromTitle(_ title: String) -> Self? { allCases.first { title.hasPrefix($0.shortLabel + " · ") || title.hasPrefix($0.label + " · ") } }
 }
 
 public enum AgentMode: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -66,9 +97,17 @@ public struct AgentLaunch: Equatable, Sendable {
     public var mode: AgentMode
     public init(agent: CodingAgent, directory: String, mode: AgentMode = .standard) { self.agent = agent; self.directory = directory; self.mode = mode }
     public var agentCommand: String { switch mode { case .standard: return agent.command; case .readOnly: return agent.command + " " + agent.readOnlyFlag; case .yolo: return agent.command + " " + agent.yoloFlag } }
+    /// Agents report their state through hooks on hosts that run POSIX scripts.
+    public var reportsStatus: Bool { true }
+    /// `agentCommand` as typed: with the hooks `AgentHooks.hostFile` puts on the host, which Claude Code reads from its
+    /// settings and the other agents get from their launcher.
+    public var typedCommand: String {
+        if agent == .claude { return agentCommand + " --settings " + AgentHooks.settingsPath }
+        return AgentHooks.command(agent) + agentCommand.dropFirst(agent.command.count)
+    }
     public var commandLine: String {
         guard StartDirectory.isSupported(directory) else { return "printf '%s\\n' 'Unsupported directory control characters' >&2; false" }
-        return StartDirectory.command(directory).map { $0 + " && " + agentCommand } ?? agentCommand
+        return StartDirectory.command(directory).map { $0 + " && " + typedCommand } ?? typedCommand
     }
     public var title: String {
         var value = directory; while value.hasSuffix("/") { value.removeLast() }

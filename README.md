@@ -2,7 +2,7 @@
 
 Swift iOS client for Roamtty: saved SSH hosts, monitoring, independent shell/tmux sessions, native terminal, mosh, SFTP, file previews and transfers, coding-agent launchers, and sharing from iOS.
 
-Behavior reference: Android `yahaa/roamtty` main `bee299d82249e255be7169d7c9f1d60c4c5f5609`. The implementation uses SwiftUI, UIKit/SwiftTerm, libssh2, OpenSSL, SQLite, and device-only Keychain. Requires iOS 16 or later.
+Behavior reference: Android `yahaa/roamtty` main `5fc87b3` (earlier parity: `bee299d`). The implementation uses SwiftUI, UIKit/SwiftTerm, libssh2, OpenSSL, SQLite, and device-only Keychain. Requires iOS 16 or later.
 
 ## Build on macOS
 
@@ -46,6 +46,8 @@ swift test
 # Fixture credentials remain in ../roamtty/.private/test-password.
 ./scripts/test-linux.sh
 ```
+
+`./scripts/test-terminal-url.sh` checks the terminal URL finder against SwiftTerm 1.13.0 (it clones SwiftTerm into `scripts/terminal-url/SwiftTerm`).
 
 The mosh tests exercise wire-format vectors and an installed `mosh-server`, when available. Live SSH tests cover password/interactive/encrypted-key authentication, PTY, concurrent SFTP, no-overwrite and cancellation. Tests requiring unavailable services explicitly skip. XCTest UI tests are in `App/UITests`; sign simulator builds with `CODE_SIGN_IDENTITY=-` and the development entitlements so credential storage is exercised.
 
