@@ -997,6 +997,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "AA70066F11A1CF1DCC928980";
 		};
+		"A75BC1D141FF5EB99BAFE7BB" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Design/GhostArt.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"85903B921799E83B83C29E15" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "A75BC1D141FF5EB99BAFE7BB";
+		};
 		"3BFA73A0D83156A4C3465740" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/Roamtty/Files/FileBrowserScreen.swift";
@@ -1483,6 +1493,7 @@
 			"files" = (
 				"5F29D1EC30498895BFD1E919",
 				"A606DB9A9DFBF25B656D7D1E",
+				"85903B921799E83B83C29E15",
 				"DB7746E16CF2928EB80AE7C4",
 				"8FD238C15CAC9FB5A2A6DC8C",
 				"B21E458F50F5105829F945BD",
@@ -2609,6 +2620,7 @@
 				"8A869FDFB7823DF8D82A925C",
 				"0C1A6AD0AC6F4BD341261786",
 				"AA70066F11A1CF1DCC928980",
+				"A75BC1D141FF5EB99BAFE7BB",
 				"3BFA73A0D83156A4C3465740",
 				"1C0980B12601AB8C3257539C",
 				"538866A6A9E6211360E7EF93",

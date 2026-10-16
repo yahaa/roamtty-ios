@@ -3,7 +3,8 @@ import UIKit
 import RoamttyCore
 
 struct GhostMark: View {
-    var body: some View { Image("ToolboxGhost").resizable().scaledToFit().accessibilityHidden(true) }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View { ToolboxPetArt(animated: !reduceMotion) }
 }
 struct GhostShortcuts: View {
     @EnvironmentObject var model: AppModel
@@ -17,6 +18,7 @@ struct GhostShortcuts: View {
     @State private var app = ScreenApp.shell
     @State private var submenu: [TerminalShortcut]?
     @State private var heldCenter: CGPoint?
+    @State private var pressed = false
     /// The ring (and each sub-ring) springs out from the pet, as Android's does.
     @State private var openScale: CGFloat = 0
     private var shortcuts: [TerminalShortcut] { submenu ?? app.shortcuts }
@@ -62,9 +64,12 @@ struct GhostShortcuts: View {
                     }
                 }
             }
+            ToolboxPetArt(animated: !reduceMotion && !toolbox.ringOpen).frame(width: 44, height: 44)
+                .scaleEffect(pressed ? 0.86 : 1).animation(.spring(response: 0.18, dampingFraction: 0.4), value: pressed)
+                .allowsHitTesting(false).position(anchor)
             GhostControl(label: model.text("终端工具箱；长按显示快捷键", "Terminal tools; hold for shortcuts"),
-                         animate: !reduceMotion && !toolbox.ringOpen,
                          onTouch: { toolbox.wake(at: now) },
+                         onPress: { pressed = $0 },
                          onTap: { if toolbox.ringOpen { toolbox.dismissRing() } else { onTap() } },
                          onHoldStart: beginHold, onHoldMove: moveHold, onHoldEnd: endHold)
                 .frame(width: 48, height: 48).position(anchor)
@@ -126,11 +131,11 @@ struct GhostShortcuts: View {
 }
 
 /// A native control keeps a real 48-point hit target and accessibility activation.
-/// The image can float while the button's frame and gesture surface stay still.
+/// It is transparent: the animated pet is drawn under it, so the gesture surface stays still.
 private struct GhostControl: UIViewRepresentable {
     let label: String
-    let animate: Bool
     let onTouch: () -> Void
+    let onPress: (Bool) -> Void
     let onTap: () -> Void
     let onHoldStart: () -> Void
     let onHoldMove: (CGSize) -> Void
@@ -138,14 +143,12 @@ private struct GhostControl: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIView(context: Context) -> UIButton {
         let button = GhostButton(type: .custom)
-        button.setImage(UIImage(named: "ToolboxGhost")?.withRenderingMode(.alwaysOriginal), for: .normal)
-        button.contentHorizontalAlignment = .fill; button.contentVerticalAlignment = .fill
-        button.imageView?.contentMode = .scaleAspectFit
         button.isAccessibilityElement = true
         button.accessibilityIdentifier = "terminal-ghost"
         button.accessibilityTraits = [.button]
         button.addTarget(context.coordinator, action: #selector(Coordinator.touchDown), for: .touchDown)
         button.addTarget(context.coordinator, action: #selector(Coordinator.tap), for: .touchUpInside)
+        button.addTarget(context.coordinator, action: #selector(Coordinator.touchEnd), for: [.touchUpInside, .touchUpOutside, .touchCancel])
         let hold = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.hold(_:)))
         hold.minimumPressDuration = 0.25
         hold.cancelsTouchesInView = true
@@ -158,35 +161,18 @@ private struct GhostControl: UIViewRepresentable {
     func updateUIView(_ button: UIButton, context: Context) {
         context.coordinator.parent = self
         button.accessibilityLabel = label
-        guard context.coordinator.animating != animate else { return }
-        context.coordinator.animating = animate
-        button.imageView?.layer.removeAllAnimations()
-        button.imageView?.transform = .identity
-        if animate {
-            // Animate only the presentation layer: the button stays at rest for
-            // hit testing, accessibility and UIKit's interaction-idle tracking.
-            let bounce = CABasicAnimation(keyPath: "transform.translation.y")
-            bounce.fromValue = 0
-            bounce.toValue = -3
-            bounce.duration = 1.4
-            bounce.autoreverses = true
-            bounce.repeatCount = .infinity
-            bounce.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            button.imageView?.layer.add(bounce, forKey: "ghost-bounce")
-        }
     }
-    static func dismantleUIView(_ button: UIButton, coordinator: Coordinator) { button.imageView?.layer.removeAllAnimations() }
     @MainActor final class Coordinator: NSObject {
         var parent: GhostControl
-        var animating = false
         private var holding = false
         init(_ parent: GhostControl) { self.parent = parent }
-        @objc func touchDown() { parent.onTouch() }
+        @objc func touchDown() { parent.onTouch(); parent.onPress(true) }
+        @objc func touchEnd() { parent.onPress(false) }
         @objc func tap() { guard !holding else { return }; parent.onTap() }
         @objc func hold(_ recognizer: UILongPressGestureRecognizer) {
             switch recognizer.state {
             case .began:
-                holding = true; parent.onHoldStart()
+                holding = true; parent.onPress(false); parent.onHoldStart()
             case .changed:
                 guard holding, let view = recognizer.view else { return }
                 let point = recognizer.location(in: view)
@@ -201,9 +187,7 @@ private struct GhostControl: UIViewRepresentable {
     }
 }
 
-/// UIButton otherwise lays out this asset at its 216-point intrinsic image size,
-/// even when its SwiftUI wrapper proposes a smaller frame.
+/// Keeps the button at the pet's 48-point size whatever its SwiftUI wrapper proposes.
 private final class GhostButton: UIButton {
     override var intrinsicContentSize: CGSize { CGSize(width: 48, height: 48) }
-    override func imageRect(forContentRect contentRect: CGRect) -> CGRect { contentRect }
 }
