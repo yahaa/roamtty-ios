@@ -186,7 +186,7 @@ import RoamttyTransport
         let token = generation
         ssh.onPhase = { [weak self] value in DispatchQueue.main.async { guard self?.generation == token else { return }; self?.phase = value == .connected && self?.startupSent == false ? .connecting : value } }
         let startup: String? = agent?.commandLine ?? StartDirectory.command(directory)
-        let mode = record.mode, name = record.remoteName, cols = columns, rows = rows
+        let mode = record.mode, name = record.remoteName, existing = record.external, cols = columns, rows = rows
         let lifetime = lifetimeCancellation
         worker = Task { [weak self] in
             do {
@@ -198,7 +198,7 @@ import RoamttyTransport
                         do {
                             let previous = mode == .tmux ? try SessionRemote.tmuxClients(ssh, name: name, cancellation: lifetime) : []
                             let attempt = UUID()
-                            let mosh = try ssh.startMosh(mode: mode, remoteName: name, columns: cols, rows: rows)
+                            let mosh = try ssh.startMosh(mode: mode, remoteName: name, existing: existing, columns: cols, rows: rows)
                             DispatchQueue.main.sync {
                                 guard self?.generation == token else { mosh.close(); return }
                                 self?.mosh = mosh; self?.transportName = "mosh"
@@ -222,7 +222,7 @@ import RoamttyTransport
                     guard !lifetime.isCancelled else { throw RoamError.cancelled }
                     let previous = mode == .tmux ? try SessionRemote.tmuxClients(ssh, name: name, cancellation: lifetime) : []
                     let attempt = UUID()
-                    try ssh.openTerminal(mode: mode, remoteName: name, columns: cols, rows: rows)
+                    try ssh.openTerminal(mode: mode, remoteName: name, existing: existing, columns: cols, rows: rows)
                     DispatchQueue.main.sync {
                         guard self?.generation == token else { return }
                         self?.beginStartup(startup, ssh: ssh, mode: mode, name: name, previousClients: previous, token: token, attempt: attempt, afterFirstContact: false)

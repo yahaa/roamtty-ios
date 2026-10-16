@@ -254,7 +254,7 @@ struct TerminalScreen: View {
         Menu {
             Button(model.text("返回主机详情", "Back to host details")) { model.path = model.host(runtime.host.id) == nil ? [] : [.host(runtime.host.id)] }
             // Closing ends the session on the server, without asking, and returns to the session list.
-            Button(model.text("关闭当前会话", "Close session")) { model.closeSession(runtime.record) }.accessibilityIdentifier("close-session")
+            Button(runtime.record.external ? model.text("断开当前会话", "Detach session") : model.text("关闭当前会话", "Close session")) { model.closeSession(runtime.record) }.accessibilityIdentifier("close-session")
             // A tmux pane restarts over the live connection; a plain shell restarts by reconnecting.
             Button(model.text("重启当前会话", "Restart session")) { restartConfirm = true }
                 .disabled(runtime.record.mode == .tmux && !connected).accessibilityIdentifier("restart-session")

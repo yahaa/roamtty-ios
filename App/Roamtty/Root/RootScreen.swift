@@ -54,7 +54,7 @@ struct RootScreen: View {
                 case .settings: SettingsScreen()
                 case .launch(let host, let agent, let directory, let picked, let newSession):
                     LaunchScreen(host: host, forAgent: agent, initialDirectory: directory, initialAgent: picked,
-                                 title: newSession ? model.text("选择工作目录", "Choose a working folder") : nil)
+                                 title: newSession ? (agent ? model.text("选择工作目录", "Choose a working folder") : model.text("新建会话", "New session")) : nil)
                 case .plugins(let host): PluginsScreen(host: host)
                 case .guide: HelpScreen()
                 case .about: AboutScreen()

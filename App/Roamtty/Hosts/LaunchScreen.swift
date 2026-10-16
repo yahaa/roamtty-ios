@@ -29,6 +29,16 @@ struct LaunchScreen: View {
     @State private var loadRevision = 0
     @State private var loadTask: Task<Void, Never>?
     @State private var loadCancellation: TransferCancellation?
+    /// Opening a terminal can start in a folder or attach a tmux session already on the server.
+    @State private var source = Source.folder
+    @State private var tmuxSessions: [TmuxSessionInfo]?
+    @State private var tmuxError: String?
+    @State private var tmuxBusy = false
+    @State private var tmuxSelection: String?
+    private enum Source: Hashable { case folder, tmux }
+    /// A plain terminal opened without a folder in mind may attach a tmux session instead.
+    private var canAttach: Bool { !forAgent && StartDirectory.isHome(initialDirectory) }
+    private var attachReady: Bool { tmuxSessions?.contains { $0.name == tmuxSelection && $0.attachable } == true }
     private var launchReady: Bool { !busy && error == nil && StartDirectory.isSupported(pathDraft) && StartDirectory.normalize(pathDraft) == directory }
     private var segments: [(name: String, path: String)] { StartDirectory.segments(directory) }
     private var parent: String? {
@@ -50,41 +60,13 @@ struct LaunchScreen: View {
                 Spacer()
                 Button { dismiss() } label: { AppIcon("ic_close").frame(width: 48, height: 48) }.accessibilityLabel(model.text("关闭", "Close")).accessibilityIdentifier("launch-cancel")
             }.padding(.leading, 24).padding(.trailing, 12).padding(.top, 16).padding(.bottom, 12)
-            if !recent.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) { ForEach(recent, id: \.self) { path in recentChip(path) } }.padding(.horizontal, 16)
-                }.padding(.bottom, 8)
+            if canAttach {
+                Picker("", selection: $source) {
+                    Text(model.text("工作目录", "Folder")).tag(Source.folder)
+                    Text(model.text("tmux 会话", "tmux session")).tag(Source.tmux)
+                }.pickerStyle(.segmented).padding(.horizontal, 16).padding(.bottom, 12).accessibilityIdentifier("launch-source")
             }
-            VStack(spacing: 0) {
-                if filtering { filterBar } else { pathBar }
-                Divider().overlay(Palette.outline)
-                ZStack(alignment: .top) {
-                    if let error { centerNote(error, id: "launch-error", action: StartDirectory.isHome(directory) ? model.text("重试", "Retry") : model.text("回到主目录", "Back to home")) { navigate("~") } }
-                    else if entries.isEmpty && busy { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
-                    else { folderList }
-                    if busy && !entries.isEmpty { ProgressView().progressViewStyle(.linear).tint(Palette.accent) }
-                }.frame(maxHeight: .infinity)
-            }.background(Palette.panel, in: RoundedRectangle(cornerRadius: 16)).clipShape(RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 16)
-            if forAgent { agentChooser }
-            #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("--ui-testing") { testControls }
-            #endif
-            Button {
-                guard launchReady else { return }
-                let normalized = StartDirectory.normalize(directory)
-                recent = StartDirectory.remember(recent: recent, directory: normalized); persistRecent()
-                if forAgent { UserDefaults.standard.set(agent.rawValue, forKey: "launchAgent"); UserDefaults.standard.set(agentMode.rawValue, forKey: "launchAgentMode") }
-                let launch = forAgent ? AgentLaunch(agent: agent, directory: normalized, mode: agentMode) : nil
-                model.launch(host, mode: sessionMode, directory: normalized, agent: launch, mosh: moshExplicit ? mosh : nil)
-            } label: {
-                HStack(spacing: 8) {
-                    if forAgent { AppIcon("ic_agent", size: 18) }
-                    Text(launchTitle).lineLimit(1)
-                }.font(.subheadline.weight(.medium)).frame(maxWidth: .infinity).frame(minHeight: 48)
-                    .foregroundStyle(launchReady ? (yolo ? Palette.adaptive(0xFFFFFF, 0x5E1C17) : Palette.onAccent) : Palette.foreground.opacity(0.38))
-                    .background(launchReady ? (yolo ? Palette.danger : Palette.accent) : Palette.foreground.opacity(0.12), in: Capsule())
-                    .animation(.easeInOut(duration: 0.2), value: yolo)
-            }.buttonStyle(.plain).disabled(!launchReady).padding(.horizontal, 16).padding(.vertical, 12).accessibilityIdentifier("launch-session")
+            if source == .tmux { tmuxPanel } else { folderPanel }
         }.foregroundStyle(Palette.foreground).background(Palette.sheet.ignoresSafeArea())
         .task {
             let currentHost = model.host(host.id) ?? host
@@ -97,7 +79,136 @@ struct LaunchScreen: View {
             if !moshExplicit { mosh = plugins?.contains("mosh") == true }
             if !sessionModeExplicit { sessionMode = (model.host(host.id) ?? host).newSessionMode }
         }
+        .onChange(of: source) { value in if value == .tmux && tmuxSessions == nil && !tmuxBusy { loadTmux() } }
         .onDisappear { loadTask?.cancel(); loadCancellation?.cancel(); loadRevision += 1 }
+    }
+    @ViewBuilder private var folderPanel: some View {
+        if !recent.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) { ForEach(recent, id: \.self) { path in recentChip(path) } }.padding(.horizontal, 16)
+            }.padding(.bottom, 8)
+        }
+        VStack(spacing: 0) {
+            if filtering { filterBar } else { pathBar }
+            Divider().overlay(Palette.outline)
+            ZStack(alignment: .top) {
+                if let error { centerNote(error, id: "launch-error", action: StartDirectory.isHome(directory) ? model.text("重试", "Retry") : model.text("回到主目录", "Back to home")) { navigate("~") } }
+                else if entries.isEmpty && busy { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
+                else { folderList }
+                if busy && !entries.isEmpty { ProgressView().progressViewStyle(.linear).tint(Palette.accent) }
+            }.frame(maxHeight: .infinity)
+        }.background(Palette.panel, in: RoundedRectangle(cornerRadius: 16)).clipShape(RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 16)
+        if forAgent { agentChooser }
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing") { testControls }
+        #endif
+        Button {
+            guard launchReady else { return }
+            let normalized = StartDirectory.normalize(directory)
+            recent = StartDirectory.remember(recent: recent, directory: normalized); persistRecent()
+            if forAgent { UserDefaults.standard.set(agent.rawValue, forKey: "launchAgent"); UserDefaults.standard.set(agentMode.rawValue, forKey: "launchAgentMode") }
+            let launch = forAgent ? AgentLaunch(agent: agent, directory: normalized, mode: agentMode) : nil
+            model.launch(host, mode: sessionMode, directory: normalized, agent: launch, mosh: moshExplicit ? mosh : nil)
+        } label: {
+            HStack(spacing: 8) {
+                if forAgent { AppIcon("ic_agent", size: 18) }
+                Text(launchTitle).lineLimit(1)
+            }.font(.subheadline.weight(.medium)).frame(maxWidth: .infinity).frame(minHeight: 48)
+                .foregroundStyle(launchReady ? (yolo ? Palette.adaptive(0xFFFFFF, 0x5E1C17) : Palette.onAccent) : Palette.foreground.opacity(0.38))
+                .background(launchReady ? (yolo ? Palette.danger : Palette.accent) : Palette.foreground.opacity(0.12), in: Capsule())
+                .animation(.easeInOut(duration: 0.2), value: yolo)
+        }.buttonStyle(.plain).disabled(!launchReady).padding(.horizontal, 16).padding(.vertical, 12).accessibilityIdentifier("launch-session")
+    }
+    /// The tmux sessions on the server, most recently used first; tapping one picks it, the button attaches it.
+    @ViewBuilder private var tmuxPanel: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(model.text("服务器上的 tmux 会话", "tmux sessions on the server")).font(.subheadline.weight(.semibold))
+                Spacer()
+                Button { loadTmux() } label: { AppIcon("ic_refresh", size: 20).frame(width: 40, height: 40) }.disabled(tmuxBusy)
+                    .accessibilityLabel(model.text("刷新", "Refresh")).accessibilityIdentifier("launch-tmux-refresh")
+            }.padding(.leading, 16).padding(.trailing, 4).frame(minHeight: 48)
+            Divider().overlay(Palette.outline)
+            ZStack(alignment: .top) {
+                if let tmuxError { centerNote(tmuxError, id: "launch-tmux-error", action: model.text("重试", "Retry")) { loadTmux() } }
+                else if let tmuxSessions {
+                    if tmuxSessions.isEmpty { centerNote(model.text("服务器上没有正在运行的 tmux 会话", "No tmux sessions are running on the server"), id: "launch-tmux-empty", action: model.text("刷新", "Refresh")) { loadTmux() } }
+                    else { tmuxList(tmuxSessions) }
+                } else { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
+                if tmuxBusy && tmuxSessions != nil { ProgressView().progressViewStyle(.linear).tint(Palette.accent) }
+            }.frame(maxHeight: .infinity)
+        }.background(Palette.panel, in: RoundedRectangle(cornerRadius: 16)).clipShape(RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 16)
+        Button {
+            guard attachReady, let name = tmuxSelection else { return }
+            model.attachExisting(host, name: name, mosh: moshExplicit ? mosh : nil)
+        } label: {
+            Text(tmuxSelection.map { model.text("打开 tmux 会话 \($0)", "Open tmux session \($0)") } ?? model.text("选择一个 tmux 会话", "Pick a tmux session")).lineLimit(1)
+                .font(.subheadline.weight(.medium)).frame(maxWidth: .infinity).frame(minHeight: 48)
+                .foregroundStyle(attachReady ? Palette.onAccent : Palette.foreground.opacity(0.38))
+                .background(attachReady ? Palette.accent : Palette.foreground.opacity(0.12), in: Capsule())
+        }.buttonStyle(.plain).disabled(!attachReady).padding(.horizontal, 16).padding(.vertical, 12).accessibilityIdentifier("launch-attach")
+    }
+    private func tmuxList(_ sessions: [TmuxSessionInfo]) -> some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(sessions) { session in
+                    let selected = session.name == tmuxSelection
+                    let open = model.records.contains { $0.hostID == host.id && $0.mode == .tmux && $0.remoteName == session.name }
+                    Button { tmuxSelection = session.name } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "rectangle.on.rectangle").font(.system(size: 18)).foregroundStyle(Palette.accent).frame(width: 22)
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Text(session.name).font(.body.weight(.medium)).lineLimit(1)
+                                    if open { Badge(text: model.text("已打开", "Open")) }
+                                }
+                                Text(tmuxDetail(session, open: open)).font(.caption).foregroundStyle(session.attachable ? Palette.secondary : Palette.danger).lineLimit(1)
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                            if selected { Image(systemName: "checkmark").font(.system(size: 15, weight: .semibold)).foregroundStyle(Palette.accent) }
+                        }.padding(.horizontal, 16).padding(.vertical, 8).frame(minHeight: 52).contentShape(Rectangle())
+                            .background(selected ? Palette.accent.opacity(0.1) : Color.clear)
+                    }.buttonStyle(.plain).disabled(!session.attachable).opacity(session.attachable ? 1 : 0.5)
+                        .overlay(alignment: .bottom) { Rectangle().fill(Palette.outline).frame(height: 0.5).padding(.leading, 50) }
+                        .accessibilityIdentifier("launch-tmux-\(session.name)")
+                }
+            }
+        }.accessibilityIdentifier("launch-tmux-sessions")
+    }
+    /// "3 个窗口 · 2 个客户端已连接 · ~/work · 5分钟前"
+    private func tmuxDetail(_ session: TmuxSessionInfo, open: Bool) -> String {
+        guard session.attachable else { return model.text("名称含有特殊字符，暂不支持打开", "Its name has special characters, so it can't be opened") }
+        var parts = [model.text("\(session.windows) 个窗口", session.windows == 1 ? "1 window" : "\(session.windows) windows")]
+        if session.attached > 0 { parts.append(model.text("\(session.attached) 个客户端已连接", session.attached == 1 ? "1 client attached" : "\(session.attached) clients attached")) }
+        if !session.directory.isEmpty {
+            if let homeDirectory, homeDirectory != "/", session.directory == homeDirectory || session.directory.hasPrefix(homeDirectory + "/") { parts.append("~" + session.directory.dropFirst(homeDirectory.count)) }
+            else { parts.append(session.directory) }
+        }
+        if let activity = session.activity { parts.append(ago(activity)) }
+        return parts.joined(separator: " · ")
+    }
+    /// How long ago, as the session list says it on Android: "刚刚", "3分钟前".
+    private func ago(_ date: Date) -> String {
+        let seconds = max(0, Int(Date().timeIntervalSince(date)))
+        if seconds < 60 { return model.text("刚刚", "now") }
+        if seconds < 3600 { return model.text("\(seconds / 60)分钟前", "\(seconds / 60)m ago") }
+        if seconds < 86400 { return model.text("\(seconds / 3600)小时前", "\(seconds / 3600)h ago") }
+        return model.text("\(seconds / 86400)天前", "\(seconds / 86400)d ago")
+    }
+    private func loadTmux() {
+        tmuxBusy = true; tmuxError = nil
+        Task {
+            defer { tmuxBusy = false }
+            do {
+                let ssh = try await model.connection(for: host.id)
+                let result = try await performInBackground { try ssh.exec(RemoteCommands.tmuxSessions, timeout: 10) }
+                if result.status == 127 { throw RoamError.invalid(model.text("服务器未安装 tmux", "tmux is not installed on the server")) }
+                guard result.status == 0 else { throw RoamError.invalid(model.text("无法读取 tmux 会话", "Cannot list tmux sessions")) }
+                let sessions = TmuxSessionInfo.parse(String(decoding: result.output, as: UTF8.self))
+                tmuxSessions = sessions
+                if let selection = tmuxSelection, !sessions.contains(where: { $0.name == selection && $0.attachable }) { tmuxSelection = nil }
+                if tmuxSelection == nil { tmuxSelection = sessions.first(where: \.attachable)?.name }
+            } catch { tmuxError = error.localizedDescription }
+        }
     }
     private var yolo: Bool { forAgent && agentMode == .yolo }
     @State private var filtering = false

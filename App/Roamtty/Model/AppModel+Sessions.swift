@@ -79,6 +79,18 @@ extension AppModel {
             connectSession(record, directory: directory, agent: agent, preferMosh: mosh, originalLogin: originalLogin)
         } catch { self.error = error.localizedDescription }
     }
+    /// Attaches a tmux session that was already on the server; one this app already holds opens its card instead.
+    func attachExisting(_ host: Host, name: String, mosh: Bool?) {
+        if let record = records.first(where: { $0.hostID == host.id && $0.mode == .tmux && $0.remoteName == name }) {
+            sheet = nil; openSession(record); return
+        }
+        do {
+            let record = try journal.create(hostID: host.id, mode: .tmux, title: name, external: name)
+            persistJournal(); sheet = nil
+            path = path.first == .host(host.id) ? [.host(host.id), .terminal(record.id)] : [.terminal(record.id)]
+            connectSession(record, preferMosh: mosh)
+        } catch { self.error = error.localizedDescription }
+    }
     func reconnect(_ record: SessionRecord, shell: Bool = false) {
         guard let host = host(record.hostID) else { return }
         let originalLogin = runtimes[record.id]?.loginSnapshot
@@ -134,10 +146,11 @@ extension AppModel {
 
     /// Ends a session outright, without asking: a connected tmux session is killed on the server over its live
     /// connection and its card goes; a disconnected one logs in to kill it. A connecting one only stops connecting.
+    /// A tmux session that was already on the server is only detached: its card goes and the session keeps running.
     func closeSession(_ record: SessionRecord) {
         if path.last == .terminal(record.id) { leaveTerminal() }
         let runtime = runtimes[record.id]
-        guard record.mode == .tmux else {
+        guard record.mode == .tmux && !record.external else {
             cancelLaunch(record.id); runtime?.close(); removeSession(record); return
         }
         if let runtime, runtime.phase == .connected {

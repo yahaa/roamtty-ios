@@ -13,8 +13,11 @@ public enum RemoteCommands {
     }
     private static let bottomPromptPane = ##"n=$(tmux display-message -p "#{pane_height}" 2>/dev/null); [ -n "$n" ] || { set -- $(stty size 2>/dev/null); n=${1:-0}; }; while [ "$n" -gt 1 ]; do echo; n=$((n - 1)); done; s=${SHELL:-/bin/sh}; c=$(tmux show-options -gv default-command 2>/dev/null); [ -n "$c" ] && exec "$s" -c "$c"; exec "$s" -l"##
 
-    public static func tmuxAttach(_ name: String) -> String {
+    /// `existing`: a session that was already on the server, attached as it is: never created, its other clients stay
+    /// attached and its status line stays; only mouse mode goes on, so swipes scroll its history.
+    public static func tmuxAttach(_ name: String, existing: Bool = false) -> String {
         let name = sanitizeSessionName(name)
+        if existing { return "exec /bin/sh -c " + shellQuote(pathSetup + "; exec tmux attach-session -t =\(name) \\; set-option -t \(name) mouse on") }
         let pane = bottomPromptPane.replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "$", with: "\\$")
         let options = "\\; set-option -t \(name) mouse on \\; set-option -t \(name) status off"
         let script = pathSetup + "; " +
@@ -24,6 +27,10 @@ public enum RemoteCommands {
             "exec tmux new-session -A -D -s \(name) /bin/sh -c \"\(pane)\" \(options)"
         return "exec /bin/sh -c " + shellQuote(script)
     }
+    /// One line per tmux session on the server, `windows<TAB>attached clients<TAB>last activity<TAB>name<TAB>folder`
+    /// (see `TmuxSessionInfo.parse`); nothing when no tmux server runs, and exit status 127 without tmux.
+    public static let tmuxSessions = "/bin/sh -c " + shellQuote(pathSetup + "; command -v tmux >/dev/null 2>&1 || exit 127; " +
+        "tmux -u list-sessions -F '#{session_windows}\t#{session_attached}\t#{session_activity}\t#{session_name}\t#{pane_current_path}' 2>/dev/null; exit 0")
     public static func killTmux(_ name: String) -> String {
         let name = sanitizeSessionName(name)
         return pathSetup + "\ntmux has-session -t =\(name) 2>/dev/null || exit 0\nexec tmux kill-session -t =\(name)\n"
@@ -368,5 +375,30 @@ public enum HostSystemProbe {
         if ["mingw", "msys", "cygwin"].contains(where: kernel.hasPrefix) { return .WINDOWS }
         if (windows ?? "").range(of: #"(?im)^\s*Microsoft Windows\s+\["#, options: .regularExpression) != nil { return .WINDOWS }
         return ["freebsd", "openbsd", "netbsd", "dragonfly", "sunos", "aix"].contains(kernel) ? .OTHER : .UNKNOWN
+    }
+}
+
+/// A tmux session already on the server, as the new-session sheet lists it to attach.
+public struct TmuxSessionInfo: Equatable, Identifiable, Sendable {
+    public var name: String
+    public var windows: Int
+    public var attached: Int
+    public var activity: Date?
+    /// The folder of its active pane.
+    public var directory: String
+    public var id: String { name }
+    public init(name: String, windows: Int, attached: Int, activity: Date?, directory: String) {
+        self.name = name; self.windows = windows; self.attached = attached; self.activity = activity; self.directory = directory
+    }
+    /// The app's tmux commands take only names `RemoteCommands.sanitizeSessionName` keeps as they are.
+    public var attachable: Bool { RemoteCommands.sanitizeSessionName(name) == name }
+    /// `RemoteCommands.tmuxSessions` output, most recently used first.
+    public static func parse(_ output: String) -> [TmuxSessionInfo] {
+        output.split(whereSeparator: \.isNewline).compactMap { line -> TmuxSessionInfo? in
+            let fields = line.split(separator: "\t", maxSplits: 4, omittingEmptySubsequences: false).map(String.init)
+            guard fields.count >= 4, !fields[3].isEmpty, let windows = Int(fields[0]), let attached = Int(fields[1]) else { return nil }
+            return TmuxSessionInfo(name: fields[3], windows: windows, attached: attached,
+                                   activity: TimeInterval(fields[2]).map(Date.init(timeIntervalSince1970:)), directory: fields.count > 4 ? fields[4] : "")
+        }.sorted { ($0.activity ?? .distantPast) > ($1.activity ?? .distantPast) }
     }
 }

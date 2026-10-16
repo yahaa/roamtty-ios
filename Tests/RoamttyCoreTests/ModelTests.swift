@@ -21,6 +21,14 @@ final class ModelTests: XCTestCase {
         journal.forget(first.id)
         XCTAssertFalse(journal.records.contains { $0.id == first.id })
     }
+    func testExistingTmuxSessionKeepsItsNameAndOlderJournalsDecode() throws {
+        var journal = SessionJournal()
+        let attached = try journal.create(hostID: "one", mode: .shell, title: "work", external: "work")
+        XCTAssertEqual(attached.remoteName, "work"); XCTAssertEqual(attached.mode, .tmux); XCTAssertTrue(attached.external)
+        XCTAssertEqual(try JSONDecoder().decode(SessionRecord.self, from: JSONEncoder().encode(attached)), attached)
+        let legacy = #"{"id":"a","hostID":"one","mode":"tmux","title":"","remoteName":"roamtty-1","number":2}"#
+        XCTAssertFalse(try JSONDecoder().decode(SessionRecord.self, from: Data(legacy.utf8)).external)
+    }
     func testInputNeverSurvivesReconnectAndRemainsBounded() {
         var queue = InputQueue()
         for _ in 0..<64 { XCTAssertTrue(queue.enqueue(Data([1]))) }
