@@ -116,7 +116,7 @@ struct SessionStatusLabel: View {
     let phase: ConnectionPhase
     var hostOffline = false
     var body: some View {
-        let tone = hostOffline ? Palette.danger : phase == .connected ? Palette.success : phase == .disconnected ? Palette.secondary : phase.active ? Palette.warning : Palette.danger
+        let tone = hostOffline ? Palette.danger : phase.tone
         DotLabel(label: hostOffline ? model.text("主机离线", "Host offline") : model.phaseText(phase), color: tone,
                  labelColor: phase == .connected && !hostOffline ? tone : Palette.secondary)
     }
