@@ -122,6 +122,28 @@ final class TerminalGestureUITests: RoamttyLiveUITestCase {
         XCTAssertTrue(app.buttons["pet-arrow-up"].exists, "A double tap must bring the pet's arrow keys")
     }
 
+    /// Claude Code's /usage panel hides the cursor and parks it on its tab bar near the top; the line the
+    /// user typed /usage on must still bring the keyboard back once it was put away.
+    func testTypedLineOpensKeyboardWhileHostHidesCursor() throws {
+        let surface = try openTerminal(mode: "SSH")
+        let row = app.buttons.matching(NSPredicate(format: "identifier IN {'cursor-escape', 'cursor-enter'}")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 6))
+        surface.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: surface.frame.width * 0.3, dy: row.frame.midY - surface.frame.minY)).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        // Typing a /usage line, then Enter, replaces it with a panel whose hidden cursor sits on row 4.
+        surface.typeText("printf '\\033[?1049h\\033[2J\\033[30;1H/usage'; read -r x; printf '\\033[2J\\033[HPANEL_\\nSHOWN\\033[?25l\\033[4;20H'; read -r y\n")
+        sleep(2); XCTAssertTrue(row.waitForExistence(timeout: 6))
+        let typedLine = row.frame.midY - surface.frame.minY
+        surface.typeText("\n")
+        waitForOutput("PANEL_SHOWN", surface: surface)
+        let hide = app.buttons["cursor-hide-keyboard"]
+        XCTAssertTrue(hide.waitForExistence(timeout: 5)); hide.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        surface.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: surface.frame.width * 0.3, dy: typedLine)).tap()
+        if !app.keyboards.firstMatch.waitForExistence(timeout: 5) { saveFailureScreenshot("hiddenCursorTypedLine") }
+        XCTAssertTrue(app.keyboards.firstMatch.exists, "With the cursor hidden, a tap on the typed line must open the keyboard")
+    }
+
     func testKeyboardReopenedAfterEnterStaysUp() throws {
         let surface = try openTerminal()
         func tapCursorRow() {

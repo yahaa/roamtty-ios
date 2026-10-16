@@ -49,6 +49,10 @@ struct NativeTerminal: UIViewRepresentable {
         }
     }
     override func selectionChanged(source: Terminal) { super.selectionChanged(source: source); viewportChanged?() }
+    /// The host hid the cursor (DECTCEM), as Claude Code's and Codex's panels do; it is then parked anywhere.
+    private(set) var hostHidCursor = false
+    override func showCursor(source: Terminal) { hostHidCursor = false; super.showCursor(source: source) }
+    override func hideCursor(source: Terminal) { hostHidCursor = true; super.hideCursor(source: source) }
     override func mouseModeChanged(source: Terminal) {
         // SwiftTerm's implementation adds a button-drag recognizer even with
         // allowMouseReporting=false. Only our vertical wheel recognizer reports
@@ -80,6 +84,13 @@ enum TerminalCensus {
     private static var count = 0
     static var live: Int { lock.lock(); defer { lock.unlock() }; return count }
     static func change(_ delta: Int) { lock.lock(); count += delta; lock.unlock() }
+}
+
+/// The terminal's own taps. Once the keyboard has been up, iOS 26 leaves a text recognizer
+/// (UIPhraseBoundaryGestureRecognizer) on a view it adds inside the terminal, and it wins every later tap, so
+/// a tap could no longer bring the keyboard back: only recognizers on the terminal view itself may prevent these.
+@MainActor final class TerminalTapRecognizer: UITapGestureRecognizer {
+    override func canBePrevented(by preventing: UIGestureRecognizer) -> Bool { preventing.view === view }
 }
 
 /// Observes the initial workspace press without recognizing or consuming a gesture.
