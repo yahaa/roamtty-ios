@@ -29,9 +29,12 @@ extension SessionRuntime {
         guard self.ssh === ssh, phase == .connected else { return agentStatus }
         // Only an answer without an agent clears it.
         guard let answer = output else { return agentStatus }
-        let status = AgentStatus.parse(answer)
-        agentStatusAt = Date()
-        if agentStatus != status { agentStatus = status }
+        let status = AgentStatus.parse(answer), now = Date()
+        // The host's clock moves `elapsedMillis` on with every poll, and the list's own clock already counts from
+        // `agentStatusAt`: a status that only aged as expected keeps both, so it does not redraw the app every poll.
+        if !AgentStatus.sameExceptAge(agentStatus, status, after: now.timeIntervalSince(agentStatusAt)) {
+            agentStatus = status; agentStatusAt = now
+        }
         let directory = AgentStatus.directory(answer)
         if !directory.isEmpty && directory != paneDirectory { paneDirectory = directory }
         return status

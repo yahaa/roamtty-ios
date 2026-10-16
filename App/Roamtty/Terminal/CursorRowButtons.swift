@@ -1,14 +1,33 @@
 import SwiftUI
 
+/// The cursor row's place on screen and the key beside it, published apart from the rest of the session.
+@MainActor final class TerminalCursorRow: ObservableObject {
+    @Published var bounds: CGRect?
+    @Published var key: CursorRowKey = .escape
+    @Published var slashCommandLine = false
+}
+
+/// Redraws `content` when the cursor row changes, so the page around it does not have to.
+struct CursorRowReader<Content: View>: View {
+    @ObservedObject var cursor: TerminalCursorRow
+    @ViewBuilder let content: () -> Content
+    var body: some View { content() }
+}
+
 struct CursorRowButtons: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var runtime: SessionRuntime
+    @ObservedObject private var cursor: TerminalCursorRow
     /// Android aligns the keys to the viewport's end, past the terminal's own end padding.
     var trailingInset: CGFloat = 0
     /// Where the pet's arrow keys sit, in this view's coordinates: a cursor row within their span slides left of them.
     var avoid: CGRect? = nil
     /// iPhone keyboards have no dismiss key: while one is up, a key beside Esc/Enter puts it away.
     var keyboardVisible = false
+    init(runtime: SessionRuntime, trailingInset: CGFloat = 0, avoid: CGRect? = nil, keyboardVisible: Bool = false) {
+        self.runtime = runtime; cursor = runtime.cursorRow
+        self.trailingInset = trailingInset; self.avoid = avoid; self.keyboardVisible = keyboardVisible
+    }
     var body: some View {
         GeometryReader { geometry in
             if runtime.phase == .connected, let row = runtime.cursorRowBounds {

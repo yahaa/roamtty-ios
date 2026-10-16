@@ -4,7 +4,8 @@ import SwiftTerm
 import RoamttyCore
 
 struct NativeTerminal: UIViewRepresentable {
-    @ObservedObject var runtime: SessionRuntime
+    /// Not observed: the view only needs the settings and the colour scheme reapplied, not every change of the session.
+    let runtime: SessionRuntime
     @ObservedObject private var fonts = FontCatalog.shared
     var settings: AppSettings
     @Environment(\.colorScheme) private var scheme
@@ -60,7 +61,7 @@ struct NativeTerminal: UIViewRepresentable {
         let reading = rowHeight > 0 && !terminal.isCurrentBufferAlternate
             && (isTracking || isDecelerating || contentOffset.y < contentSize.height - (screen + 0.5) * rowHeight)
         let place = contentOffset.y, before = lines(), top = terminal.getTopVisibleRow()
-        feed(byteArray: bytes)
+        feed(byteArray: bytes); spokenTextStale = true
         guard reading, !terminal.isCurrentBufferAlternate else { return }
         // A full scrollback drops its oldest lines as new ones arrive; move up with the text being read.
         let dropped = max(0, (terminal.getTopVisibleRow() - top) - (lines() - before))
@@ -91,8 +92,18 @@ struct NativeTerminal: UIViewRepresentable {
         getTerminal().setCursorStyle(.steadyBlock)
         isAccessibilityElement = true; accessibilityLabel = "Terminal"
     }
+    /// The text VoiceOver and UI tests read. Building it walks the whole scrollback, and `.updatesFrequently` has
+    /// it asked for over and over, so it is rebuilt only after output, at most twice a second.
+    private var spokenText: (text: String, at: TimeInterval)?
+    private var spokenTextStale = true
     override var accessibilityValue: String? {
-        get { String(decoding: getTerminal().getBufferAsData().suffix(16_384), as: UTF8.self) }
+        get {
+            let now = ProcessInfo.processInfo.systemUptime
+            if let spokenText, !spokenTextStale || now - spokenText.at < 0.5 { return spokenText.text }
+            let text = String(decoding: getTerminal().getBufferAsData().suffix(16_384), as: UTF8.self)
+            spokenText = (text, now); spokenTextStale = false
+            return text
+        }
         set { }
     }
 }
