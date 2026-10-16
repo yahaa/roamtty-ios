@@ -18,6 +18,9 @@ final class AgentStatusTests: XCTestCase {
         XCTAssertNil(AgentStatus.parse("-bash|idle|1000|claude|||task\n1042"))
         // Codex and Grok run under their launcher.
         XCTAssertEqual(AgentStatus.parse("sh|idle|1000|codex|||task\n1042")?.state, .idle)
+        // On macOS /bin/sh is bash, so the launcher shows as "bash".
+        XCTAssertEqual(AgentStatus.parse("bash|idle|1000|codex|||task\n1042")?.state, .idle)
+        XCTAssertEqual(AgentStatus.parse("bash|working|1000|grok|||task\n1042")?.state, .working)
     }
 
     func testNoReportsOrUnknownStatesMeanNoStatus() {
@@ -197,6 +200,9 @@ final class AgentStatusTests: XCTestCase {
         XCTAssertTrue(status.hasPrefix("/bin/sh -c '"))
         XCTAssertTrue(status.contains("-t roamtty-abcrm "))
         XCTAssertTrue(status.contains("#{@roamtty_reply}"))
+        // sshd on macOS runs commands without a UTF-8 locale: tmux would print each non-ASCII character as "_".
+        XCTAssertTrue(status.contains("tmux -u display-message -p -t roamtty-abcrm \"#{pane_current_command}"))
+        XCTAssertTrue(status.contains("tmux -u display-message -p -t roamtty-abcrm \"#{pane_current_path}"))
         XCTAssertTrue(RemoteCommands.restartPane("x").contains("respawn-pane -k ${d:+-c \"$d\"} -t x"))
         XCTAssertNil(RemoteCommands.writeHostFile("../evil"))
         XCTAssertNil(RemoteCommands.writeHostFile(".hidden"))

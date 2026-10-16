@@ -27,8 +27,11 @@ public struct AgentStatus: Equatable, Sendable {
         self.elapsedMillis = elapsedMillis; self.directory = directory; self.workedSeconds = workedSeconds; self.reply = reply
     }
 
-    /// Not "sh": Codex and Grok run under their `/bin/sh` launcher, which ends the report itself.
     private static let shells: Set<String> = ["bash", "zsh", "fish", "dash", "ash", "ksh", "csh", "tcsh", "nu", "pwsh", "login"]
+
+    /// Agents that run under their `/bin/sh` launcher, which ends the report itself: the pane shows the launcher's
+    /// shell while they run, "sh" on Linux but "bash" on macOS, whose `/bin/sh` is bash.
+    private static let launched: Set<String> = ["codex", "grok"]
 
     private static func lines(_ output: String?) -> [String]? {
         output?.components(separatedBy: "\n").map { $0.hasSuffix("\r") ? String($0.dropLast()) : $0 }
@@ -47,7 +50,7 @@ public struct AgentStatus: Equatable, Sendable {
         let task = fields.count >= 8 ? fields[7] : fields[6]
         let reply = fields.count == 9 ? clean(fields[8]) : ""
         var command = Substring(fields[0]); while command.first == "-" { command.removeFirst() }
-        if shells.contains(String(command)) { return nil }
+        if shells.contains(String(command)) && !launched.contains(fields[3]) { return nil }
         guard let state = State(rawValue: fields[1]) else { return nil }
         let since = Int64(fields[2])
         let now = lines.count > 1 ? Int64(lines[lines.count - 1].trimmingCharacters(in: .whitespaces)) : nil
