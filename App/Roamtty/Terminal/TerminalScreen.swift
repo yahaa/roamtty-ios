@@ -8,6 +8,7 @@ import RoamttyTransport
 struct TerminalScreen: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var runtime: SessionRuntime
+    @Environment(\.colorScheme) private var scheme
     @StateObject private var draft = DraftController()
     @State private var toolbox = TerminalToolboxState()
     @State private var keyboardVisible = false
@@ -39,9 +40,9 @@ struct TerminalScreen: View {
                             NativeTerminal(runtime: runtime, settings: model.settings).clipped()
                                 .overlay { if connected && !editor { CursorRowButtons(runtime: runtime, trailingInset: Self.inset.trailing, avoid: petArrowsShown ? petArrowBounds(in: page.size).offsetBy(dx: -Self.inset.leading, dy: -Self.inset.top) : nil, keyboardVisible: keyboardVisible) } }
                                 .padding(Self.inset)
-                            notice
+                            notice.padding(.top, page.safeAreaInsets.top)
                         }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                        if editor { editorBar(landscape: landscape) }
+                        if editor { editorBar(landscape: landscape).padding(.bottom, keyboardVisible ? 0 : page.safeAreaInsets.bottom) }
                     }
                     if reserved {
                         dock(in: CGSize(width: twoColumns ? 96 : 48, height: page.size.height), twoColumns: twoColumns, reserved: true)
@@ -62,6 +63,10 @@ struct TerminalScreen: View {
                 }
             }
         }
+        // As on Android, the terminal draws under the transparent status bar and down to the bottom edge;
+        // only the keyboard still pushes it up.
+        .ignoresSafeArea(.container, edges: .vertical)
+        .persistentSystemOverlays(.hidden)
         // No visible status bar: expose the phase for VoiceOver and UI tests.
         .overlay(alignment: .topLeading) {
             Color.clear.frame(width: 1, height: 1).accessibilityElement().accessibilityIdentifier("terminal-phase")
@@ -69,7 +74,7 @@ struct TerminalScreen: View {
                 .accessibilityValue((runtime.record.mode == .tmux ? "tmux" : "SSH") + " " + runtime.transportName)
         }
         // The terminal colour runs under the status bar and home indicator, like Android's edge-to-edge pane.
-        .background(Color(uiColor: runtime.terminalView.nativeBackgroundColor).ignoresSafeArea())
+        .background(Color(uiColor: SessionRuntime.background(scheme)).ignoresSafeArea())
         .foregroundStyle(Palette.foreground)
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)

@@ -91,6 +91,8 @@ import RoamttyTransport
         terminalView.inputAccessoryView = nil
         // iOS 26 frosts a scroll view's edges under the status bar and home indicator; the terminal stays clear to the edge.
         if #available(iOS 26.0, *) { terminalView.topEdgeEffect.isHidden = true; terminalView.bottomEdgeEffect.isHidden = true }
+        // The page lays the terminal under the status bar itself; the scroll view must not add its own safe-area insets.
+        terminalView.contentInsetAdjustmentBehavior = .never
         terminalView.allowMouseReporting = false
         terminalView.notifyUpdateChanges = true
         terminalView.autocorrectionType = .no
@@ -127,6 +129,7 @@ import RoamttyTransport
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinchFont(_:)))
         terminalView.addGestureRecognizer(pinch)
     }
+    static func background(_ scheme: ColorScheme) -> UIColor { UIColor(hex: scheme == .dark ? 0x252728 : 0xFFFDF9) }
     func configure(settings: AppSettings, scheme: ColorScheme) {
         let fonts = FontCatalog.shared
         if configuredFont != settings.font || configuredSize != settings.fontSize || configuredFontRevision != fonts.revision {
@@ -135,7 +138,7 @@ import RoamttyTransport
             configuredFontRevision = fonts.revision
         }
         if configuredScheme != scheme {
-            terminalView.nativeBackgroundColor = UIColor(hex: scheme == .dark ? 0x252728 : 0xFFFDF9)
+            terminalView.nativeBackgroundColor = Self.background(scheme)
             terminalView.nativeForegroundColor = UIColor(hex: scheme == .dark ? 0xF3F0EA : 0x2B2A27)
             terminalView.caretColor = UIColor(hex: scheme == .dark ? 0xEFA783 : 0x9E462C)
             terminalView.keyboardAppearance = scheme == .dark ? .dark : .light
