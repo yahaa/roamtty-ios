@@ -6,8 +6,7 @@ struct HomeSessionsTab: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
     let search: String
-    private var sessions: [SessionRecord] { model.sessionsByActivity }
-    private var matching: [SessionRecord] {
+    private func searched(_ sessions: [SessionRecord]) -> [SessionRecord] {
         guard !search.isEmpty else { return sessions }
         return sessions.filter { record in
             let host = model.host(record.hostID)
@@ -15,6 +14,8 @@ struct HomeSessionsTab: View {
         }
     }
     var body: some View {
+        // Sorted and searched once per update; every line below reads these.
+        let sessions = model.sessionsByActivity, matching = searched(sessions)
         VStack(spacing: 0) {
             HomeListHeader(label: model.text("会话 · \(sessions.count)", "Sessions · \(sessions.count)"), addLabel: model.text("新建会话", "New session"), id: "add-session") { model.sheet = .newSession }
             if model.hosts.isEmpty && sessions.isEmpty {
@@ -50,38 +51,43 @@ struct HomeSessionsList: View {
     @EnvironmentObject var model: AppModel
     let sessions: [SessionRecord]
     @State private var filter: SessionGroup?
+    /// A group that holds sessions, in the list's order.
+    private struct Members {
+        let group: SessionGroup
+        let records: [SessionRecord]
+        /// The last group is "终端" while it holds plain terminals only.
+        let plainOnly: Bool
+    }
     private func group(_ record: SessionRecord) -> SessionGroup {
         let runtime = model.runtimes[record.id]
         return sessionGroup(connected: runtime?.phase == .connected, status: runtime?.agentStatus)
     }
-    /// The last group is "终端" while it holds plain terminals only.
     private func plainOnly(_ members: [SessionRecord]) -> Bool {
         !members.contains { model.runtimes[$0.id]?.agentStatus != nil || model.sessionAgent($0) != nil }
     }
     var body: some View {
-        let groups = SessionGroup.allCases.compactMap { value -> (SessionGroup, [SessionRecord])? in
-            let members = sessions.filter { group($0) == value }
-            return members.isEmpty ? nil : (value, members)
-        }
+        // Each session is placed once per update, not once per group.
+        let placed = Dictionary(grouping: sessions, by: group)
+        let groups = SessionGroup.allCases.compactMap { value in placed[value].map { Members(group: value, records: $0, plainOnly: plainOnly($0)) } }
         // A filter whose group has emptied shows everything again.
-        let only = groups.first { $0.0 == filter }?.0
+        let only = groups.first { $0.group == filter }?.group
         GeometryReader { geometry in
             let columns = max(1, Int((geometry.size.width - 32 + 12) / (320 + 12)))
             let joined = columns == 1
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     if groups.count > 1 { filters(groups, selected: only) }
-                    ForEach(groups.filter { only == nil || $0.0 == only }, id: \.0) { value, members in
-                        header(value, count: members.count, plainOnly: plainOnly(members))
+                    ForEach(groups.filter { only == nil || $0.group == only }, id: \.group) { members in
+                        header(members.group, count: members.records.count, plainOnly: members.plainOnly)
                         if joined {
                             VStack(spacing: 0) {
-                                ForEach(Array(members.enumerated()), id: \.element.id) { index, record in
+                                ForEach(Array(members.records.enumerated()), id: \.element.id) { index, record in
                                     SessionRow(record: record, divider: index > 0)
                                 }
                             }.background(Palette.panel).clipShape(RoundedRectangle(cornerRadius: 18))
                         } else {
                             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: columns), spacing: 12) {
-                                ForEach(members) { record in SessionRow(record: record).background(Palette.panel).clipShape(RoundedRectangle(cornerRadius: 18)) }
+                                ForEach(members.records) { record in SessionRow(record: record).background(Palette.panel).clipShape(RoundedRectangle(cornerRadius: 18)) }
                             }
                         }
                     }
@@ -90,12 +96,13 @@ struct HomeSessionsList: View {
         }
     }
     /// The chips above the groups: all sessions, then each group with how many it holds.
-    private func filters(_ groups: [(SessionGroup, [SessionRecord])], selected: SessionGroup?) -> some View {
+    private func filters(_ groups: [Members], selected: SessionGroup?) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 pill(model.text("全部", "All"), count: sessions.count, dot: nil, selected: selected == nil, id: "home-session-filter-all") { filter = nil }
-                ForEach(groups, id: \.0) { value, members in
-                    pill(value.label(model, plainOnly: plainOnly(members)), count: members.count, dot: value.color, selected: selected == value,
+                ForEach(groups, id: \.group) { members in
+                    let value = members.group
+                    pill(value.label(model, plainOnly: members.plainOnly), count: members.records.count, dot: value.color, selected: selected == value,
                          id: "home-session-filter-\(value.rawValue)") { filter = selected == value ? nil : value }
                 }
             }

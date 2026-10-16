@@ -27,19 +27,25 @@ struct TerminalCursorControls {
     func key(at time: TimeInterval) -> CursorRowKey {
         return time >= enterFrom && time < enterUntil ? .enter : .escape
     }
+    /// Read for the cursor row after every batch of output, so it walks the row in place: only its first few
+    /// characters are ever looked at.
     static func startsWithSlash(_ row: String) -> Bool {
-        let chars = Array(row.unicodeScalars)
-        func blank(_ c: Unicode.Scalar) -> Bool { CharacterSet.whitespacesAndNewlines.contains(c) || c.value == 0xa0 }
-        func skip(_ start: Int) -> Int {
+        let chars = row.unicodeScalars
+        func blank(_ c: Unicode.Scalar) -> Bool { blanks.contains(c) || c.value == 0xa0 }
+        func skip(_ start: String.UnicodeScalarView.Index) -> String.UnicodeScalarView.Index {
             var index = start
-            while index < chars.count && (blank(chars[index]) || (0x2500...0x259f).contains(chars[index].value)) { index += 1 }
+            while index < chars.endIndex && (blank(chars[index]) || (0x2500...0x259f).contains(chars[index].value)) { index = chars.index(after: index) }
             return index
         }
-        var index = skip(0)
-        let prompts = "❯›>»▶➜$#%".unicodeScalars
-        if index < chars.count, prompts.contains(chars[index]), index + 1 == chars.count || blank(chars[index + 1]) { index = skip(index + 1) }
-        return index < chars.count && chars[index] == "/"
+        var index = skip(chars.startIndex)
+        if index < chars.endIndex, prompts.contains(chars[index]) {
+            let next = chars.index(after: index)
+            if next == chars.endIndex || blank(chars[next]) { index = skip(next) }
+        }
+        return index < chars.endIndex && chars[index] == "/"
     }
+    private static let blanks = CharacterSet.whitespacesAndNewlines
+    private static let prompts = Set("❯›>»▶➜$#%".unicodeScalars)
     static func tapHitsCursor(y: Double, rowTop: Double, rowHeight: Double, viewportHeight: Double) -> Bool {
         guard rowHeight > 0, rowTop + rowHeight > 0, rowTop < viewportHeight else { return false }
         let half = max(rowHeight * 2.5, 32)

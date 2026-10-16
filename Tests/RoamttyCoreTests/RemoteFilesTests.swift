@@ -26,6 +26,9 @@ final class RemoteFilesTests: XCTestCase {
         XCTAssertNotNil(remoteNameMatchRank(name: "release-candidate-arm64-signed.apk", query: "ＲＥＬＥＡＳＥ arm64 signed"))
         XCTAssertNotNil(remoteNameMatchRank(name: "release-candidate-arm64", query: "release-candi\ndate-arm64"))
         XCTAssertNil(remoteNameMatchRank(name: "release.apk", query: "release x86"))
+        // An empty or blank query matches every name, whatever it holds.
+        XCTAssertEqual(remoteNameMatchRank(name: "release.apk", query: ""), 0)
+        XCTAssertEqual(remoteNameMatchRank(name: "\u{1}odd\u{3000}name", query: " \n "), 0)
         XCTAssertEqual(remotePathSearch(directory: "/work/project", query: "../assets/图"), RemotePathSearch(directory: "/work/assets", name: "图"))
         XCTAssertEqual(remotePathSearch(directory: "/work", query: "~/src/dist/"), RemotePathSearch(directory: "src/dist", name: ""))
         XCTAssertEqual(remotePathSearch(directory: "", query: "../dist/x"), RemotePathSearch(directory: "../dist", name: "x"))

@@ -21,6 +21,8 @@ struct CommandSheet: View {
     private var commands: [String] { ShellHistoryCommands.fuzzyFilter(ShellHistoryCommands.mergeRecent(runtime.recentCommands, saved: historyCommands), query: query) }
     private var connected: Bool { runtime.phase == .connected }
     var body: some View {
+        // Merged, filtered and given their font once per update, not once per line that reads them.
+        let commands = self.commands, font = Font(FontCatalog.shared.font(selection: model.settings.font, size: 13) as CTFont)
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: 0) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -48,7 +50,7 @@ struct CommandSheet: View {
                             .foregroundStyle(Palette.secondary).lineLimit(1).padding(.horizontal, 16).padding(.bottom, 8).accessibilityIdentifier("history-source")
                         VStack(spacing: 0) {
                             ForEach(Array(commands.enumerated()), id: \.element) { index, command in
-                                row(command, index: index, last: index == commands.count - 1)
+                                row(command, index: index, last: index == commands.count - 1, font: font)
                             }
                         }.background(Palette.panel, in: RoundedRectangle(cornerRadius: 12)).clipShape(RoundedRectangle(cornerRadius: 12))
                     }
@@ -62,12 +64,12 @@ struct CommandSheet: View {
     private func note(_ text: String) -> some View {
         Text(text).font(.subheadline).foregroundStyle(Palette.secondary).multilineTextAlignment(.center).frame(maxWidth: .infinity).padding(.vertical, 24)
     }
-    private func row(_ command: String, index: Int, last: Bool) -> some View {
+    private func row(_ command: String, index: Int, last: Bool, font: Font) -> some View {
         Button { run(command) } label: {
             HStack(alignment: .top, spacing: 10) {
                 Text("\u{276F}").foregroundStyle(Palette.accent.opacity(0.8))
                 Text(command).foregroundStyle(Palette.foreground).lineLimit(2).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
-            }.font(Font(FontCatalog.shared.font(selection: model.settings.font, size: 13) as CTFont)).lineSpacing(4).padding(.horizontal, 16).padding(.vertical, 11)
+            }.font(font).lineSpacing(4).padding(.horizontal, 16).padding(.vertical, 11)
                 .frame(minHeight: 48).contentShape(Rectangle())
         }.buttonStyle(.plain).disabled(!connected)
             .overlay(alignment: .bottom) { if !last { Rectangle().fill(Palette.outline).frame(height: 0.5).padding(.leading, 34) } }
