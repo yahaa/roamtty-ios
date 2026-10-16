@@ -5,8 +5,8 @@ import CNative
 
 /// What an AI agent in a tmux session reports through the hooks `AgentHooks` adds: its state, the tool it is running
 /// and the task (the last prompt), and the folder the pane is in. Read with `RemoteCommands.agentStatus`; see `parse`.
-public struct AgentStatus: Equatable, Sendable {
-    public enum State: String, Equatable, Sendable { case working, waiting, idle }
+public struct AgentStatus: Codable, Equatable, Sendable {
+    public enum State: String, Codable, Equatable, Sendable { case working, waiting, idle }
     public var state: State
     public var agent: String
     public var tool: String

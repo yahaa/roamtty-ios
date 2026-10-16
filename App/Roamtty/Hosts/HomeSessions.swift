@@ -58,12 +58,12 @@ struct HomeSessionsList: View {
         /// The last group is "终端" while it holds plain terminals only.
         let plainOnly: Bool
     }
+    /// A session coming back stays in the group its agent was last seen in.
     private func group(_ record: SessionRecord) -> SessionGroup {
-        let runtime = model.runtimes[record.id]
-        return sessionGroup(connected: runtime?.phase == .connected, status: runtime?.agentStatus)
+        sessionGroup(connected: true, status: model.listedAgentStatus(record).status)
     }
     private func plainOnly(_ members: [SessionRecord]) -> Bool {
-        !members.contains { model.runtimes[$0.id]?.agentStatus != nil || model.sessionAgent($0) != nil }
+        !members.contains { model.listedAgentStatus($0).status != nil || model.sessionAgent($0) != nil }
     }
     var body: some View {
         // Each session is placed once per update, not once per group.
@@ -148,7 +148,8 @@ struct SessionRow: View {
         let host = model.host(record.hostID)
         let phase = runtime?.phase ?? .disconnected
         let connected = phase == .connected
-        let status = connected ? runtime?.agentStatus : nil
+        // While it reconnects, what the agent reported last; nothing it offers can be done until it answers again.
+        let (status, live) = model.listedAgentStatus(record)
         let kind = model.sessionAgent(record)
         let username = host?.username ?? ""
         // The agent's folder while it reports, else the pane's, so a session without hooks or agent says it too.
@@ -169,7 +170,7 @@ struct SessionRow: View {
                         HStack(spacing: 6) {
                             if let kind { AgentNameBadge(agent: kind) }
                             MarqueeTitle(text: name).accessibilityIdentifier("home-session-title-\(record.id)")
-                            if let status, let runtime { elapsed(status, since: runtime.agentStatusAt) }
+                            if let status, let runtime, live { elapsed(status, since: runtime.agentStatusAt) }
                         }
                         if !prompt.isEmpty {
                             (Text(model.text("你: ", "You: ")).foregroundColor(Palette.secondary.opacity(0.7)) + Text(prompt))
@@ -189,15 +190,15 @@ struct SessionRow: View {
                         .accessibilityIdentifier("home-session-reply-\(record.id)")
                 }
                 HStack(spacing: 8) {
-                    statusView(status: status, phase: phase, kind: kind, activity: activity, waiting: waiting, idle: idle)
+                    statusView(status: live ? status : nil, phase: phase, kind: kind, activity: activity, waiting: waiting, idle: idle)
                     HStack(spacing: 6) {
                         Spacer(minLength: 0)
                         if !prompt.isEmpty { Text(location).font(.system(size: 12)).foregroundStyle(Palette.secondary.opacity(0.8)).lineLimit(1).truncationMode(.middle) }
                         ForEach(sessionTransportTags(mode: record.mode, mosh: connected && runtime?.transportName == "mosh"), id: \.self) { MetaTag(text: $0) }
-                        if waiting {
+                        if waiting && live {
                             RowAction(label: model.text("查看", "View"), plain: true) { model.openSession(record) }.accessibilityIdentifier("home-session-view-\(record.id)")
                             RowAction(label: model.text("允许", "Allow"), fill: Palette.warning) { approve(runtime) }.accessibilityIdentifier("home-session-approve-\(record.id)")
-                        } else if idle {
+                        } else if idle && live {
                             RowAction(label: model.text("追问", "Reply"), icon: "ic_reply") { replying.toggle(); draftFocused = replying }.accessibilityIdentifier("home-session-follow-up-\(record.id)")
                         }
                     }

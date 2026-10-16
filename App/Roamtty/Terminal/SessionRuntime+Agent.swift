@@ -16,7 +16,7 @@ extension SessionRuntime {
             }
         }
     }
-    func stopAgentStatusPolling() { agentPoll?.cancel(); agentPoll = nil; agentStatus = nil }
+    func stopAgentStatusPolling() { agentPoll?.cancel(); agentPoll = nil; agentStatus = nil; agentPolled = false }
 
     /// Asks the host what the agent is doing now and shows it; a poll that got no answer keeps what was shown.
     @discardableResult func pollAgentStatus() async -> AgentStatus? {
@@ -34,7 +34,9 @@ extension SessionRuntime {
         // `agentStatusAt`: a status that only aged as expected keeps both, so it does not redraw the app every poll.
         if !AgentStatus.sameExceptAge(agentStatus, status, after: now.timeIntervalSince(agentStatusAt)) {
             agentStatus = status; agentStatusAt = now
-        }
+            AgentStatusMemory.set(status, for: record.id)
+        } else if !agentPolled { AgentStatusMemory.set(status, for: record.id) }
+        if !agentPolled { agentPolled = true }
         let directory = AgentStatus.directory(answer)
         if !directory.isEmpty && directory != paneDirectory { paneDirectory = directory }
         return status

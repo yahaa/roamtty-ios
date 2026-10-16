@@ -11,12 +11,14 @@ extension AppModel {
     func sessionTitle(_ record: SessionRecord) -> String {
         record.title.isEmpty ? sessionDefaultTitle(record) : "\(host(record.hostID)?.name ?? "") · \(record.title)"
     }
-    /// Sessions the app holds, live first, then connecting, needing the user, and closed (Android `activityRank`).
+    /// Sessions the app holds, live or coming back first, then needing the user, and closed (Android `activityRank`).
     var sessionsByActivity: [SessionRecord] {
         func rank(_ record: SessionRecord) -> Int {
-            switch runtimes[record.id]?.phase ?? .disconnected {
-            case .connected: return 0
-            case .connecting, .verifying, .authenticating: return 1
+            // A restored session that comes back keeps its place among the live ones, so cards do not reorder
+            // while the app reconnects them one by one.
+            guard let runtime = runtimes[record.id] else { return hostOffline(record) ? 3 : 0 }
+            switch runtime.phase {
+            case .connected, .connecting, .verifying, .authenticating: return 0
             case .disconnected: return 3
             default: return 2
             }
@@ -26,7 +28,17 @@ extension AppModel {
     /// The agent a session runs: the one its hooks report, else the one it was launched for.
     func sessionAgent(_ record: SessionRecord) -> CodingAgent? {
         let runtime = runtimes[record.id]
-        return CodingAgent.fromCommand(runtime?.agentStatus?.agent) ?? runtime?.launchedAgent ?? CodingAgent.fromTitle(record.title)
+        return CodingAgent.fromCommand(listedAgentStatus(record).status?.agent) ?? runtime?.launchedAgent ?? CodingAgent.fromTitle(record.title)
+    }
+    /// What the list shows of a session's agent: what it reports now (`live`), or, while the session comes back and
+    /// before its host has answered, what it reported last, so opening the app does not move every card to "其它" and
+    /// back. A session that failed to connect, or whose host is offline, shows nothing.
+    func listedAgentStatus(_ record: SessionRecord) -> (status: AgentStatus?, live: Bool) {
+        guard record.mode == .tmux else { return (nil, false) }
+        let runtime = runtimes[record.id]
+        if let runtime, runtime.phase == .connected, runtime.agentPolled { return (runtime.agentStatus, true) }
+        guard runtime?.phase.active ?? true, !hostOffline(record) else { return (nil, false) }
+        return (AgentStatusMemory.value(record.id), false)
     }
     /// Why a session's terminal is down; one with no runtime came back from the journal.
     func sessionEnd(_ record: SessionRecord) -> SessionEnd? { runtimes[record.id].map { $0.phase.active ? nil : $0.end } ?? .restored }
@@ -184,6 +196,7 @@ extension AppModel {
         if let runtime = runtimes.removeValue(forKey: id), discard { runtime.discard() }
         sessionSubscriptions.removeValue(forKey: id)
         MoshPreference.forget(id)
+        AgentStatusMemory.set(nil, for: id)
     }
 
     // MARK: Reconnecting by itself
@@ -232,4 +245,23 @@ enum MoshPreference {
     static func value(_ recordID: String) -> Bool? { UserDefaults.standard.object(forKey: key(recordID)) as? Bool }
     static func set(_ value: Bool, for recordID: String) { UserDefaults.standard.set(value, forKey: key(recordID)) }
     static func forget(_ recordID: String) { UserDefaults.standard.removeObject(forKey: key(recordID)) }
+}
+
+/// What each session's agent reported last, kept across launches for the list to show until its host answers again.
+@MainActor enum AgentStatusMemory {
+    private static func key(_ recordID: String) -> String { "sessionAgentStatus-" + recordID }
+    /// Read once per session; the list asks on every redraw.
+    private static var cache: [String: AgentStatus?] = [:]
+    static func value(_ recordID: String) -> AgentStatus? {
+        if let cached = cache[recordID] { return cached }
+        let status = UserDefaults.standard.data(forKey: key(recordID)).flatMap { try? JSONDecoder().decode(AgentStatus.self, from: $0) }
+        cache[recordID] = .some(status)
+        return status
+    }
+    static func set(_ status: AgentStatus?, for recordID: String) {
+        guard cache[recordID] != .some(status) else { return }
+        cache[recordID] = .some(status)
+        if let status, let data = try? JSONEncoder().encode(status) { UserDefaults.standard.set(data, forKey: key(recordID)) }
+        else { UserDefaults.standard.removeObject(forKey: key(recordID)) }
+    }
 }
