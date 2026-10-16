@@ -76,6 +76,8 @@ import RoamttyTransport
     private var scrollAccumulator = TerminalScrollAccumulator()
     private var sendingScrollEvent = false
     private var inputGestureHadPinch = false
+    /// The mouse mode the host asked for, kept by xterm's rules; see `TerminalMouseTracking`.
+    private var mouseTracking = TerminalMouseTracking()
     private var agentPoll: Task<Void, Never>?
     /// Shown as the 提示 card once the SSH fallback connects (Android `moshFallback` → `inputWarning`).
     private var fallbackNotice: String?
@@ -213,12 +215,29 @@ import RoamttyTransport
     private func receive(_ data: Data, token: UUID, attempt: UUID) {
         guard generation == token, startupAttempt == attempt else { return }
         terminalView.feed(byteArray: Array(data)[...]); outputRevision += 1
+        mouseTracking.consume(data); restoreMouseTracking()
         queueCursorRefresh()
         if !startupSent {
             startupGate?.sawOutput = true
             if let ssh { waitForStartup(ssh: ssh, name: record.remoteName, token: token, attempt: attempt) }
             finishStartup(token: token, attempt: attempt)
         }
+    }
+    /// SwiftTerm drops tracking when an encoding mode is reset, as mosh does on every resize; swipes then stop
+    /// reaching tmux. Put the mode the host asked for back.
+    private func restoreMouseTracking() {
+        guard mouseTracking.atBoundary else { return }
+        let terminal = terminalView.getTerminal()
+        let current: Int?
+        switch terminal.mouseMode {
+        case .off: current = nil
+        case .x10: current = 9
+        case .vt200: current = 1000
+        case .buttonEventTracking: current = 1002
+        case .anyEvent: current = 1003
+        }
+        guard current != mouseTracking.mode, let mode = mouseTracking.mode ?? current else { return }
+        terminalView.feed(text: "\u{1b}[?\(mode)" + (mouseTracking.mode == nil ? "l" : "h"))
     }
     private func finishStartup(token: UUID, attempt: UUID) {
         guard generation == token, startupAttempt == attempt, !startupSent, startupGate?.ready == true else { return }
