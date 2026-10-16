@@ -23,9 +23,9 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
             if tap.numberOfTapsRequired == 1 { selectionTap = tap; tap.delegate = self }
             else { tap.isEnabled = false }
         }
-        let single = UITapGestureRecognizer(target: self, action: #selector(cursorTap(_:)))
-        let double = UITapGestureRecognizer(target: self, action: #selector(completionTap(_:)))
-        let triple = UITapGestureRecognizer(target: self, action: #selector(pasteTap(_:)))
+        let single = TerminalTapRecognizer(target: self, action: #selector(cursorTap(_:)))
+        let double = TerminalTapRecognizer(target: self, action: #selector(completionTap(_:)))
+        let triple = TerminalTapRecognizer(target: self, action: #selector(pasteTap(_:)))
         double.numberOfTapsRequired = 2; triple.numberOfTapsRequired = 3
         single.require(toFail: double); double.require(toFail: triple)
         for tap in [single, double, triple] { tap.delegate = self; terminalView.addGestureRecognizer(tap) }
@@ -64,6 +64,8 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
         return true
     }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        // A recognizer on another view, such as iOS's leftover text recognizer, never holds up its taps.
+        if gestureRecognizer is TerminalTapRecognizer && otherGestureRecognizer.view !== terminalView { return true }
         let isPan = gestureRecognizer === horizontalPan || gestureRecognizer === verticalPan
         return isPan && otherGestureRecognizer is UIPinchGestureRecognizer
     }
