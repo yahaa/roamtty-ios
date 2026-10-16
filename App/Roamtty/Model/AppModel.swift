@@ -228,7 +228,7 @@ private final class PromptAnswer {
     func deleteHost(_ host: Host) {
         do {
             invalidateHostConnections(host.id)
-            for record in records where record.hostID == host.id { cancelLaunch(record.id); runtimes[record.id]?.clearLoginCredentials(); runtimes[record.id]?.close(); runtimes.removeValue(forKey: record.id); sessionSubscriptions.removeValue(forKey: record.id); UserDefaults.standard.removeObject(forKey: moshPreferenceKey(record.id)) }
+            for record in records where record.hostID == host.id { cancelLaunch(record.id); runtimes[record.id]?.clearLoginCredentials(); runtimes.removeValue(forKey: record.id)?.discard(); sessionSubscriptions.removeValue(forKey: record.id); UserDefaults.standard.removeObject(forKey: moshPreferenceKey(record.id)) }
             temporaryCredentials[host.id]?.clear(); temporaryCredentials.removeValue(forKey: host.id)
             try vault.remove(hostID: host.id); try store?.deleteHost(id: host.id)
             metrics.removeValue(forKey: host.id); metricSeries.removeValue(forKey: host.id); monitorStates.removeValue(forKey: host.id)
@@ -266,7 +266,7 @@ private final class PromptAnswer {
         let originalLogin = runtimes[record.id]?.loginSnapshot
         if shell { launch(host, mode: .shell, directory: "~", agent: nil, mosh: false, originalLogin: originalLogin) }
         else {
-            runtimes[record.id]?.clearLoginCredentials(); runtimes[record.id]?.close(); runtimes.removeValue(forKey: record.id)
+            runtimes[record.id]?.clearLoginCredentials(); runtimes.removeValue(forKey: record.id)?.discard()
             connectSession(record, originalLogin: originalLogin)
         }
     }
@@ -285,9 +285,10 @@ private final class PromptAnswer {
                 self.temporaryCredentials[host.id]?.clear(); self.temporaryCredentials.removeValue(forKey: host.id); self.invalidCredentialHosts.insert(host.id)
             }
         }
-        runtimes[record.id] = runtime
-        sessionSubscriptions[record.id] = runtime.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        runtimes.updateValue(runtime, forKey: record.id)?.discard()
+        sessionSubscriptions[record.id] = runtime.summaryWillChange.sink { [weak self] in self?.objectWillChange.send() }
         objectWillChange.send()
+        Diagnostics.shared.log("connect", "sessions=\(runtimes.count) terminals=\(TerminalCensus.live)")
         let token = UUID(); sessionLaunchTokens[record.id] = token
         sessionTasks[record.id] = Task {
             defer { if sessionLaunchTokens[record.id] == token { sessionTasks.removeValue(forKey: record.id); sessionLaunchTokens.removeValue(forKey: record.id) } }
@@ -310,8 +311,8 @@ private final class PromptAnswer {
             cancelLaunch(record.id); runtime?.close(); removeSession(record); return
         }
         if let runtime, runtime.phase == .connected {
-            cancelLaunch(record.id); removeSession(record)
-            Task { _ = await runtime.killRemoteSession(); runtime.clearLoginCredentials(); runtime.close() }
+            cancelLaunch(record.id); removeSession(record, discard: false)
+            Task { _ = await runtime.killRemoteSession(); runtime.clearLoginCredentials(); runtime.discard() }
         } else if let runtime, runtime.phase.active {
             cancelLaunch(record.id); runtime.close()
         } else {
@@ -325,8 +326,11 @@ private final class PromptAnswer {
         guard record.mode == .tmux, let runtime = runtimes[record.id] else { reconnect(record); return }
         Task { if !(await runtime.restartPane()) { error = text("未能重启会话，请检查连接后重试", "Couldn't restart the session. Check the connection and try again.") } }
     }
-    private func removeSession(_ record: SessionRecord) {
-        runtimes[record.id]?.clearLoginCredentials(); runtimes.removeValue(forKey: record.id); sessionSubscriptions.removeValue(forKey: record.id)
+    /// `discard: false` leaves the runtime to a caller that still uses its connection and discards it after.
+    private func removeSession(_ record: SessionRecord, discard: Bool = true) {
+        runtimes[record.id]?.clearLoginCredentials()
+        if let runtime = runtimes.removeValue(forKey: record.id), discard { runtime.discard() }
+        sessionSubscriptions.removeValue(forKey: record.id)
         UserDefaults.standard.removeObject(forKey: moshPreferenceKey(record.id))
         autoReconnectedAt.removeValue(forKey: record.id); waitingForHostSince.removeValue(forKey: record.id)
         journal.forget(record.id); persistJournal()
@@ -705,6 +709,7 @@ private final class PromptAnswer {
     }
     func resume() {
         foreground = true
+        Diagnostics.shared.log("foreground", "sessions=\(runtimes.count) terminals=\(TerminalCensus.live)")
         for runtime in runtimes.values { runtime.probe() }
         restartVisibleMonitor()
         let existing = Set(incomingFiles + files.pendingUploadURLs).union(files.activeUploadURLs)
@@ -712,6 +717,7 @@ private final class PromptAnswer {
     }
     func suspend() {
         foreground = false
+        Diagnostics.shared.log("background", "sessions=\(runtimes.count) terminals=\(TerminalCensus.live)")
         for id in Array(monitorTasks.keys) { stopMonitor(id) }
         for id in Array(temporaryCredentials.keys) { temporaryCredentials[id]?.clear() }; temporaryCredentials.removeAll()
         for runtime in runtimes.values { runtime.clearLoginCredentials() }
