@@ -49,6 +49,10 @@ struct NativeTerminal: UIViewRepresentable {
         }
     }
     override func selectionChanged(source: Terminal) { super.selectionChanged(source: source); viewportChanged?() }
+    /// The host hid the cursor (DECTCEM), as Claude Code's and Codex's panels do; it is then parked anywhere.
+    private(set) var hostHidCursor = false
+    override func showCursor(source: Terminal) { hostHidCursor = false; super.showCursor(source: source) }
+    override func hideCursor(source: Terminal) { hostHidCursor = true; super.hideCursor(source: source) }
     override func mouseModeChanged(source: Terminal) {
         // SwiftTerm's implementation adds a button-drag recognizer even with
         // allowMouseReporting=false. Only our vertical wheel recognizer reports

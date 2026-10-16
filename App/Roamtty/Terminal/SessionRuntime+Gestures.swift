@@ -191,6 +191,11 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
         guard phase == .connected else { return }
         UIMenuController.shared.hideMenu()
         refreshCursor()
+        // A panel such as /usage hides the cursor and parks it away from the line typed on, even off screen: with
+        // no cursor to aim at, any tap brings the keyboard back.
+        if (terminalView as? AccessibleTerminalView)?.hostHidCursor == true && !terminalView.isFirstResponder {
+            keyboardHide?.cancel(); terminalView.becomeFirstResponder(); return
+        }
         guard let row = cursorRowBounds else { return }
         // The user now decides about the keyboard: an earlier Enter's delayed hide must not undo it.
         keyboardHide?.cancel()
