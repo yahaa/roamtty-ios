@@ -76,6 +76,13 @@ import Foundation
         precondition(!TerminalPaste.needsConfirmation("a\tb", bracketed: false))
         precondition(try! TerminalPaste.input("a\r\nb\nc\rd\t\u{1b}[201~\u{3}\u{7f}\u{85}", bracketed: true) == "\u{1b}[200~a\rb\rc\rd\t[201~\u{1b}[201~")
         do { _ = try TerminalPaste.input(String(repeating: "x", count: 131_073), bracketed: false); preconditionFailure("Oversize paste must be rejected") } catch { }
+        var capture = TerminalPasteCapture(bracketed: true)
+        capture.append(Array("\u{1b}[200~hi\u{1b}[201~".utf8))
+        precondition(capture.text == "hi" && !capture.tooLarge)
+        var plain = TerminalPasteCapture(bracketed: false)
+        precondition(plain.text == nil)
+        plain.append([UInt8](repeating: 120, count: TerminalPaste.byteLimit + 13))
+        precondition(plain.tooLarge && plain.text == nil)
         precondition(TerminalKeys.arrow("D", applicationCursor: false, control: false, shift: false) == "\u{1b}[D")
         precondition(TerminalKeys.arrow("C", applicationCursor: true, control: false, shift: false) == "\u{1b}OC")
         precondition(TerminalKeys.arrow("D", applicationCursor: true, control: false, shift: true) == "\u{1b}[1;2D")

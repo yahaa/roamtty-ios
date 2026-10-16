@@ -123,6 +123,26 @@ enum TerminalPaste {
         let cleaned = String(String.UnicodeScalarView(scalars)).replacingOccurrences(of: "\r\n", with: "\r").replacingOccurrences(of: "\n", with: "\r")
         return bracketed ? "\u{1b}[200~" + cleaned + "\u{1b}[201~" : cleaned
     }
+    static let tooLargeMessage = "单次发送上限为 128 KiB，请分段发送。 / Send at most 128 KiB at a time."
+}
+
+/// SwiftTerm's own paste writes through the terminal delegate; its bytes are gathered here until the whole paste
+/// can be checked and sent like any other.
+struct TerminalPasteCapture {
+    let bracketed: Bool
+    private(set) var data = Data()
+    private(set) var tooLarge = false
+    init(bracketed: Bool) { self.bracketed = bracketed }
+    /// Room is left for the bracketed-paste markers around the limit.
+    mutating func append<Bytes: Collection>(_ bytes: Bytes) where Bytes.Element == UInt8 {
+        if bytes.count <= TerminalPaste.byteLimit + 12 - data.count { data.append(contentsOf: bytes) } else { tooLarge = true }
+    }
+    /// The pasted text without SwiftTerm's bracketed-paste markers; nil when nothing was pasted.
+    var text: String? {
+        var text = data
+        if bracketed, text.count >= 12 { text.removeFirst(6); text.removeLast(6) }
+        return text.isEmpty ? nil : String(decoding: text, as: UTF8.self)
+    }
 }
 
 enum TerminalKeys {
@@ -175,3 +195,6 @@ struct TerminalScrollAccumulator {
         return Int(min(256, max(-256, distance / rowHeight)))
     }
 }
+
+/// Quotes `text` as one word for a POSIX shell, for paths typed into the terminal.
+func shellQuote(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\"'\"'") + "'" }
