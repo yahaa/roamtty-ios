@@ -29,6 +29,8 @@ public final class SSHConnection {
     private var authenticated = false
     private var acceptingInput = false
     private var input = InputQueue()
+    /// Ends the terminal loop's network wait as soon as input is queued.
+    private let wake = WorkerWake()
     private var pendingSize: (Int, Int)?
     private var transferGeneration = 0
     private static let initialized: Void = { _ = libssh2_init(0) }()
@@ -47,12 +49,15 @@ public final class SSHConnection {
     var isStopped: Bool { stateLock.lock(); defer { stateLock.unlock() }; return stopped }
     public var isConnected: Bool { stateLock.lock(); defer { stateLock.unlock() }; return authenticated && !stopped }
     func locked<T>(_ action: () throws -> T) rethrows -> T { libraryLock.lock(); defer { libraryLock.unlock() }; return try action() }
-    func networkWait() throws {
+    /// `wake` lets queued input end the wait early.
+    func networkWait(wake: WorkerWake? = nil) throws {
         guard !isStopped else { throw RoamError.cancelled }
         let direction = locked { libssh2_session_block_directions(session) }
         let read = direction & LIBSSH2_SESSION_BLOCK_INBOUND != 0
         let write = direction & LIBSSH2_SESSION_BLOCK_OUTBOUND != 0
-        if roam_socket_poll(socket, read || !write ? 1 : 0, write ? 1 : 0, 30) < 0 {
+        let result = wake?.poll(socket, events: Int16((read || !write ? POLLIN : 0) | (write ? POLLOUT : 0)), timeout: 30)
+            ?? roam_socket_poll(socket, read || !write ? 1 : 0, write ? 1 : 0, 30)
+        if result < 0 {
             disconnect()
             throw RoamError.transport("Network wait failed")
         }
@@ -306,10 +311,13 @@ public final class SSHConnection {
     }
     @discardableResult public func write(_ data: Data) -> Bool {
         stateLock.lock(); defer { stateLock.unlock() }
-        return !stopped && acceptingInput && input.enqueue(data)
+        guard !stopped && acceptingInput && input.enqueue(data) else { return false }
+        wake?.signal()
+        return true
     }
     public func resize(columns: Int, rows: Int) {
         stateLock.lock(); pendingSize = (max(2, columns), max(2, rows)); stateLock.unlock()
+        wake?.signal()
     }
     /// The most terminal output gathered before it is handed over.
     static let burstLimit = 128 * 1024
@@ -362,7 +370,7 @@ public final class SSHConnection {
                 try retry(timeout: 60) { libssh2_keepalive_send(session, &seconds) }
                 lastAlive = Date()
             }
-            if !received { try networkWait() }
+            if !received { try networkWait(wake: wake) }
         }
         throw RoamError.cancelled
     }

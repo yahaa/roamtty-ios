@@ -22,6 +22,8 @@ public final class MoshTransport {
     // Budgets include both queued and already-sent, unacknowledged input.
     private var outstandingBytes = 0
     private var outstandingWrites = 0
+    /// Wakes the worker's poll as soon as input arrives, instead of after its timeout.
+    private let wake: WorkerWake
 
     public init(host: String, port: Int, key: String) throws {
         guard !host.isEmpty, host.utf8.count <= 253,
@@ -30,6 +32,8 @@ public final class MoshTransport {
         self.host = host.hasPrefix("[") && host.hasSuffix("]") ? String(host.dropFirst().dropLast()) : host
         self.port = port
         self.crypto = try Mosh.Crypto(key: key)
+        guard let wake = WorkerWake() else { throw RoamError.transport("Cannot create mosh wake pipe") }
+        self.wake = wake
     }
 
     /// Blocks until remote shutdown, cancellation, or a fallback-worthy error.
@@ -100,10 +104,10 @@ public final class MoshTransport {
             }
             if state.nextSendAt(now) <= now { try send(now) }
 
-            // A short poll bounds cancellation and newly typed-input latency,
-            // and avoids closing a descriptor from a competing thread.
+            // A short poll bounds cancellation and avoids closing a descriptor from a competing
+            // thread; new input, a resize, a probe or a close wake it at once.
             let delay = max(0, min(0.05, state.nextSendAt(moshNow()) - moshNow()))
-            guard let packet = socket.receive(wait: delay), let plain = crypto.open(packet), plain.count >= 14 else { continue }
+            guard let packet = socket.receive(wait: delay, wake: wake), let plain = crypto.open(packet), plain.count >= 14 else { continue }
             let bytes = Array(plain)
             let timestamp = UInt16(bytes[0]) << 8 | UInt16(bytes[1])
             let reply = UInt16(bytes[2]) << 8 | UInt16(bytes[3])
@@ -134,6 +138,7 @@ public final class MoshTransport {
         pendingKeys.append(data)
         outstandingBytes += data.count
         outstandingWrites += 1
+        wake.signal()
         return true
     }
 
@@ -141,19 +146,21 @@ public final class MoshTransport {
         lock.lock(); defer { lock.unlock() }
         guard !closed else { return }
         pendingSize = (max(1, min(columns, 65535)), max(1, min(rows, 65535)))
+        wake.signal()
     }
 
     /// Call after wake or a network-path change. A fresh UDP source port avoids
     /// stale NAT mappings, and a missing reply starts the stall fallback timer.
     public func probe() {
         lock.lock(); defer { lock.unlock() }
-        if !closed { probeRequested = true }
+        if !closed { probeRequested = true; wake.signal() }
     }
 
     public func close() {
         lock.lock(); defer { lock.unlock() }
         closed = true
         clearPending()
+        wake.signal()
     }
 
     private func begin() throws {
@@ -257,13 +264,51 @@ private final class MoshDatagram {
         _ = data.withUnsafeBytes { moshSend(descriptor, $0.baseAddress, $0.count) }
     }
 
-    func receive(wait seconds: TimeInterval) -> Data? {
-        var descriptor = pollfd(fd: self.descriptor, events: Int16(POLLIN), revents: 0)
-        guard poll(&descriptor, 1, Int32(max(1, seconds * 1000))) > 0 else { return nil }
+    /// nil after the timeout, or as soon as `wake` is signalled.
+    func receive(wait seconds: TimeInterval, wake: WorkerWake) -> Data? {
+        guard wake.poll(descriptor, events: Int16(POLLIN), timeout: Int32(max(1, seconds * 1000))) == 1 else { return nil }
         var buffer = [UInt8](repeating: 0, count: 65_535)
         let count = recv(self.descriptor, &buffer, buffer.count, 0)
         guard count > 0 else { return nil }
         return Data(buffer.prefix(count))
+    }
+}
+
+/// A self-pipe that ends a transport worker's network wait as soon as input is queued, instead of after the
+/// wait's timeout. Writers signal it; the worker polls its read end beside the socket.
+final class WorkerWake {
+    private let descriptor: Int32
+    private let writer: Int32
+
+    init?() {
+        var ends: [Int32] = [0, 0]
+        guard pipe(&ends) == 0 else { return nil }
+        for end in ends {
+            _ = fcntl(end, F_SETFL, fcntl(end, F_GETFL, 0) | O_NONBLOCK)
+            _ = fcntl(end, F_SETFD, FD_CLOEXEC)
+        }
+        descriptor = ends[0]; writer = ends[1]
+    }
+
+    deinit { moshClose(descriptor); moshClose(writer) }
+
+    /// A full pipe already wakes the worker, so a failed write is fine.
+    func signal() {
+        var byte: UInt8 = 1
+        _ = moshWrite(writer, &byte, 1)
+    }
+
+    /// Waits for `events` on `socket` or for a signal: 1 when the socket is ready, 0 after the timeout or a
+    /// signal, and -1 when the poll failed.
+    func poll(_ socket: Int32, events: Int16, timeout milliseconds: Int32) -> Int32 {
+        var descriptors = [pollfd(fd: socket, events: events, revents: 0), pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)]
+        let result = moshPoll(&descriptors, milliseconds)
+        guard result > 0 else { return result }
+        if descriptors[1].revents != 0 {
+            var buffer = [UInt8](repeating: 0, count: 64)
+            while moshRead(descriptor, &buffer, buffer.count) > 0 { }
+        }
+        return descriptors[0].revents != 0 ? 1 : 0
     }
 }
 
@@ -284,6 +329,30 @@ private func moshClose(_ descriptor: Int32) {
     _ = Glibc.close(descriptor)
     #else
     _ = Darwin.close(descriptor)
+    #endif
+}
+
+private func moshWrite(_ descriptor: Int32, _ bytes: UnsafeRawPointer, _ count: Int) -> Int {
+    #if os(Linux)
+    return Glibc.write(descriptor, bytes, count)
+    #else
+    return Darwin.write(descriptor, bytes, count)
+    #endif
+}
+
+private func moshRead(_ descriptor: Int32, _ bytes: UnsafeMutableRawPointer, _ count: Int) -> Int {
+    #if os(Linux)
+    return Glibc.read(descriptor, bytes, count)
+    #else
+    return Darwin.read(descriptor, bytes, count)
+    #endif
+}
+
+private func moshPoll(_ descriptors: inout [pollfd], _ milliseconds: Int32) -> Int32 {
+    #if os(Linux)
+    return Glibc.poll(&descriptors, nfds_t(descriptors.count), milliseconds)
+    #else
+    return Darwin.poll(&descriptors, nfds_t(descriptors.count), milliseconds)
     #endif
 }
 
