@@ -324,6 +324,10 @@ final class AgentStatusTests: XCTestCase {
         XCTAssertTrue(AgentStatus.sameExceptAge(working, aged, after: 3))
         var restarted = working; restarted.elapsedMillis = 400
         XCTAssertFalse(AgentStatus.sameExceptAge(working, restarted, after: 3))
+        // A turn that restarted just after the last poll went back by less than the slack, but it is a new state.
+        var young = working; young.elapsedMillis = 1_000
+        var restartedYoung = working; restartedYoung.elapsedMillis = 0
+        XCTAssertFalse(AgentStatus.sameExceptAge(young, restartedYoung, after: 3))
         var otherTool = aged; otherTool.tool = "Edit"
         XCTAssertFalse(AgentStatus.sameExceptAge(working, otherTool, after: 3))
         XCTAssertFalse(AgentStatus.sameExceptAge(working, nil, after: 3))
