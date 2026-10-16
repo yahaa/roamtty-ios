@@ -148,7 +148,6 @@ final class CommandHistoryUITests: RoamttyLiveUITestCase {
 
     private func closePlainTerminal() {
         closeTerminal()
-        XCTAssertTrue(app.buttons["host-detail-terminal"].waitForExistence(timeout: 8))
     }
 
     private func emit(_ value: String) -> String {

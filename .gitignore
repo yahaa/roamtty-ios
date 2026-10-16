@@ -13,3 +13,5 @@ TestResults/
 
 build/
 __pycache__/
+scripts/terminal-url/SwiftTerm/
+scripts/terminal-url/.build/

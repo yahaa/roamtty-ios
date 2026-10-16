@@ -8,6 +8,10 @@ struct LaunchScreen: View {
     let host: Host
     let forAgent: Bool
     var initialDirectory = "~"
+    /// The agent already picked (the new-session sheet asks for it first); otherwise the last one used.
+    var initialAgent: CodingAgent? = nil
+    /// Replaces the heading when the sheet is a step of a longer flow.
+    var title: String? = nil
     @State private var agent = CodingAgent.codex
     @State private var agentMode = AgentMode.yolo
     @State private var sessionMode = SessionMode.tmux
@@ -42,7 +46,7 @@ struct LaunchScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(forAgent ? model.text("用 AI 助手打开", "Open with an AI agent") : model.text("打开终端", "Open terminal")).font(.system(size: 20, weight: .semibold))
+                Text(title ?? (forAgent ? model.text("用 AI Agent打开", "Open with AI Agent") : model.text("打开终端", "Open terminal"))).font(.system(size: 20, weight: .semibold))
                 Spacer()
                 Button { dismiss() } label: { AppIcon("ic_close").frame(width: 48, height: 48) }.accessibilityLabel(model.text("关闭", "Close")).accessibilityIdentifier("launch-cancel")
             }.padding(.leading, 24).padding(.trailing, 12).padding(.top, 16).padding(.bottom, 12)
@@ -55,7 +59,7 @@ struct LaunchScreen: View {
                 if filtering { filterBar } else { pathBar }
                 Divider().overlay(Palette.outline)
                 ZStack(alignment: .top) {
-                    if let error { centerNote(error, id: "launch-error", action: model.text("回到主目录", "Back to home")) { navigate("~") } }
+                    if let error { centerNote(error, id: "launch-error", action: StartDirectory.isHome(directory) ? model.text("重试", "Retry") : model.text("回到主目录", "Back to home")) { navigate("~") } }
                     else if entries.isEmpty && busy { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
                     else { folderList }
                     if busy && !entries.isEmpty { ProgressView().progressViewStyle(.linear).tint(Palette.accent) }
@@ -86,7 +90,7 @@ struct LaunchScreen: View {
             let currentHost = model.host(host.id) ?? host
             sessionMode = currentHost.newSessionMode; mosh = currentHost.plugins?.contains("mosh") == true
             recent = StartDirectory.sanitizeRecent(UserDefaults.standard.stringArray(forKey: "recentFolders-\(host.id)") ?? [])
-            agent = CodingAgent.from(UserDefaults.standard.string(forKey: "launchAgent"))
+            agent = initialAgent ?? CodingAgent.from(UserDefaults.standard.string(forKey: "launchAgent"))
             agentMode = UserDefaults.standard.string(forKey: "launchAgentMode").map(AgentMode.from) ?? .yolo
             navigate(initialDirectory)
         }.onChange(of: model.host(host.id)?.plugins) { plugins in
@@ -214,7 +218,7 @@ struct LaunchScreen: View {
         case .readOnly:
             switch agent {
             case .claude: return model.text("先分析并制定计划，批准后开始修改", "Analyze and plan first; make changes after approval")
-            case .codex: return model.text("以只读沙箱启动，可在助手中调整权限", "Start in a read-only sandbox; permissions can be adjusted in the agent")
+            case .codex: return model.text("以只读沙箱启动，可在 Agent 中调整权限", "Start in a read-only sandbox; permissions can be adjusted in the agent")
             case .grok: return model.text("只读沙箱；状态与临时目录仍可写", "Read-only sandbox; state and temporary directories remain writable")
             }
         }

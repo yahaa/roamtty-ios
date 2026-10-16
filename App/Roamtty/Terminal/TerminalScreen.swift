@@ -14,13 +14,15 @@ struct TerminalScreen: View {
     @State private var commandSheet = false
     @State private var fileAction: TerminalFileAction?
     @State private var launchAfterFiles: AppSheet?
-    @State private var closeConfirm = false
+    @State private var restartConfirm = false
     @State private var reverifySheet = false
     @State private var editor = false
-    @State private var renaming = false
-    @State private var renameText = ""
+    /// Until when a double tap's Up/Down/Left keys stay around the pet; each press restarts it.
+    @State private var petArrowsUntil: TimeInterval = 0
     private var connected: Bool { runtime.phase == .connected }
     private var dockAvailable: Bool { connected && !editor && !commandSheet }
+    /// A double tap or a line starting with `/` brings arrow keys around the pet, while its ring is closed.
+    private var petArrowsShown: Bool { dockAvailable && !toolbox.dockVisible && !toolbox.ringOpen && (petArrowsUntil > now || runtime.slashCommandLine) }
     private var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
     /// The terminal view sits inside these insets of its viewport, as on Android (10 / 6 / 6 dp).
     private static let inset = EdgeInsets(top: 6, leading: 10, bottom: 0, trailing: 6)
@@ -35,7 +37,7 @@ struct TerminalScreen: View {
                     VStack(spacing: 0) {
                         ZStack {
                             NativeTerminal(runtime: runtime, settings: model.settings).clipped()
-                                .overlay { if connected && !editor { CursorRowButtons(runtime: runtime, trailingInset: Self.inset.trailing) } }
+                                .overlay { if connected && !editor { CursorRowButtons(runtime: runtime, trailingInset: Self.inset.trailing, avoid: petArrowsShown ? petArrowBounds(in: page.size).offsetBy(dx: -Self.inset.leading, dy: -Self.inset.top) : nil) } }
                                 .padding(Self.inset)
                             notice
                         }.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -48,10 +50,13 @@ struct TerminalScreen: View {
                 }
                 if dockAvailable && !reserved {
                     if toolbox.dockVisible { dock(in: page.size, twoColumns: twoColumns, reserved: false) }
-                    else if toolbox.ghostVisible {
-                        let frame = TerminalDockGeometry.frame(viewport: page.size, content: CGSize(width: 48, height: 48), avoiding: cursorFrame())
-                        GhostShortcuts(runtime: runtime, toolbox: $toolbox, center: CGPoint(x: frame.midX, y: frame.midY), viewport: page.size) {
-                            withAnimation(.easeOut(duration: 0.18)) { toolbox.openDock(at: now) }
+                    else if toolbox.ghostVisible || petArrowsShown {
+                        let center = petCenter(in: page.size)
+                        ZStack(alignment: .topLeading) {
+                            GhostShortcuts(runtime: runtime, toolbox: $toolbox, center: center, viewport: page.size) {
+                                withAnimation(.easeOut(duration: 0.18)) { toolbox.openDock(at: now) }
+                            }
+                            if petArrowsShown { petArrows(center: center).transition(.opacity) }
                         }.transition(.opacity.combined(with: .offset(x: 24)))
                     }
                 }
@@ -75,11 +80,19 @@ struct TerminalScreen: View {
         .onDisappear { toolbox.closeRing(); runtime.pendingPaste = nil; runtime.terminalView.resignFirstResponder() }
         .onChange(of: runtime.workspaceTouches) { _ in if dockAvailable { toolbox.workspaceTouch(at: now) } }
         .onChange(of: runtime.phase) { phase in
-            if phase == .connected { toolbox.wake(at: now); runtime.message = nil }
+            if phase == .connected { toolbox.wake(at: now) }
             else { toolbox.closeRing(); runtime.pendingPaste = nil }
         }
         .onChange(of: model.settings.toolboxPinned) { pinned in if pinned != toolbox.pinned { toolbox.setPinned(pinned, at: now) } }
         .onChange(of: commandSheet) { _ in toolbox.closeRing() }
+        .onChange(of: runtime.petArrowTouches) { _ in withAnimation(.easeOut(duration: 0.12)) { petArrowsUntil = now + 4 }; toolbox.wake(at: now) }
+        .task(id: petArrowsUntil) {
+            let wait = petArrowsUntil - now
+            guard wait > 0 else { return }
+            do { try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)); withAnimation(.easeOut(duration: 0.2)) { petArrowsUntil = 0 } } catch { }
+        }
+        // A terminal whose connection dropped, or that came back from the journal, reconnects as soon as it is shown.
+        .task(id: runtime.end) { await model.reconnectOnOpen(runtime.record) }
         .onChange(of: editor) { _ in toolbox.closeRing() }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
             guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
@@ -90,18 +103,13 @@ struct TerminalScreen: View {
             guard let deadline = toolbox.deadline else { return }
             do { try await Task.sleep(nanoseconds: UInt64(max(0, deadline - now) * 1_000_000_000)); withAnimation(.easeOut(duration: 0.4)) { toolbox.expire(at: now) } } catch { }
         }
-        .alert(model.text("关闭此连接？", "Close this connection?"), isPresented: $closeConfirm) {
+        .alert(model.text("重启当前会话？", "Restart this session?"), isPresented: $restartConfirm) {
             Button(model.text("取消", "Cancel"), role: .cancel) { }
-            Button(model.text("关闭连接", "Close connection"), role: .destructive) { model.closeSession(runtime.record) }.accessibilityIdentifier("terminal-close-confirm")
+            Button(model.text("重启", "Restart")) { model.restartSession(runtime.record) }.accessibilityIdentifier("restart-session-confirm")
         } message: {
-            Text(runtime.record.mode == .tmux ? model.text("远端 tmux 会话会继续运行，会话卡片保留，可稍后重连。", "The remote tmux session keeps running and its card stays, so you can reconnect later.")
-                 : model.text("普通 SSH shell 会结束；需要保留的任务请先放入 tmux。", "The plain SSH shell will end. Move work you need to keep into tmux first."))
+            Text(runtime.record.mode == .tmux ? model.text("正在运行的程序会被结束，然后在同一目录重新启动。", "The running program is ended, then started again in the same folder.")
+                 : model.text("当前 shell 会结束并重新连接。", "The current shell ends and reconnects."))
         }
-        .alert(model.text("修改会话标题", "Rename session"), isPresented: $renaming) {
-            TextField(model.sessionDefaultTitle(runtime.record), text: $renameText).accessibilityIdentifier("session-title-input")
-            Button(model.text("取消", "Cancel"), role: .cancel) { }
-            Button(model.text("保存", "Save")) { model.renameSession(runtime.record.id, title: String(renameText.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))) }
-        } message: { Text(model.text("主机名与会话标题在同一行显示。标题留空则显示会话编号。", "The host name and session title share one line. Leave the title empty to show the session number.")) }
         .modifier(TerminalPasteConfirmation(runtime: runtime, enabled: !commandSheet))
         .sheet(isPresented: $commandSheet) { CommandSheet(runtime: runtime).environmentObject(model) }
         .sheet(item: $fileAction, onDismiss: {
@@ -113,7 +121,7 @@ struct TerminalScreen: View {
                 fileAction = nil
             }.environmentObject(model)
         }
-        .sheet(isPresented: $reverifySheet) { FingerprintReview(host: runtime.host).environmentObject(model) }
+        .sheet(isPresented: $reverifySheet) { FingerprintReview(host: runtime.host) { model.reconnect(runtime.record) }.environmentObject(model) }
     }
 
     @ViewBuilder private var notice: some View {
@@ -122,10 +130,12 @@ struct TerminalScreen: View {
                 if runtime.phase.active {
                     TerminalConnectionProgress(phase: runtime.phase) { runtime.close() }
                 } else {
+                    // No button while the terminal reconnects by itself.
                     TerminalConnectionNotice(phase: runtime.phase, message: runtime.message,
-                                             onReconnect: { model.reconnect(runtime.record) },
+                                             onReconnect: SessionReconnect.onOpen(runtime.end) ? nil : { model.reconnect(runtime.record) },
                                              onShell: { model.reconnect(runtime.record, shell: true) },
-                                             onReverify: { reverifySheet = true })
+                                             onReverify: { reverifySheet = true },
+                                             onLeave: { if !model.path.isEmpty { model.path.removeLast() } })
                 }
             }
         } else if let message = runtime.message {
@@ -163,9 +173,28 @@ struct TerminalScreen: View {
 
     private func cursorFrame() -> CGRect? {
         guard let row = runtime.cursorRowBounds else { return nil }
-        let height: CGFloat = runtime.cursorRowKey == .arrows ? 64 : 32
+        let height: CGFloat = 32
         let y = Self.inset.top + row.midY
         return CGRect(x: runtime.terminalView.bounds.width + Self.inset.leading + Self.inset.trailing - 40, y: y - height / 2, width: 40, height: height)
+    }
+    private func petCenter(in viewport: CGSize) -> CGPoint {
+        let frame = TerminalDockGeometry.frame(viewport: viewport, content: CGSize(width: 48, height: 48), avoiding: cursorFrame())
+        return CGPoint(x: frame.midX, y: frame.midY)
+    }
+    /// Up above the pet, Down below it and Left to its left; the pet stays put between them.
+    private func petArrowBounds(in viewport: CGSize) -> CGRect {
+        let center = petCenter(in: viewport)
+        return CGRect(x: center.x - 64, y: center.y - 56, width: 88, height: 112)
+    }
+    private func petArrows(center: CGPoint) -> some View {
+        ZStack(alignment: .topLeading) {
+            CursorKeyButton(icon: "ic_expand_up", label: model.text("发送上方向键", "Send Up arrow"), id: "pet-arrow-up") { runtime.sendPetArrow("A") }
+                .position(x: center.x, y: center.y - 40)
+            CursorKeyButton(icon: "ic_expand_down", label: model.text("发送下方向键", "Send Down arrow"), id: "pet-arrow-down") { runtime.sendPetArrow("B") }
+                .position(x: center.x, y: center.y + 40)
+            CursorKeyButton(icon: "ic_expand_left", label: model.text("发送左方向键", "Send Left arrow"), id: "pet-arrow-left") { runtime.sendPetArrow("D") }
+                .position(x: center.x - 44, y: center.y)
+        }
     }
     private func collapseIfFloating() { if !toolbox.pinned { toolbox.collapseDock(at: now) } }
     private func dock(in viewport: CGSize, twoColumns: Bool, reserved: Bool) -> some View {
@@ -213,15 +242,12 @@ struct TerminalScreen: View {
     private var openSessions: [SessionRecord] { model.records.filter { model.runtimes[$0.id] != nil } }
     private var sessionMenu: some View {
         Menu {
-            Button(model.text("返回主机列表", "Back to hosts")) { model.path = [] }
-            Button(model.text("返回主机详情", "Back to host details")) { model.path = [.host(runtime.host.id)] }
-            Button(model.text("修改会话标题", "Rename session")) { renameText = runtime.record.title; renaming = true }
-            if runtime.record.mode == .tmux {
-                Button(model.text("新会话", "New session")) {
-                    let host = model.host(runtime.host.id) ?? runtime.host
-                    model.launch(host, mode: host.mode, directory: "~", agent: nil, mosh: nil)
-                }.accessibilityIdentifier("new-session")
-            }
+            Button(model.text("返回主机详情", "Back to host details")) { model.path = model.host(runtime.host.id) == nil ? [] : [.host(runtime.host.id)] }
+            // Closing ends the session on the server, without asking, and returns to the session list.
+            Button(model.text("关闭当前会话", "Close session")) { model.closeSession(runtime.record) }.accessibilityIdentifier("close-session")
+            // A tmux pane restarts over the live connection; a plain shell restarts by reconnecting.
+            Button(model.text("重启当前会话", "Restart session")) { restartConfirm = true }
+                .disabled(runtime.record.mode == .tmux && !connected).accessibilityIdentifier("restart-session")
             Divider()
             ForEach(openSessions) { other in
                 let phase = model.runtimes[other.id]?.phase ?? .disconnected
@@ -253,11 +279,6 @@ struct TerminalScreen: View {
             Divider()
             Button(model.text("增大字号 · \(size) pt", "Larger text · \(size) pt")) { setFontSize(model.settings.fontSize + 1) }
             Button(model.text("减小字号 · \(size) pt", "Smaller text · \(size) pt")) { setFontSize(model.settings.fontSize - 1) }
-            Divider()
-            Button(model.text("关闭连接", "Close connection")) {
-                collapseIfFloating()
-                if runtime.phase.active { closeConfirm = true } else { model.closeSession(runtime.record) }
-            }.accessibilityIdentifier("terminal-close")
         } label: { AppIcon("ic_settings").frame(width: 48, height: 48).contentShape(Rectangle()) }
             .accessibilityLabel(model.text("终端设置", "Terminal settings")).accessibilityIdentifier("terminal-menu")
     }

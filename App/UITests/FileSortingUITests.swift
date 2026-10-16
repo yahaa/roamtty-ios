@@ -64,8 +64,7 @@ final class FileSortingUITests: RoamttyLiveUITestCase {
         try runCommand("rm -rf -- " + quote(base) + " && test ! -e " + quote(base) + " && " + emit(cleaned))
         waitForOutput(cleaned, surface: surface)
         closeTerminal()
-        XCTAssertTrue(app.buttons["host-detail-terminal"].waitForExistence(timeout: 5))
-        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'session-'")).count, 0)
+        XCTAssertEqual(homeSessionCards().count, 0)
     }
 
     private func openRemoteFolder(_ path: String) {

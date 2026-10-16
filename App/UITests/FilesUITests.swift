@@ -9,17 +9,16 @@ final class FilesUITests: RoamttyLiveUITestCase {
         // terminal. Port 1 cannot serve the fixture; all following uploads and remote
         // PNG checks must keep using the initiating session's original SSH connection.
         leaveTerminal()
-        let existingSession = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'session-'")).firstMatch
-        XCTAssertTrue(existingSession.waitForExistence(timeout: 8))
-        let sessionIdentifier = existingSession.identifier
-        app.buttons["host-detail-edit"].tap()
+        hostMenu("host-detail-edit")
         let port = app.textFields["host-port"]
         XCTAssertTrue(port.waitForExistence(timeout: 5)); replace(port, with: "1")
         app.buttons["save-host"].tap()
         waitUntilGone(app.buttons["save-host"])
-        let retainedSession = app.buttons[sessionIdentifier]
-        XCTAssertTrue(retainedSession.waitForExistence(timeout: 8))
-        XCTAssertTrue(retainedSession.label.contains("已连接") || retainedSession.label.contains("Connected"), "Editing the saved endpoint must retain the original connected session")
+        let existingSession = homeSessionCards().firstMatch
+        XCTAssertTrue(existingSession.waitForExistence(timeout: 8))
+        let sessionIdentifier = existingSession.identifier
+        let retainedSession = app.descendants(matching: .any)[sessionIdentifier].firstMatch
+        XCTAssertTrue(sessionConnected(sessionIdentifier), "Editing the saved endpoint must retain the original connected session")
         retainedSession.tap()
         XCTAssertTrue(surface.waitForExistence(timeout: 8))
         XCTAssertTrue(phase("已连接").waitForExistence(timeout: 8))
@@ -79,7 +78,8 @@ final class FilesUITests: RoamttyLiveUITestCase {
 
         // The retained tmux card must reconnect to the same original host, even
         // though the edited saved profile still has its deliberately invalid port.
-        closeTerminal()
+        try detachTerminal()
+        _ = homeSessionCards()
         XCTAssertTrue(retainedSession.waitForExistence(timeout: 8)); retainedSession.tap()
         let reconnect = app.buttons["terminal-reconnect"]
         XCTAssertTrue(reconnect.waitForExistence(timeout: 8)); reconnect.tap()
@@ -293,7 +293,7 @@ final class FilesUITests: RoamttyLiveUITestCase {
         waitUntilGone(app.buttons["transfer-done"])
         XCTAssertTrue(menu("files-options").waitForExistence(timeout: 8))
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        let session = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'session-'")).firstMatch
+        let session = homeSessionCards().firstMatch
         XCTAssertTrue(session.waitForExistence(timeout: 8)); session.tap()
         let verified = "UPLOAD_CHECK_" + shortID()
         let check = "test \"$(cat " + quote(base + "/collision.txt") + ")\" = " + quote(original)

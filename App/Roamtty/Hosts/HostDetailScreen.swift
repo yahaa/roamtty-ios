@@ -20,19 +20,9 @@ struct HostDetailScreen: View {
                             }.frame(maxWidth: .infinity, alignment: .leading)
                         }
                         HStack(spacing: 8) {
-                            Button { model.sheet = .launch(host, true) } label: { actionLabel(model.text("AI 助手", "AI agent"), "ic_agent") }.buttonStyle(RoamButtonStyle(filled: true)).accessibilityIdentifier("host-detail-agent")
+                            Button { model.sheet = .launch(host, true) } label: { actionLabel("AI Agent", "ic_agent") }.buttonStyle(RoamButtonStyle(filled: true)).accessibilityIdentifier("host-detail-agent")
                             Button { model.sheet = .launch(host, false) } label: { actionLabel(model.text("终端", "Terminal"), "ic_sessions") }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-terminal")
                             Button { model.path.append(.files(hostID)) } label: { actionLabel(model.text("文件", "Files"), "ic_folder") }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-files")
-                        }
-                        Panel(title: model.text("会话  \(model.records.filter { $0.hostID == hostID }.count)", "Sessions  \(model.records.filter { $0.hostID == hostID }.count)")) {
-                            let sessions = model.records.filter { $0.hostID == hostID }
-                            if sessions.isEmpty {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(model.text("暂无会话", "No sessions")).font(.body)
-                                    Text(model.text("点上方“AI 助手”或“终端”开启新会话", "Tap “AI agent” or “Terminal” above to start one")).font(.footnote).foregroundStyle(Palette.secondary)
-                                }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            ForEach(sessions) { record in SessionRow(record: record).panelDivider() }
                         }
                         monitorStatus(host)
                         if let metrics = model.metrics[hostID] { MetricsPanel(metrics: metrics, series: model.metricSeries[hostID] ?? HostMetricSeries()) }
@@ -53,9 +43,15 @@ struct HostDetailScreen: View {
                     }.padding(16).frame(maxWidth: 720)
                 }.frame(maxWidth: .infinity).pageBackground().navigationTitle(host.name).navigationBarTitleDisplayMode(.inline)
                     .toolbar {
-                        ToolbarItem(placement: .navigationBarTrailing) { Button { model.sheet = .plugins(host) } label: { AppIcon("ic_plugin", size: 24) }.accessibilityLabel(model.text("管理插件", "Manage plugins")).accessibilityIdentifier("host-detail-plugins") }
-                        ToolbarItem(placement: .navigationBarTrailing) { Button { model.sheet = .editor(host) } label: { AppIcon("ic_edit", size: 24) }.accessibilityLabel(model.text("编辑主机", "Edit host")).accessibilityIdentifier("host-detail-edit") }
-                        ToolbarItem(placement: .navigationBarTrailing) { Menu { Button(model.text("删除主机", "Delete host"), role: .destructive) { deleteConfirm = true }.accessibilityIdentifier("host-delete") } label: { AppIcon("ic_more", size: 24) }.accessibilityIdentifier("host-detail-menu") }
+                        // Plugins, edit and delete all live behind the one overflow button, keeping the bar to a single icon.
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Menu {
+                                Button { model.sheet = .plugins(host) } label: { Label { Text(model.text("安装插件", "Install plugins")) } icon: { Image("ic_plugin") } }.accessibilityIdentifier("host-detail-plugins")
+                                Button { model.sheet = .editor(host) } label: { Label { Text(model.text("编辑主机", "Edit host")) } icon: { Image("ic_edit") } }.accessibilityIdentifier("host-detail-edit")
+                                Divider()
+                                Button(role: .destructive) { deleteConfirm = true } label: { Label { Text(model.text("删除主机", "Delete host")) } icon: { Image("ic_delete") } }.accessibilityIdentifier("host-delete")
+                            } label: { AppIcon("ic_more", size: 24) }.accessibilityLabel(model.text("更多", "More")).accessibilityIdentifier("host-detail-menu")
+                        }
                     }
                     .onAppear { model.startMonitor(host) }
                     .task(id: host.address + ":" + String(host.port)) { while !Task.isCancelled { await model.probeHosts([host]); do { try await Task.sleep(nanoseconds: 15_000_000_000) } catch { break } } }
@@ -77,7 +73,7 @@ struct HostDetailScreen: View {
         HStack(spacing: 8) { AppIcon(icon, size: 18); Text(title) }
     }
     private func monitorStatus(_ host: Host) -> some View {
-        let live = model.monitorStates[hostID].map { $0.phase == .connected && $0.sampled && !$0.reconnecting } ?? false
+        let live = model.monitorStates[hostID].map { $0.phase == .connected && $0.sampled && !$0.reconnecting && !$0.samplingFailed } ?? false
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Text(model.text("实时监控", "Live monitor")).font(.subheadline.weight(.medium)).foregroundStyle(Palette.secondary)
@@ -92,7 +88,13 @@ struct HostDetailScreen: View {
     }
     private func monitorPanel(_ host: Host) -> some View {
         Panel {
-            if let state = model.monitorStates[hostID] {
+            if let state = model.monitorStates[hostID], state.samplingFailed {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(model.text("无法读取监控数据，请检查远端系统查询权限后重试。", "Couldn't read monitoring data. Check remote system query permissions and try again."))
+                        .font(.subheadline).foregroundStyle(Palette.danger).accessibilityIdentifier("host-monitor-error")
+                    Button(model.text("重试", "Retry")) { model.stopMonitor(hostID); model.startMonitor(host, interactive: true) }.accessibilityIdentifier("host-monitor-retry")
+                }.padding(16)
+            } else if let state = model.monitorStates[hostID] {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 8) {
                         if state.phase.active && !(state.phase == .connected && state.sampled) { ProgressView().scaleEffect(0.8) }
@@ -112,38 +114,6 @@ struct HostDetailScreen: View {
                 }.accessibilityIdentifier("host-monitor-login")
             }
         }
-    }
-}
-struct SessionRow: View {
-    @EnvironmentObject var model: AppModel
-    let record: SessionRecord
-    @State private var edit = false
-    @State private var title = ""
-    @State private var confirm = false
-    private var phase: ConnectionPhase { model.runtimes[record.id]?.phase ?? .disconnected }
-    var body: some View {
-        HStack(spacing: 12) {
-            Button { model.openSession(record) } label: {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(model.sessionTitle(record)).font(.body).foregroundStyle(Palette.foreground).lineLimit(1)
-                    HStack { PhaseLabel(phase: phase); Badge(text: record.mode == .tmux ? "tmux" : "SSH"); if model.runtimes[record.id]?.transportName == "mosh" { Badge(text: "mosh") } }
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }.accessibilityIdentifier("session-\(record.id)")
-            Button { title = record.title; edit = true } label: { AppIcon("ic_edit", size: 20).foregroundStyle(Palette.secondary).frame(width: 40, height: 40) }.accessibilityLabel(model.text("修改会话标题", "Rename session")).accessibilityIdentifier("rename-session-\(record.id)")
-            Button(phase.active || record.mode == .shell ? model.text("关闭", "Close") : model.text("移除", "Remove")) { confirm = true }.font(.subheadline.weight(.medium)).foregroundStyle(Palette.accent).accessibilityIdentifier("close-session-\(record.id)")
-        }.padding(16)
-            .alert(model.text("修改会话标题", "Rename session"), isPresented: $edit) {
-                TextField(model.text("标题", "Title"), text: $title).accessibilityIdentifier("session-title")
-                Button(model.text("保存", "Save")) { model.renameSession(record.id, title: title) }.accessibilityIdentifier("session-title-save")
-                Button(model.text("取消", "Cancel"), role: .cancel) {}
-            }
-            .confirmationDialog(model.sessionTitle(record), isPresented: $confirm, titleVisibility: .visible) {
-                if phase.active || record.mode == .shell { Button(model.text("关闭连接", "Close connection"), role: .destructive) { model.closeSession(record) } }
-                else {
-                    Button(model.text("仅移除此卡片", "Remove this card"), role: .destructive) { model.forgetSession(record, terminateRemote: false) }
-                    Button(model.text("终止远程 tmux 并移除", "Terminate remote tmux and remove"), role: .destructive) { model.forgetSession(record, terminateRemote: true) }
-                }
-            } message: { Text(record.mode == .tmux ? model.text("关闭连接会保留远程 tmux 会话。", "Closing a connection preserves the remote tmux session.") : model.text("关闭后普通 SSH 会话将结束。", "Closing ends the plain SSH session.")) }
     }
 }
 struct MetricsPanel: View {

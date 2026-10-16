@@ -5,31 +5,44 @@ struct CursorRowButtons: View {
     @ObservedObject var runtime: SessionRuntime
     /// Android aligns the keys to the viewport's end, past the terminal's own end padding.
     var trailingInset: CGFloat = 0
+    /// Where the pet's arrow keys sit, in this view's coordinates: a cursor row within their span slides left of them.
+    var avoid: CGRect? = nil
     var body: some View {
         GeometryReader { geometry in
             if runtime.phase == .connected, let row = runtime.cursorRowBounds {
-                let height: CGFloat = runtime.cursorRowKey == .arrows ? 64 : 32
-                VStack(spacing: 0) {
+                let height: CGFloat = 32
+                let y = min(max(row.midY, height / 2), max(height / 2, geometry.size.height - height / 2))
+                let shift: CGFloat = avoid.map { y - height / 2 < $0.maxY && y + height / 2 > $0.minY ? $0.width + 8 + 40 : 0 } ?? 0
+                Group {
                     switch runtime.cursorRowKey {
-                    case .arrows:
-                        cursorButton(icon: "chevron.up", label: model.text("发送上方向键", "Send Up"), id: "cursor-up") { runtime.sendCursorKey(.arrows, up: true) }
-                        cursorButton(icon: "chevron.down", label: model.text("发送下方向键", "Send Down"), id: "cursor-down") { runtime.sendCursorKey(.arrows) }
                     case .enter:
-                        cursorButton(icon: "return", label: model.text("回车", "Enter"), id: "cursor-enter") { runtime.sendCursorKey(.enter) }
+                        CursorKeyButton(systemIcon: "return", label: model.text("回车", "Enter"), id: "cursor-enter") { runtime.sendCursorKey(.enter) }
                     case .escape:
-                        cursorButton(label: model.text("发送 Esc", "Send Esc"), id: "cursor-escape") { runtime.sendCursorKey(.escape) }
+                        CursorKeyButton(text: "Esc", label: model.text("发送 Esc", "Send Esc"), id: "cursor-escape") { runtime.sendCursorKey(.escape) }
                     }
                 }.frame(width: 40, height: height)
-                    .position(x: max(20, geometry.size.width + trailingInset - 20), y: min(max(row.midY, height / 2), max(height / 2, geometry.size.height - height / 2)))
+                    .position(x: max(20, geometry.size.width + trailingInset - 20 - shift), y: y)
                     .animation(.easeInOut(duration: 0.12), value: runtime.cursorRowKey)
+                    .animation(.easeInOut(duration: 0.12), value: shift)
             }
         }
     }
-    private func cursorButton(icon: String? = nil, label: String, id: String, action: @escaping () -> Void) -> some View {
+}
+
+/// A slim key drawn inside a larger touch area: an Android drawable, an SF Symbol, or a short text label.
+struct CursorKeyButton: View {
+    var icon: String? = nil
+    var systemIcon: String? = nil
+    var text: String? = nil
+    let label: String
+    let id: String
+    let action: () -> Void
+    var body: some View {
         Button(action: action) {
             Group {
-                if let icon { Image(systemName: icon).font(.system(size: 13, weight: .medium)) }
-                else { Text("Esc").font(.system(size: 10, weight: .medium, design: .monospaced)) }
+                if let icon { AppIcon(icon, size: 16) }
+                else if let systemIcon { Image(systemName: systemIcon).font(.system(size: 13, weight: .medium)) }
+                else { Text(text ?? "").font(.system(size: 10, weight: .medium, design: .monospaced)) }
             }.foregroundStyle(Palette.accent).frame(width: 28, height: 20)
                 .background(Palette.raised.opacity(0.85), in: RoundedRectangle(cornerRadius: 6))
                 .overlay { RoundedRectangle(cornerRadius: 6).stroke(Palette.outline.opacity(0.5), lineWidth: 1) }

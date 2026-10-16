@@ -59,18 +59,18 @@ final class NetworkRecoveryUITests: RoamttyLiveUITestCase {
 
         _ = try control("b") // Same host and port; all old TCP flows are closed.
         let reconnect = app.buttons["terminal-reconnect"]
-        XCTAssertTrue(reconnect.waitForExistence(timeout: 20)); reconnect.tap()
+        // The dropped terminal reconnects by itself, straight into the changed key.
         assertChangedKey()
         reviewButton.tap()
         let cancel = app.navigationBars.buttons.matching(NSPredicate(format: "label == '取消' OR label == 'Cancel'")).firstMatch
         XCTAssertTrue(cancel.waitForExistence(timeout: 5)); cancel.tap()
-        XCTAssertTrue(reconnect.waitForExistence(timeout: 5)); reconnect.tap()
         assertChangedKey() // Cancelling review must leave A's pin intact.
+        XCTAssertFalse(reconnect.exists, "A changed key offers only review, as on Android")
 
         reviewButton.tap()
-        let forget = app.buttons.matching(NSPredicate(format: "label == '移除旧指纹' OR label == 'Remove previous fingerprint'")).firstMatch
+        let forget = app.buttons["fingerprint-remove"]
+        // Removing the old record reconnects at once and shows the new fingerprint for approval.
         XCTAssertTrue(forget.waitForExistence(timeout: 5)); forget.tap()
-        XCTAssertTrue(reconnect.waitForExistence(timeout: 5)); reconnect.tap()
         let fingerprint = app.staticTexts["auth-fingerprint"]
         XCTAssertTrue(fingerprint.waitForExistence(timeout: 15))
         XCTAssertEqual(fingerprint.label, original.fingerprints.b)
@@ -81,7 +81,7 @@ final class NetworkRecoveryUITests: RoamttyLiveUITestCase {
         _ = try runCommand("printf 'KEY_B_%s\\n' '\(suffix)'")
         waitForOutput("KEY_B_" + suffix, surface: surface)
         capture("Changed key reconnects only after review and explicit approval of key B")
-        closeTerminal()
+        leaveTerminal() // Back to the host page, whose monitor must use the approved key too.
         assertLiveMonitor()
         XCTAssertFalse(app.buttons["auth-confirm"].exists, "The explicitly approved replacement pin must also authenticate the host monitor")
     }
@@ -117,6 +117,7 @@ final class NetworkRecoveryUITests: RoamttyLiveUITestCase {
         XCTAssertFalse(phase("已连接").exists)
     }
     private func openRecoveryHost(expectedFingerprint: String) throws {
+        showHostsTab()
         let host = app.buttons["host-UI Live Host"]
         XCTAssertTrue(host.waitForExistence(timeout: 8)); host.tap()
         let fingerprint = app.staticTexts["auth-fingerprint"]

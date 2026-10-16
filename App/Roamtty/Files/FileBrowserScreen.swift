@@ -139,7 +139,7 @@ struct FileBrowserScreen: View {
                 ToolbarItem(placement: .principal) { pathBar.disabled(mutationID != nil) }
                 ToolbarItem(placement: .navigationBarTrailing) { Menu {
                     Button { launchHere(agent: false) } label: { Label { Text(model.text("打开终端", "Open terminal")) } icon: { Image("ic_sessions") } }.accessibilityIdentifier("files-open-terminal")
-                    Button { launchHere(agent: true) } label: { Label { Text(model.text("AI 助手", "AI assistant")) } icon: { Image("ic_agent") } }.accessibilityIdentifier("files-open-agent")
+                    Button { launchHere(agent: true) } label: { Label { Text("AI Agent") } icon: { Image("ic_agent") } }.accessibilityIdentifier("files-open-agent")
                     Divider()
                     Button { navigate(directory) } label: { Label { Text(model.text("刷新", "Refresh")) } icon: { Image("ic_refresh") } }.disabled(loading || mutationID != nil)
                     Button { newFolderName = ""; creatingFolder = true } label: { Label { Text(model.text("新建文件夹", "New folder")) } icon: { Image("ic_folder_add") } }.disabled(mutationID != nil).accessibilityIdentifier("files-new-folder")
@@ -308,7 +308,7 @@ struct FileBrowserScreen: View {
         Button(entry.isDirectory ? model.text("打开", "Open") : model.text("查看内容", "View")) { if entry.isDirectory { navigate(entry.path) } else { preview = entry } }.accessibilityIdentifier("files-action-open")
         if entry.isDirectory && !downloadSelection {
             Button { if let onLaunchDirectory { onLaunchDirectory(false, entry.path) } else { model.sheet = .launch(host, false, directory: entry.path) } } label: { Label { Text(model.text("打开终端", "Open terminal")) } icon: { Image("ic_sessions") } }.accessibilityIdentifier("files-action-open-terminal")
-            Button { if let onLaunchDirectory { onLaunchDirectory(true, entry.path) } else { model.sheet = .launch(host, true, directory: entry.path) } } label: { Label { Text(model.text("AI 助手", "AI assistant")) } icon: { Image("ic_agent") } }.accessibilityIdentifier("files-action-open-agent")
+            Button { if let onLaunchDirectory { onLaunchDirectory(true, entry.path) } else { model.sheet = .launch(host, true, directory: entry.path) } } label: { Label { Text("AI Agent") } icon: { Image("ic_agent") } }.accessibilityIdentifier("files-action-open-agent")
         }
         // iOS also downloads folders recursively, so 下载 is offered for both.
         Button(model.text("下载", "Download")) { model.files.download(entry, host: host, model: model, connectionTarget: connectionTarget); transfers = true }.accessibilityIdentifier("files-action-download")

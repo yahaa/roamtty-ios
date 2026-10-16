@@ -65,7 +65,7 @@ for fixture in "$RECOVERY_JSON" "$PLUGIN_JSON"; do
 done
 # Focused classes can run independently. Recovery and plugin tests fail clearly
 # when their real service fixtures are absent; they never silently skip.
-python3 scripts/configure-ui-fixture.py "$TEST_RUN" "$FIXTURE_JSON" "${EXTRA_FIXTURES[@]}"
+python3 scripts/configure-ui-fixture.py "$TEST_RUN" "$FIXTURE_JSON" ${EXTRA_FIXTURES[@]+"${EXTRA_FIXTURES[@]}"}
 # XCTest records typed passwords. Keep the full log private instead of echoing it.
 umask 077
 STATUS=0

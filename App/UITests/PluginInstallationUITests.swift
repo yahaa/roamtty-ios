@@ -43,10 +43,9 @@ final class PluginInstallationUITests: RoamttyLiveUITestCase {
         try runCommand("export ROAMTTY_PLUGIN_UI='" + token + "'; " + emit(initial))
         waitForOutput(initial, surface: normal)
         returnToHost()
-        let card = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'session-'")).firstMatch
+        let card = homeSessionCards().firstMatch
         XCTAssertTrue(card.waitForExistence(timeout: 5))
         let originalCardID = card.identifier
-        returnHome()
 
         try createInteractiveHost(fixture, cancel: true)
         openPlugins()
@@ -63,7 +62,7 @@ final class PluginInstallationUITests: RoamttyLiveUITestCase {
         // Done is the current public cancellation action; disappearing cancels
         // this installation and must not poison the cached SSH session.
         app.buttons["plugins-done"].tap()
-        XCTAssertTrue(app.buttons["host-detail-plugins"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["host-detail-menu"].waitForExistence(timeout: 8))
         openPlugins()
         let install = app.buttons["plugin-install-tmux"]
         waitEnabled(install)
@@ -89,11 +88,9 @@ final class PluginInstallationUITests: RoamttyLiveUITestCase {
         closePluginTerminal()
         returnHome()
 
-        let normalHost = app.buttons["host-UI Live Host"]
-        XCTAssertTrue(normalHost.waitForExistence(timeout: 8)); normalHost.tap()
-        let original = app.buttons[originalCardID]
+        let original = homeSessionCards()[originalCardID]
         XCTAssertTrue(original.waitForExistence(timeout: 8))
-        XCTAssertTrue(original.label.contains("已连接") || original.label.contains("Connected"))
+        XCTAssertTrue(sessionConnected(originalCardID))
         original.tap()
         let preserved = "PLUGIN_OTHER_PRESERVED_" + token
         let surface = try runCommand("test \"$ROAMTTY_PLUGIN_UI\" = '" + token + "' && " + emit(preserved))
@@ -151,7 +148,7 @@ final class PluginInstallationUITests: RoamttyLiveUITestCase {
 
     private func createInteractiveHost(_ fixture: Configuration, cancel: Bool) throws {
         let name = "UI Plugin " + (cancel ? "Cancel " : "Install ") + String(nonce().prefix(8))
-        let add = app.buttons["add-host"]
+        let add = addHostButton
         XCTAssertTrue(add.waitForExistence(timeout: 8)); add.tap()
         for (identifier, value) in [("host-name", name), ("host-address", fixture.host),
                                     ("host-port", cancel ? fixture.cancelPort : fixture.port), ("host-username", fixture.username)] {
@@ -178,8 +175,7 @@ final class PluginInstallationUITests: RoamttyLiveUITestCase {
     }
 
     private func openPlugins() {
-        let plugins = app.buttons["host-detail-plugins"]
-        XCTAssertTrue(plugins.waitForExistence(timeout: 8)); plugins.tap()
+        hostMenu("host-detail-plugins")
         waitEnabled(app.buttons["plugin-install-tmux"])
     }
 
@@ -220,13 +216,12 @@ final class PluginInstallationUITests: RoamttyLiveUITestCase {
     private func returnToHost() { leaveTerminal() }
 
     private func returnHome() {
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(app.buttons["add-host"].waitForExistence(timeout: 8))
+        if app.navigationBars.buttons.count > 0 && !app.buttons["home-tab-hosts"].exists { app.navigationBars.buttons.element(boundBy: 0).tap() }
+        XCTAssertTrue(addHostButton.waitForExistence(timeout: 8))
     }
 
     private func closePluginTerminal() {
         closeTerminal()
-        XCTAssertTrue(app.buttons["host-detail-terminal"].waitForExistence(timeout: 8))
     }
 
     private func nonce() -> String { UUID().uuidString.replacingOccurrences(of: "-", with: "") }

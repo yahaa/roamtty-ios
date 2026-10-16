@@ -4,9 +4,9 @@ import XCTest
 
 final class RemoteCommandsTests: XCTestCase {
     func testAgentLaunchQuotesDirectoryAndMatchesAndroidModes() {
-        XCTAssertEqual(AgentLaunch(agent: .codex, directory: "/work/a'b", mode: .readOnly).commandLine, "cd -- '/work/a'\\''b' && codex --sandbox read-only")
-        XCTAssertEqual(AgentLaunch(agent: .claude, directory: "~/work dir/", mode: .yolo).commandLine, "cd -- ~/'work dir' && claude --dangerously-skip-permissions")
-        XCTAssertEqual(AgentLaunch(agent: .grok, directory: "~").commandLine, "grok")
+        XCTAssertEqual(AgentLaunch(agent: .codex, directory: "/work/a'b", mode: .readOnly).commandLine, "cd -- '/work/a'\\''b' && ~/.roamtty/codex --sandbox read-only")
+        XCTAssertEqual(AgentLaunch(agent: .claude, directory: "~/work dir/", mode: .yolo).commandLine, "cd -- ~/'work dir' && claude --dangerously-skip-permissions --settings ~/.roamtty/claude-hooks.json")
+        XCTAssertEqual(AgentLaunch(agent: .grok, directory: "~").commandLine, "~/.roamtty/grok")
         XCTAssertEqual(AgentLaunch(agent: .codex, directory: "/work/demo/").title, "Codex · demo")
         XCTAssertEqual(AgentLaunch(agent: .claude, directory: "/").title, "Claude · /")
         XCTAssertFalse(StartDirectory.isSupported("/work\u{1b}[31m"))

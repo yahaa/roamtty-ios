@@ -53,6 +53,7 @@ final class AuthenticationUITests: RoamttyLiveUITestCase {
         capture("Corrected one-time password reaches live metrics")
 
         app.terminate(); app.launch()
+        showHostsTab()
         let host = app.buttons["host-" + name]
         XCTAssertTrue(host.waitForExistence(timeout: 8)); host.tap()
         XCTAssertTrue(login.waitForExistence(timeout: 5), "An unsaved password must not authenticate automatically after relaunch")
@@ -92,7 +93,7 @@ final class AuthenticationUITests: RoamttyLiveUITestCase {
         reveal(importKey); importKey.tap()
         selectSeededKeyInFiles()
         XCTAssertTrue(importKey.waitForExistence(timeout: 8))
-        XCTAssertTrue(importKey.label.contains("roamtty-ui-encrypted-key"), "The native picker must return the seeded encrypted fixture")
+        XCTAssertTrue((importKey.value as? String ?? "").contains("roamtty-ui-encrypted-key"), "The native picker must return the seeded encrypted fixture")
         // Leave the editor's optional passphrase empty to exercise the real login prompt.
         let optionalPassphrase = app.secureTextFields["host-key-passphrase"]
         let displayedPassphrase = optionalPassphrase.value as? String ?? ""
@@ -105,6 +106,7 @@ final class AuthenticationUITests: RoamttyLiveUITestCase {
         // Hosts, imported key and trust survive. The passphrase must be requested
         // again because it lives only in the terminated process's memory.
         app.terminate(); app.launch()
+        showHostsTab()
         let host = app.buttons["host-\(name)"]
         XCTAssertTrue(host.waitForExistence(timeout: 8)); host.tap()
         answerKeyPassphrase()
@@ -115,6 +117,7 @@ final class AuthenticationUITests: RoamttyLiveUITestCase {
 
     func testCancelFirstTrustRequiresExplicitRetryAndDoesNotSavePin() throws {
         _ = try credentials()
+        showHostsTab()
         let host = app.buttons["host-UI Live Host"]
         XCTAssertTrue(host.waitForExistence(timeout: 8)); host.tap()
         let fingerprint = app.staticTexts["auth-fingerprint"]
@@ -151,7 +154,7 @@ final class AuthenticationUITests: RoamttyLiveUITestCase {
     }
 
     private func createHostEditor(name: String, fixture: Fixture, method: String) {
-        let add = app.buttons["add-host"]
+        let add = addHostButton
         XCTAssertTrue(add.waitForExistence(timeout: 8)); add.tap()
         for (identifier, value) in [("host-name", name), ("host-address", fixture.host),
                                     ("host-port", fixture.port), ("host-username", fixture.username)] {
@@ -208,10 +211,16 @@ final class AuthenticationUITests: RoamttyLiveUITestCase {
     }
 
     private func reveal(_ element: XCUIElement) {
+        // The home pager behind the editor is a scroll view too: scroll the editor's own.
+        let editor = app.scrollViews["host-editor-scroll"]
+        let scroll = editor.exists ? editor : app.scrollViews.firstMatch
         for _ in 0..<5 {
             if element.isHittable { return }
-            app.scrollViews.firstMatch.swipeUp()
+            // Drag within the upper half: a swipe from the centre can start on the keyboard.
+            scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
+                .press(forDuration: 0.05, thenDragTo: scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)))
         }
+        if !element.isHittable { saveFailureScreenshot("reveal") }
         XCTAssertTrue(element.isHittable)
     }
 

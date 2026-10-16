@@ -14,10 +14,11 @@ final class ParityScreenshotUITests: RoamttyLiveUITestCase {
     }
 
     func testCaptureMainScreens() throws {
+        showHostsTab()
         XCTAssertTrue(app.buttons["host-UI Live Host"].waitForExistence(timeout: 8))
         sleep(2); shot("01-hosts")
         try openHost(); sleep(2); shot("02-detail")
-        app.buttons["host-detail-edit"].tap()
+        hostMenu("host-detail-edit")
         if app.buttons["save-host"].waitForExistence(timeout: 5) { sleep(1); shot("02d-editor"); app.buttons["cancel-host-editor"].tap(); sleep(1) }
         app.buttons["host-detail-files"].tap()
         if app.descendants(matching: .any)["files-options"].firstMatch.waitForExistence(timeout: 10) {

@@ -1,12 +1,11 @@
 import Foundation
 
-enum CursorRowKey: Equatable { case escape, enter, arrows }
+enum CursorRowKey: Equatable { case escape, enter }
 
 /// Mirrors Android's cursor-row controls, using screen contents rather than guessed keystrokes.
 struct TerminalCursorControls {
     private var slashLine = 0
     private var nextSlashLine = 0
-    private var dismissedSlashLine = 0
     private var enterFrom: TimeInterval = .infinity
     private var enterUntil: TimeInterval = 0
 
@@ -19,13 +18,13 @@ struct TerminalCursorControls {
         enterFrom = time + 0.7
         enterUntil = enterFrom + 3
     }
-    mutating func wake(at time: TimeInterval, dismissSlash: Bool = false) {
+    mutating func wake(at time: TimeInterval) {
         enterFrom = time
         enterUntil = time + 3
-        if dismissSlash { dismissedSlashLine = slashLine }
     }
+    /// A line starting with `/` brings the pet's Up/Down/Left keys for its command menu, for as long as it does.
+    var onSlashLine: Bool { slashLine != 0 }
     func key(at time: TimeInterval) -> CursorRowKey {
-        if slashLine != 0 && (slashLine != dismissedSlashLine || time >= enterUntil) { return .arrows }
         return time >= enterFrom && time < enterUntil ? .enter : .escape
     }
     static func startsWithSlash(_ row: String) -> Bool {
