@@ -5,6 +5,8 @@ struct TransferScreen: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) var dismiss
     @ObservedObject var transfers: FileTransferModel
+    /// Inserted photos return straight to the terminal: the page closes once all of these are in it.
+    var closeWhenInserted: [UUID] = []
     @State private var share: SharedArtifact?
     @State private var export: SharedArtifact?
     var body: some View {
@@ -40,7 +42,9 @@ struct TransferScreen: View {
                     ToolbarItem(placement: .cancellationAction) { Button(model.text("清除已完成", "Clear finished")) { transfers.clearFinished() } }
                     ToolbarItem(placement: .confirmationAction) { Button(model.text("完成", "Done")) { dismiss() }.accessibilityIdentifier("transfer-done") }
                 }
-        }.modifier(ChildModalPresence()).overlay { AuthenticationOverlay() }.sheet(item: $share) { ShareActivity(items: [$0.url]) }.sheet(item: $export) { ExportDocuments(urls: [$0.url]) }
+        }.modifier(ChildModalPresence()).overlay { AuthenticationOverlay() }
+            .onReceive(transfers.$jobs) { _ in if transfers.inserted(closeWhenInserted) { dismiss() } }
+            .sheet(item: $share) { ShareActivity(items: [$0.url]) }.sheet(item: $export) { ExportDocuments(urls: [$0.url]) }
     }
     private func status(_ job: TransferJob) -> String {
         switch job.state { case .running: return job.uploading ? model.text("上传中", "Uploading") : model.text("下载中", "Downloading"); case .complete: return model.text("已完成", "Completed"); case .failed: return model.text("失败", "Failed"); case .cancelled: return model.text("已取消", "Cancelled") }

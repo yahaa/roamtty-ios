@@ -37,7 +37,7 @@ struct TerminalScreen: View {
                     VStack(spacing: 0) {
                         ZStack {
                             NativeTerminal(runtime: runtime, settings: model.settings).clipped()
-                                .overlay { if connected && !editor { CursorRowButtons(runtime: runtime, trailingInset: Self.inset.trailing, avoid: petArrowsShown ? petArrowBounds(in: page.size).offsetBy(dx: -Self.inset.leading, dy: -Self.inset.top) : nil) } }
+                                .overlay { if connected && !editor { CursorRowButtons(runtime: runtime, trailingInset: Self.inset.trailing, avoid: petArrowsShown ? petArrowBounds(in: page.size).offsetBy(dx: -Self.inset.leading, dy: -Self.inset.top) : nil, keyboardVisible: keyboardVisible) } }
                                 .padding(Self.inset)
                             notice
                         }.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -173,9 +173,9 @@ struct TerminalScreen: View {
 
     private func cursorFrame() -> CGRect? {
         guard let row = runtime.cursorRowBounds else { return nil }
-        let height: CGFloat = 32
+        let height: CGFloat = 32, width: CGFloat = keyboardVisible ? 80 : 40
         let y = Self.inset.top + row.midY
-        return CGRect(x: runtime.terminalView.bounds.width + Self.inset.leading + Self.inset.trailing - 40, y: y - height / 2, width: 40, height: height)
+        return CGRect(x: runtime.terminalView.bounds.width + Self.inset.leading + Self.inset.trailing - width, y: y - height / 2, width: width, height: height)
     }
     private func petCenter(in viewport: CGSize) -> CGPoint {
         let frame = TerminalDockGeometry.frame(viewport: viewport, content: CGSize(width: 48, height: 48), avoiding: cursorFrame())

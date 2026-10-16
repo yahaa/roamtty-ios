@@ -89,6 +89,8 @@ import RoamttyTransport
         super.init()
         terminalView.terminalDelegate = self
         terminalView.inputAccessoryView = nil
+        // iOS 26 frosts a scroll view's edges under the status bar and home indicator; the terminal stays clear to the edge.
+        if #available(iOS 26.0, *) { terminalView.topEdgeEffect.isHidden = true; terminalView.bottomEdgeEffect.isHidden = true }
         terminalView.allowMouseReporting = false
         terminalView.notifyUpdateChanges = true
         terminalView.autocorrectionType = .no
@@ -403,6 +405,7 @@ import RoamttyTransport
         let script = RemoteCommands.killTmux(record.remoteName)
         return (try? await performInBackground { try ssh.exec(HostPluginProbe.command, input: Data(script.utf8), timeout: 15) })?.status == 0
     }
+    func hideKeyboard() { keyboardHide?.cancel(); terminalView.resignFirstResponder() }
     func toggleKeyboard() { if terminalView.isFirstResponder { terminalView.resignFirstResponder() } else { terminalView.becomeFirstResponder() } }
     func paste() { terminalView.paste(nil) }
     @discardableResult func pasteText(_ text: String, confirmed: Bool = false) -> Bool {
