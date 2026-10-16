@@ -115,7 +115,7 @@ struct CommandSheet: View {
                 try model.validate(target)
                 guard !fullScreen else { runtime.message = model.text("请先退出全屏程序，再执行 shell 历史命令。", "Exit the full-screen program before running a shell history command."); return }
                 let input = try ShellHistoryCommands.executionInput(command, bracketed: runtime.terminalView.getTerminal().bracketedPasteMode)
-                runtime.terminalView.scroll(toPosition: 1)
+                runtime.terminalView.scrollToLiveOutput()
                 guard runtime.send(input) else { runtime.message = model.text("未发送：连接未就绪或输入队列已满。", "Not sent: connection unavailable or input queue full."); return }
                 runtime.recentCommands = ShellHistoryCommands.mergeRecent([command], saved: runtime.recentCommands)
             } catch { runtime.message = error.localizedDescription }

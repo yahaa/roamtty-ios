@@ -116,11 +116,11 @@ struct GhostShortcuts: View {
             if runtime.controlArmed { runtime.armControl() }
             runtime.shiftArmed.toggle()
         case .keys(let keys, let repeatAfter):
-            clearModifiers(); runtime.terminalView.scroll(toPosition: 1)
+            clearModifiers(); runtime.terminalView.scrollToLiveOutput()
             if runtime.send(keys), let repeatAfter { DispatchQueue.main.asyncAfter(deadline: .now() + repeatAfter) { runtime.send(keys) } }
         case .functionKey(let number):
             guard let input = TerminalKeys.function(number, control: runtime.controlArmed, shift: runtime.shiftArmed) else { return }
-            clearModifiers(); runtime.terminalView.scroll(toPosition: 1); runtime.send(input)
+            clearModifiers(); runtime.terminalView.scrollToLiveOutput(); runtime.send(input)
         }
     }
     private func clearModifiers() { runtime.controlArmed = false; runtime.shiftArmed = false; runtime.terminalView.controlModifier = false }

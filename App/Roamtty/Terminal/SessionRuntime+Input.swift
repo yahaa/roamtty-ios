@@ -17,12 +17,12 @@ extension SessionRuntime {
     /// The Up/Down/Left keys around the toolbox pet.
     func sendPetArrow(_ final: String) {
         let control = controlArmed, shift = shiftArmed
-        clearModifiers(); terminalView.scroll(toPosition: 1)
+        clearModifiers(); terminalView.scrollToLiveOutput()
         if send(TerminalKeys.arrow(final, applicationCursor: terminalView.getTerminal().applicationCursor, control: control, shift: shift)) { petArrowTouches += 1 }
     }
     func sendCursorKey(_ key: CursorRowKey, up: Bool = false) {
         clearModifiers()
-        terminalView.scroll(toPosition: 1)
+        terminalView.scrollToLiveOutput()
         let value: String
         switch key {
         case .enter: value = "\r"
@@ -44,7 +44,7 @@ extension SessionRuntime {
         let bracketed = terminalView.getTerminal().bracketedPasteMode
         if !confirmed && TerminalPaste.needsConfirmation(text, bracketed: bracketed) { pendingPaste = text; return false }
         guard let input = try? TerminalPaste.input(text, bracketed: bracketed) else { return false }
-        clearModifiers(); terminalView.scroll(toPosition: 1)
+        clearModifiers(); terminalView.scrollToLiveOutput()
         let accepted = send(input)
         if accepted { userTyped(Data(input.utf8)) }
         return accepted
