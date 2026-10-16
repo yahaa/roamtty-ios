@@ -62,6 +62,7 @@ struct NativeTerminal: UIViewRepresentable {
             && (isTracking || isDecelerating || contentOffset.y < contentSize.height - (screen + 0.5) * rowHeight)
         let place = contentOffset.y, before = lines(), top = terminal.getTopVisibleRow()
         feed(byteArray: bytes); spokenTextStale = true
+        if terminal.blankSplitWideCharacters() { terminal.updateFullScreen() }
         guard reading, !terminal.isCurrentBufferAlternate else { return }
         // A full scrollback drops its oldest lines as new ones arrive; move up with the text being read.
         let dropped = max(0, (terminal.getTopVisibleRow() - top) - (lines() - before))
