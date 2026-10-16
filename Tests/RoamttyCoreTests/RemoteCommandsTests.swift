@@ -82,6 +82,26 @@ final class RemoteCommandsTests: XCTestCase {
         }
     }
 
+    func testExistingTmuxSessionAttachesWithoutCreatingOrDetachingAndListsSessions() throws {
+        try withCommands(["tmux": """
+        case "$2" in
+          list-sessions) printf '2\\t1\\t1700000000\\twork\\t/home/me/a|b\\n1\\t0\\t1700000500\\tmy session\\t/tmp\\n';;
+          *) printf '%s|' "$@"; printf '\\n';;
+        esac
+        """]) { environment in
+            let attach = try run(RemoteCommands.tmuxAttach("work;rm", existing: true), environment: environment)
+            XCTAssertEqual(attach.0, 0)
+            XCTAssertEqual(attach.1, "attach-session|-t|=workrm|;|set-option|-t|workrm|mouse|on|\n")
+            let list = try run(RemoteCommands.tmuxSessions, environment: environment)
+            XCTAssertEqual(list.0, 0)
+            let sessions = TmuxSessionInfo.parse(list.1)
+            XCTAssertEqual(sessions.map(\.name), ["my session", "work"])
+            XCTAssertEqual(sessions[1], TmuxSessionInfo(name: "work", windows: 2, attached: 1, activity: Date(timeIntervalSince1970: 1_700_000_000), directory: "/home/me/a|b"))
+            XCTAssertEqual(sessions.map(\.attachable), [false, true])
+        }
+        XCTAssertEqual(TmuxSessionInfo.parse("garbage\nx\t1\t0\tname\n\n"), [])
+    }
+
     func testPluginInstallerUsesUserHomebrewOnDarwinAndRejectsUnknownPackages() throws {
         try withCommands(["uname": "printf Darwin", "brew": "printf 'brew:'; printf '%s|' \"$@\""]) { environment in
             let result = try run(RemoteCommands.installPlugin("mosh"), environment: environment)

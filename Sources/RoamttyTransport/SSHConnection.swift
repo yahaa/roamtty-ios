@@ -295,13 +295,13 @@ public final class SSHConnection {
         }
         return false
     }
-    public func openTerminal(mode: SessionMode, remoteName: String, columns: Int, rows: Int) throws {
+    public func openTerminal(mode: SessionMode, remoteName: String, existing: Bool = false, columns: Int, rows: Int) throws {
         guard terminal == nil else { throw RoamError.invalid("A terminal is already open") }
         if mode == .tmux { if try exec(RemoteCommands.tmuxProbe).status != 0 { onPhase?(.tmuxMissing); throw RoamError.tmuxMissing } }
         let channel = try openChannel { channel in
             try retry { libssh2_channel_request_pty_ex(channel, "xterm-256color", 14, nil, 0, Int32(max(2, columns)), Int32(max(2, rows)), 0, 0) }
             if mode == .tmux {
-                let command = RemoteCommands.tmuxAttach(remoteName)
+                let command = RemoteCommands.tmuxAttach(remoteName, existing: existing)
                 _ = try command.withCString { bytes in
                     try retry { libssh2_channel_process_startup(channel, "exec", 4, bytes, UInt32(command.utf8.count)) }
                 }
