@@ -409,7 +409,7 @@ import RoamttyTransport
         return (try? await performInBackground { try ssh.exec(HostPluginProbe.command, input: Data(script.utf8), timeout: 15) })?.status == 0
     }
     func hideKeyboard() { keyboardHide?.cancel(); terminalView.resignFirstResponder() }
-    func toggleKeyboard() { if terminalView.isFirstResponder { terminalView.resignFirstResponder() } else { terminalView.becomeFirstResponder() } }
+    func toggleKeyboard() { keyboardHide?.cancel(); if terminalView.isFirstResponder { terminalView.resignFirstResponder() } else { terminalView.becomeFirstResponder() } }
     func paste() { terminalView.paste(nil) }
     @discardableResult func pasteText(_ text: String, confirmed: Bool = false) -> Bool {
         guard phase == .connected else { return false }
@@ -540,6 +540,8 @@ import RoamttyTransport
         UIMenuController.shared.hideMenu()
         refreshCursor()
         guard let row = cursorRowBounds else { return }
+        // The user now decides about the keyboard: an earlier Enter's delayed hide must not undo it.
+        keyboardHide?.cancel()
         let y = recognizer.location(in: terminalView).y - terminalView.contentOffset.y
         if TerminalCursorControls.tapHitsCursor(y: y, rowTop: row.minY, rowHeight: row.height, viewportHeight: terminalView.bounds.height) { terminalView.becomeFirstResponder() }
         // iPhone keyboards have no dismiss key and there is no Back button: a reading tap elsewhere puts it away.
