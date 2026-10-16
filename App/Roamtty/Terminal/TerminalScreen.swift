@@ -38,7 +38,11 @@ struct TerminalScreen: View {
                     VStack(spacing: 0) {
                         ZStack {
                             NativeTerminal(runtime: runtime, settings: model.settings).clipped()
-                                .overlay { if connected && !editor { CursorRowButtons(runtime: runtime, trailingInset: Self.inset.trailing, avoid: petArrowsShown ? petArrowBounds(in: page.size).offsetBy(dx: -Self.inset.leading, dy: -Self.inset.top) : nil, keyboardVisible: keyboardVisible) } }
+                                .overlay {
+                                    CursorRowReader(cursor: runtime.cursorRow) {
+                                        if connected && !editor { CursorRowButtons(runtime: runtime, trailingInset: Self.inset.trailing, avoid: petArrowsShown ? petArrowBounds(in: page.size).offsetBy(dx: -Self.inset.leading, dy: -Self.inset.top) : nil, keyboardVisible: keyboardVisible) }
+                                    }
+                                }
                                 .padding(Self.inset)
                             notice.padding(.top, page.safeAreaInsets.top)
                         }.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -49,16 +53,19 @@ struct TerminalScreen: View {
                             .frame(width: twoColumns ? 96 : 48, height: page.size.height)
                     }
                 }
-                if dockAvailable && !reserved {
-                    if toolbox.dockVisible { dock(in: page.size, twoColumns: twoColumns, reserved: false) }
-                    else if toolbox.ghostVisible || petArrowsShown {
-                        let center = petCenter(in: page.size)
-                        ZStack(alignment: .topLeading) {
-                            GhostShortcuts(runtime: runtime, toolbox: $toolbox, center: center, viewport: page.size) {
-                                withAnimation(.easeOut(duration: 0.18)) { toolbox.openDock(at: now) }
-                            }
-                            if petArrowsShown { petArrows(center: center).transition(.opacity) }
-                        }.transition(.opacity.combined(with: .offset(x: 24)))
+                // The dock and the pet step aside from the cursor row, so they follow it without the page.
+                CursorRowReader(cursor: runtime.cursorRow) {
+                    if dockAvailable && !reserved {
+                        if toolbox.dockVisible { dock(in: page.size, twoColumns: twoColumns, reserved: false) }
+                        else if toolbox.ghostVisible || petArrowsShown {
+                            let center = petCenter(in: page.size)
+                            ZStack(alignment: .topLeading) {
+                                GhostShortcuts(runtime: runtime, toolbox: $toolbox, center: center, viewport: page.size) {
+                                    withAnimation(.easeOut(duration: 0.18)) { toolbox.openDock(at: now) }
+                                }
+                                if petArrowsShown { petArrows(center: center).transition(.opacity) }
+                            }.transition(.opacity.combined(with: .offset(x: 24)))
+                        }
                     }
                 }
             }

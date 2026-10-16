@@ -176,7 +176,8 @@ struct MarqueeTitle: View {
             let overflow = full > line + 0.5
             ZStack(alignment: .leading) {
                 if overflow && !reduceMotion {
-                    TimelineView(.animation) { context in
+                    // 60 frames a second is smooth for 30 pt/s; ProMotion's 120 only doubled the work of every card.
+                    TimelineView(.animation(minimumInterval: 1.0 / 60)) { context in
                         let gap = line / 3, period = (full + gap) / 30
                         let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period + 1.2)
                         let offset = phase < 1.2 ? 0 : -CGFloat(phase - 1.2) * 30

@@ -42,6 +42,15 @@ public struct AgentStatus: Equatable, Sendable {
     /// `reply` missing in older reports), the pane's path, then the host's time. The state counts only while the pane
     /// still runs a program: an agent killed before it could report leaves its last state behind, but the pane is back
     /// at a shell.
+    /// Whether `new` is `old` read again `seconds` later: the same in all but its age, which moved on by about as
+    /// much (within `slack` seconds). A state that restarted, such as a new turn, does not count.
+    public static func sameExceptAge(_ old: AgentStatus?, _ new: AgentStatus?, after seconds: TimeInterval, slack: TimeInterval = 5) -> Bool {
+        guard var old, let new else { return old == nil && new == nil }
+        let expected = Double(old.elapsedMillis) + seconds * 1000
+        old.elapsedMillis = new.elapsedMillis
+        return old == new && abs(Double(new.elapsedMillis) - expected) <= slack * 1000
+    }
+
     public static func parse(_ output: String?) -> AgentStatus? {
         guard let lines = lines(output), let first = lines.first else { return nil }
         let fields = first.split(separator: "|", maxSplits: 8, omittingEmptySubsequences: false).map(String.init)

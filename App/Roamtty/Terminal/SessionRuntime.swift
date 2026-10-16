@@ -20,8 +20,9 @@ import RoamttyTransport
     @Published var phase: ConnectionPhase = .connecting
     @Published var message: String?
     @Published var transportName = "SSH"
-    @Published var terminalTitle = ""
-    @Published var currentDirectory = "~"
+    /// Kept, not published: Claude Code animates its title several times a second, and no screen shows it.
+    var terminalTitle = ""
+    var currentDirectory = "~"
     @Published var controlArmed = false
     @Published var shiftArmed = false
     @Published var workspaceTouches = 0
@@ -38,10 +39,13 @@ import RoamttyTransport
     @Published var paneDirectory = ""
     /// A double tap (Tab) brings the Up/Down/Left keys around the toolbox pet; each one restarts their idle clock.
     @Published var petArrowTouches = 0
+    /// Where the cursor row is and which key it offers. It moves with every chunk of output and every scrolled
+    /// frame, so it has its own publisher: only the views placed by it redraw, not the whole terminal page.
+    let cursorRow = TerminalCursorRow()
     /// The cursor line starts with `/`, so its command menu keeps the pet's arrow keys up.
-    @Published var slashCommandLine = false
-    @Published var cursorRowBounds: CGRect?
-    @Published var cursorRowKey: CursorRowKey = .escape
+    var slashCommandLine: Bool { get { cursorRow.slashCommandLine } set { cursorRow.slashCommandLine = newValue } }
+    var cursorRowBounds: CGRect? { get { cursorRow.bounds } set { cursorRow.bounds = newValue } }
+    var cursorRowKey: CursorRowKey { get { cursorRow.key } set { cursorRow.key = newValue } }
     /// Shell history commands run from the commands sheet in this session, newest first (memory only).
     var recentCommands: [String] = []
     /// Pinch-to-zoom reports the settled font size so it persists like Android's.

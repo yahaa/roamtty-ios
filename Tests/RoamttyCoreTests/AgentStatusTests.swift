@@ -317,4 +317,17 @@ final class AgentStatusTests: XCTestCase {
         try hook("prompt", #"{"session_id":"other","prompt":"elsewhere"}"#, pane: nil, resumed: "00000000-0000-0000-0000-000000000000")
         XCTAssertEqual(fixture.reported(), "idle||")
     }
+
+    func testAStatusThatOnlyAgedIsTheSameButARestartedOneIsNot() {
+        let working = AgentStatus(state: .working, agent: "claude", tool: "Bash", elapsedMillis: 10_000)
+        var aged = working; aged.elapsedMillis = 13_200
+        XCTAssertTrue(AgentStatus.sameExceptAge(working, aged, after: 3))
+        var restarted = working; restarted.elapsedMillis = 400
+        XCTAssertFalse(AgentStatus.sameExceptAge(working, restarted, after: 3))
+        var otherTool = aged; otherTool.tool = "Edit"
+        XCTAssertFalse(AgentStatus.sameExceptAge(working, otherTool, after: 3))
+        XCTAssertFalse(AgentStatus.sameExceptAge(working, nil, after: 3))
+        XCTAssertFalse(AgentStatus.sameExceptAge(nil, working, after: 3))
+        XCTAssertTrue(AgentStatus.sameExceptAge(nil, nil, after: 3))
+    }
 }
