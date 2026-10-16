@@ -17,6 +17,7 @@ extension AppModel {
             // A restored session that comes back keeps its place among the live ones, so cards do not reorder
             // while the app reconnects them one by one.
             guard let runtime = runtimes[record.id] else { return hostOffline(record) ? 3 : 0 }
+            if sessionComingBack(record) { return 0 }
             switch runtime.phase {
             case .connected, .connecting, .verifying, .authenticating: return 0
             case .disconnected: return 3
@@ -31,14 +32,20 @@ extension AppModel {
         return CodingAgent.fromCommand(listedAgentStatus(record).status?.agent) ?? runtime?.launchedAgent ?? CodingAgent.fromTitle(record.title)
     }
     /// What the list shows of a session's agent: what it reports now (`live`), or, while the session comes back and
-    /// before its host has answered, what it reported last, so opening the app does not move every card to "其它" and
-    /// back. A session that failed to connect, or whose host is offline, shows nothing.
+    /// before its host has answered, what it reported last, so opening the app or returning to it does not move every
+    /// card to "其它" and back. A session that failed to connect, or whose host is offline, shows nothing.
     func listedAgentStatus(_ record: SessionRecord) -> (status: AgentStatus?, live: Bool) {
         guard record.mode == .tmux else { return (nil, false) }
         let runtime = runtimes[record.id]
         if let runtime, runtime.phase == .connected, runtime.agentPolled { return (runtime.agentStatus, true) }
-        guard runtime?.phase.active ?? true, !hostOffline(record) else { return (nil, false) }
+        guard sessionComingBack(record) else { return (nil, false) }
         return (AgentStatusMemory.value(record.id), false)
+    }
+    /// A session on its way back: connecting, or dropped (the app was in the background) or restored, which the list
+    /// reconnects by itself, on a host that is not offline.
+    func sessionComingBack(_ record: SessionRecord) -> Bool {
+        if let runtime = runtimes[record.id], runtime.phase.active { return true }
+        return SessionReconnect.onOpen(sessionEnd(record)) && !hostOffline(record)
     }
     /// Why a session's terminal is down; one with no runtime came back from the journal.
     func sessionEnd(_ record: SessionRecord) -> SessionEnd? { runtimes[record.id].map { $0.phase.active ? nil : $0.end } ?? .restored }

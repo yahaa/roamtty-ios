@@ -190,7 +190,8 @@ struct SessionRow: View {
                         .accessibilityIdentifier("home-session-reply-\(record.id)")
                 }
                 HStack(spacing: 8) {
-                    statusView(status: live ? status : nil, phase: phase, kind: kind, activity: activity, waiting: waiting, idle: idle)
+                    // A dropped or restored session the list is about to reconnect says so, not "已断开".
+                    statusView(status: live ? status : nil, phase: !phase.active && model.sessionComingBack(record) ? .connecting : phase, kind: kind, activity: activity, waiting: waiting, idle: idle)
                     HStack(spacing: 6) {
                         Spacer(minLength: 0)
                         if !prompt.isEmpty { Text(location).font(.system(size: 12)).foregroundStyle(Palette.secondary.opacity(0.8)).lineLimit(1).truncationMode(.middle) }
