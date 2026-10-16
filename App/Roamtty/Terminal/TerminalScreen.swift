@@ -27,9 +27,6 @@ struct TerminalScreen: View {
     private var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
     /// The terminal view sits inside these insets of its viewport, as on Android (10 / 6 / 6 dp).
     private static let inset = EdgeInsets(top: 6, leading: 10, bottom: 0, trailing: 6)
-    /// The status bar's height: the page runs under it, but the first row starts below it.
-    @State private var statusBarTop: CGFloat = 0
-    private var top: CGFloat { statusBarTop + Self.inset.top }
 
     var body: some View {
         GeometryReader { page in
@@ -41,9 +38,9 @@ struct TerminalScreen: View {
                     VStack(spacing: 0) {
                         ZStack {
                             NativeTerminal(runtime: runtime, settings: model.settings).clipped()
-                                .overlay { if connected && !editor { CursorRowButtons(runtime: runtime, trailingInset: Self.inset.trailing, avoid: petArrowsShown ? petArrowBounds(in: page.size).offsetBy(dx: -Self.inset.leading, dy: -top) : nil, keyboardVisible: keyboardVisible) } }
-                                .padding(Self.inset).padding(.top, statusBarTop)
-                            notice.padding(.top, statusBarTop)
+                                .overlay { if connected && !editor { CursorRowButtons(runtime: runtime, trailingInset: Self.inset.trailing, avoid: petArrowsShown ? petArrowBounds(in: page.size).offsetBy(dx: -Self.inset.leading, dy: -Self.inset.top) : nil, keyboardVisible: keyboardVisible) } }
+                                .padding(Self.inset)
+                            notice.padding(.top, page.safeAreaInsets.top)
                         }.frame(maxWidth: .infinity, maxHeight: .infinity)
                         if editor { editorBar(landscape: landscape).padding(.bottom, keyboardVisible ? 0 : page.safeAreaInsets.bottom) }
                     }
@@ -65,8 +62,6 @@ struct TerminalScreen: View {
                     }
                 }
             }
-            .onAppear { statusBarTop = page.safeAreaInsets.top }
-            .onChange(of: page.safeAreaInsets.top) { statusBarTop = $0 }
         }
         // As on Android, the terminal draws under the transparent status bar and down to the bottom edge;
         // only the keyboard still pushes it up.
@@ -184,7 +179,7 @@ struct TerminalScreen: View {
     private func cursorFrame() -> CGRect? {
         guard let row = runtime.cursorRowBounds else { return nil }
         let height: CGFloat = 32, width: CGFloat = keyboardVisible ? 80 : 40
-        let y = top + row.midY
+        let y = Self.inset.top + row.midY
         return CGRect(x: runtime.terminalView.bounds.width + Self.inset.leading + Self.inset.trailing - width, y: y - height / 2, width: width, height: height)
     }
     private func petCenter(in viewport: CGSize) -> CGPoint {
