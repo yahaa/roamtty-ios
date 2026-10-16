@@ -35,6 +35,69 @@ final class TerminalGestureUITests: RoamttyLiveUITestCase {
         closePlainTerminal()
     }
 
+    func testCursorRowTapAndDoubleTapAfterKeyboardIsPutAway() throws {
+        let surface = try openTerminal()
+        let escape = app.buttons["cursor-escape"]
+        XCTAssertTrue(escape.waitForExistence(timeout: 6))
+        func tapCursorRow() {
+            // The cursor row shows Esc, or Enter for a few seconds after typing.
+            let row = app.buttons.matching(NSPredicate(format: "identifier IN {'cursor-escape', 'cursor-enter'}")).firstMatch
+            XCTAssertTrue(row.waitForExistence(timeout: 6))
+            surface.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: surface.frame.width * 0.3, dy: row.frame.midY - surface.frame.minY)).tap()
+        }
+        tapCursorRow()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        // Fill the screen so the cursor sits on the bottom row, as in a working shell.
+        surface.typeText("seq 1 120; echo TYPED_\\\nDONE\n")
+        waitForOutput("TYPED_DONE", surface: surface)
+        let hide = app.buttons["cursor-hide-keyboard"]
+        // Enter puts the keyboard away by itself after 15 s.
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 20))
+        capture("Keyboard put away after typing")
+        tapCursorRow()
+        if !app.keyboards.firstMatch.waitForExistence(timeout: 5) { saveFailureScreenshot("cursorRowAfterAutoHide") }
+        XCTAssertTrue(app.keyboards.firstMatch.exists, "A tap on the cursor row must open the keyboard after it hid itself")
+        XCTAssertTrue(hide.waitForExistence(timeout: 5)); hide.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        // Tapping the cursor's line again brings the keyboard back.
+        tapCursorRow()
+        if !app.keyboards.firstMatch.waitForExistence(timeout: 5) { saveFailureScreenshot("cursorRowAfterHide") }
+        XCTAssertTrue(app.keyboards.firstMatch.exists, "A tap on the cursor row must open the keyboard again")
+        // A reading tap away from the cursor puts it away; a double tap then brings the pet's arrows.
+        surface.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.1)).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        tapCursorRow()
+        if !app.keyboards.firstMatch.waitForExistence(timeout: 5) { saveFailureScreenshot("cursorRowAfterReadingTap") }
+        XCTAssertTrue(app.keyboards.firstMatch.exists, "A tap on the cursor row must open the keyboard after a reading tap")
+        hide.tap(); XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        surface.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.3)).doubleTap()
+        if !app.buttons["pet-arrow-up"].waitForExistence(timeout: 3) { saveFailureScreenshot("doubleTapArrows") }
+        XCTAssertTrue(app.buttons["pet-arrow-up"].exists, "A double tap must bring the pet's arrow keys")
+    }
+
+    func testKeyboardReopenedAfterEnterStaysUp() throws {
+        let surface = try openTerminal()
+        func tapCursorRow() {
+            // The cursor row shows Esc, or Enter for a few seconds after typing.
+            let row = app.buttons.matching(NSPredicate(format: "identifier IN {'cursor-escape', 'cursor-enter'}")).firstMatch
+            XCTAssertTrue(row.waitForExistence(timeout: 6))
+            surface.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: surface.frame.width * 0.3, dy: row.frame.midY - surface.frame.minY)).tap()
+        }
+        tapCursorRow()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        surface.typeText("seq 1 120; echo REOPEN_\\\nDONE\n")
+        waitForOutput("REOPEN_DONE", surface: surface)
+        // A reading tap puts the keyboard away before Enter's own 15 s timer does.
+        surface.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.1)).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        tapCursorRow()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        // That earlier timer must not take the keyboard the user just asked for away again.
+        sleep(16)
+        if !app.keyboards.firstMatch.exists { saveFailureScreenshot("keyboardTakenAway") }
+        XCTAssertTrue(app.keyboards.firstMatch.exists, "The keyboard opened from the cursor row must stay up")
+    }
+
     func testBracketedPasteAndReconnectAfterRemoteShellExit() throws {
         let surface = try openTerminal(mode: "SSH")
         let payload = "one\ntwo\n"
