@@ -32,10 +32,12 @@ public enum ScreenApp: String, CaseIterable, Sendable {
             ($0.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("─╯") &&
                 ($0.contains("Grok") || $0.contains("always-approve"))) || $0.contains("Ctrl+x:shortcuts")
         }) { return .grok }
+        // Codex's prompt; its footer also says "? for shortcuts" and "esc to interrupt", and a phone-wide screen cuts
+        // "Context … left" off.
+        if rows[cursor].drop(while: { $0.isWhitespace }).hasPrefix("› ") { return .codex }
         if near.contains(where: { line in claudeFooters.contains(where: line.contains) }) || claudePrompt(rows, cursor: cursor) {
             return .claude
         }
-        if rows[cursor].drop(while: { $0.isWhitespace }).hasPrefix("› ") { return .codex }
         return .shell
     }
 

@@ -38,6 +38,23 @@ final class TerminalShortcutsTests: XCTestCase {
             """), .codex)
     }
 
+    func testAndroidCodexPromptOnPhoneWideScreen() {
+        // A phone-wide screen cuts the footer before "Context", while Codex's own working row and question say
+        // "esc to interrupt" and "? for shortcuts" as Claude Code does: the "› " prompt still tells.
+        XCTAssertEqual(detect("""
+            • Working (1m 48s • esc to interrupt)
+
+            • Queued follow-up inputs
+              ? 1 question
+                ⇧← to answer
+
+            › <cursor>Ask Codex to do anything                Esc
+
+              GPT-6-Astra xhigh · ~/work/roamtty · Conte…
+              ? for shortcuts
+            """), .codex)
+    }
+
     func testAndroidGrokBoxFixture() {
         XCTAssertEqual(detect("""
               ╭──────────────────────────────────────────────────────────────────────────╮

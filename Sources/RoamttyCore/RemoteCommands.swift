@@ -30,12 +30,13 @@ public enum RemoteCommands {
     }
     /// One line `pane_command|state|since|agent|tool|detail|worked|task|reply` of what an agent reports through the
     /// session options `@roamtty_agent`, `@roamtty_worked`, `@roamtty_task` and `@roamtty_reply` (empty when it
-    /// reports nothing), the pane's folder, then the host's clock for the elapsed time.
+    /// reports nothing), the pane's folder, then the host's clock for the elapsed time. `-u`: sshd on macOS runs
+    /// commands without a UTF-8 locale, and tmux then prints each non-ASCII character of a prompt or a folder as "_".
     public static func agentStatus(_ name: String) -> String {
         let name = sanitizeSessionName(name)
-        return "/bin/sh -c " + shellQuote(pathSetup + "; tmux display-message -p -t \(name) " +
+        return "/bin/sh -c " + shellQuote(pathSetup + "; tmux -u display-message -p -t \(name) " +
             "\"#{pane_current_command}|#{@roamtty_agent}|#{@roamtty_worked}|#{@roamtty_task}|#{@roamtty_reply}\" 2>/dev/null && " +
-            "tmux display-message -p -t \(name) \"#{pane_current_path}\" 2>/dev/null; date +%s")
+            "tmux -u display-message -p -t \(name) \"#{pane_current_path}\" 2>/dev/null; date +%s")
     }
     /// Restarts `name`'s pane in the folder it is in, ending whatever runs there. Prints the command line of the pane's
     /// foreground program (nothing when only the shell ran) so it can be typed into the fresh shell. tmux before 2.6
