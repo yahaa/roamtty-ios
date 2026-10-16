@@ -8,6 +8,7 @@ import RoamttyTransport
 struct TerminalScreen: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var runtime: SessionRuntime
+    @Environment(\.colorScheme) private var scheme
     @StateObject private var draft = DraftController()
     @State private var toolbox = TerminalToolboxState()
     @State private var keyboardVisible = false
@@ -26,6 +27,9 @@ struct TerminalScreen: View {
     private var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
     /// The terminal view sits inside these insets of its viewport, as on Android (10 / 6 / 6 dp).
     private static let inset = EdgeInsets(top: 6, leading: 10, bottom: 0, trailing: 6)
+    /// The status bar's height: the page runs under it, but the first row starts below it.
+    @State private var statusBarTop: CGFloat = 0
+    private var top: CGFloat { statusBarTop + Self.inset.top }
 
     var body: some View {
         GeometryReader { page in
@@ -37,11 +41,11 @@ struct TerminalScreen: View {
                     VStack(spacing: 0) {
                         ZStack {
                             NativeTerminal(runtime: runtime, settings: model.settings).clipped()
-                                .overlay { if connected && !editor { CursorRowButtons(runtime: runtime, trailingInset: Self.inset.trailing, avoid: petArrowsShown ? petArrowBounds(in: page.size).offsetBy(dx: -Self.inset.leading, dy: -Self.inset.top) : nil, keyboardVisible: keyboardVisible) } }
-                                .padding(Self.inset)
-                            notice
+                                .overlay { if connected && !editor { CursorRowButtons(runtime: runtime, trailingInset: Self.inset.trailing, avoid: petArrowsShown ? petArrowBounds(in: page.size).offsetBy(dx: -Self.inset.leading, dy: -top) : nil, keyboardVisible: keyboardVisible) } }
+                                .padding(Self.inset).padding(.top, statusBarTop)
+                            notice.padding(.top, statusBarTop)
                         }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                        if editor { editorBar(landscape: landscape) }
+                        if editor { editorBar(landscape: landscape).padding(.bottom, keyboardVisible ? 0 : page.safeAreaInsets.bottom) }
                     }
                     if reserved {
                         dock(in: CGSize(width: twoColumns ? 96 : 48, height: page.size.height), twoColumns: twoColumns, reserved: true)
@@ -61,7 +65,13 @@ struct TerminalScreen: View {
                     }
                 }
             }
+            .onAppear { statusBarTop = page.safeAreaInsets.top }
+            .onChange(of: page.safeAreaInsets.top) { statusBarTop = $0 }
         }
+        // As on Android, the terminal draws under the transparent status bar and down to the bottom edge;
+        // only the keyboard still pushes it up.
+        .ignoresSafeArea(.container, edges: .vertical)
+        .persistentSystemOverlays(.hidden)
         // No visible status bar: expose the phase for VoiceOver and UI tests.
         .overlay(alignment: .topLeading) {
             Color.clear.frame(width: 1, height: 1).accessibilityElement().accessibilityIdentifier("terminal-phase")
@@ -69,7 +79,7 @@ struct TerminalScreen: View {
                 .accessibilityValue((runtime.record.mode == .tmux ? "tmux" : "SSH") + " " + runtime.transportName)
         }
         // The terminal colour runs under the status bar and home indicator, like Android's edge-to-edge pane.
-        .background(Color(uiColor: runtime.terminalView.nativeBackgroundColor).ignoresSafeArea())
+        .background(Color(uiColor: SessionRuntime.background(scheme)).ignoresSafeArea())
         .foregroundStyle(Palette.foreground)
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
@@ -174,7 +184,7 @@ struct TerminalScreen: View {
     private func cursorFrame() -> CGRect? {
         guard let row = runtime.cursorRowBounds else { return nil }
         let height: CGFloat = 32, width: CGFloat = keyboardVisible ? 80 : 40
-        let y = Self.inset.top + row.midY
+        let y = top + row.midY
         return CGRect(x: runtime.terminalView.bounds.width + Self.inset.leading + Self.inset.trailing - width, y: y - height / 2, width: width, height: height)
     }
     private func petCenter(in viewport: CGSize) -> CGPoint {
