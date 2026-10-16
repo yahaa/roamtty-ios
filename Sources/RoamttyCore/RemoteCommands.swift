@@ -56,6 +56,25 @@ public enum RemoteCommands {
         let chmod = executable ? " && chmod +x \"$HOME/.roamtty/\(name)\"" : ""
         return "/bin/sh -c " + shellQuote("mkdir -p \"$HOME/.roamtty\" && cat > \"$HOME/.roamtty/\(name)\"" + chmod)
     }
+    /// Prints the folder the terminal is in: the tmux pane's, or for a plain shell the login shell of this same SSH
+    /// connection (found by its `SSH_CONNECTION` and `SSH_TTY`), without typing anything into its terminal.
+    public static func workingDirectory(tmux name: String?) -> String {
+        if let name {
+            return "/bin/sh -c " + shellQuote(pathSetup + "; tmux -u display-message -p -t " + shellQuote("=" + sanitizeSessionName(name) + ":") + " '#{pane_current_path}'")
+        }
+        return "/bin/sh -c " + shellQuote(#"""
+            test -n "$SSH_CONNECTION" || exit 1
+            for pid in $(ps -u "$(id -u)" -o pid=,sid= | awk '$1 == $2 { print $1 }'); do
+                p=/proc/$pid
+                test -r "$p/environ" || continue
+                env_lines=$(tr '\000' '\n' < "$p/environ" 2>/dev/null) || continue
+                printf '%s\n' "$env_lines" | grep -Fxq "SSH_CONNECTION=$SSH_CONNECTION" || continue
+                printf '%s\n' "$env_lines" | grep -q '^SSH_TTY=/dev/' || continue
+                readlink "$p/cwd" && exit 0
+            done
+            exit 1
+            """#)
+    }
     public static func tmuxAlternateScreen(_ name: String) -> String {
         // The colon selects the active pane. A session-only target produces an empty format value.
         let target = "=" + sanitizeSessionName(name) + ":"

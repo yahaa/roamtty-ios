@@ -18,7 +18,8 @@ struct TerminalFileActions: View {
     let runtime: SessionRuntime
     let action: TerminalFileAction
     let onLaunchDirectory: (Bool, String) -> Void
-    private let directory: String
+    @State private var directory: String
+    @State private var resolved = false
     @State private var connectionTarget: RemoteConnectionTarget
     @State private var started = false
     @State private var filePicker = false
@@ -31,14 +32,16 @@ struct TerminalFileActions: View {
     @State private var failure: String?
 
     init(runtime: SessionRuntime, action: TerminalFileAction, onLaunchDirectory: @escaping (Bool, String) -> Void) {
-        self.runtime = runtime; self.action = action; directory = runtime.currentDirectory
+        self.runtime = runtime; self.action = action; _directory = State(initialValue: runtime.currentDirectory)
         self.onLaunchDirectory = onLaunchDirectory
         _connectionTarget = State(initialValue: .session(runtime))
     }
 
     var body: some View {
         Group {
-            if action == .download {
+            if action == .download && !resolved {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).pageBackground()
+            } else if action == .download {
                 NavigationStack {
                     FileBrowserScreen(host: runtime.host, sessionID: runtime.record.id, initialDirectory: directory, downloadSelection: true, connectionTarget: connectionTarget, onLaunchDirectory: onLaunchDirectory)
                         .toolbar { ToolbarItem(placement: .cancellationAction) { Button(model.text("完成", "Done")) { dismiss() }.accessibilityIdentifier("files-picker-done") } }
@@ -76,6 +79,8 @@ struct TerminalFileActions: View {
             guard !started else { return }; started = true
             if action == .upload { filePicker = true }
             if action == .image { photoPicker = true }
+            // The browser opens in the folder the terminal is in now, asked of the host.
+            directory = await runtime.workingDirectory(); resolved = true
         }
     }
 }
