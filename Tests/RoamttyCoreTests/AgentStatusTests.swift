@@ -13,6 +13,13 @@ final class AgentStatusTests: XCTestCase {
         XCTAssertEqual(status.elapsedMillis, 42_000)
     }
 
+    /// The list keeps what an agent reported last across launches, until its host answers again.
+    func testALastReportSurvivesBeingSaved() throws {
+        let status = AgentStatus(state: .idle, agent: "claude", task: "fix the bug", elapsedMillis: 42_000, directory: "~/app",
+                                 workedSeconds: 75, reply: "Done.")
+        XCTAssertEqual(try JSONDecoder().decode(AgentStatus.self, from: JSONEncoder().encode(status)), status)
+    }
+
     func testAnAgentThatLeftLeavesNothing() {
         XCTAssertNil(AgentStatus.parse("zsh|working|1000|claude|Bash|x|task\n1042"))
         XCTAssertNil(AgentStatus.parse("-bash|idle|1000|claude|||task\n1042"))

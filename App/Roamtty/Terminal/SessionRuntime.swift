@@ -35,6 +35,9 @@ import RoamttyTransport
     @Published var agentStatus: AgentStatus?
     /// When `agentStatus` was last read, so its elapsed time can move on between polls.
     var agentStatusAt = Date()
+    /// Whether the host has answered a status poll since this connection came up; until then the list shows what the
+    /// session reported last.
+    @Published var agentPolled = false
     /// The folder the tmux pane was last seen in, agent or not; empty until the first poll answers.
     @Published var paneDirectory = ""
     /// A double tap (Tab) brings the Up/Down/Left keys around the toolbox pet; each one restarts their idle clock.
@@ -140,7 +143,7 @@ import RoamttyTransport
     /// terminal does not redraw the whole app on every chunk it receives.
     var summaryWillChange: AnyPublisher<Void, Never> {
         func changes<T>(_ publisher: Published<T>.Publisher) -> AnyPublisher<Void, Never> { publisher.dropFirst().map { _ in () }.eraseToAnyPublisher() }
-        return Publishers.MergeMany(changes($record), changes($phase), changes($end), changes($agentStatus),
+        return Publishers.MergeMany(changes($record), changes($phase), changes($end), changes($agentStatus), changes($agentPolled),
                                     changes($paneDirectory), changes($transportName), changes($launchedAgent)).eraseToAnyPublisher()
     }
     static func background(_ scheme: ColorScheme) -> UIColor { UIColor(hex: scheme == .dark ? 0x252728 : 0xFFFDF9) }

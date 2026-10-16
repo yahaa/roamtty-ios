@@ -6,6 +6,8 @@ enum FileIconSpec: Equatable {
     case badge(String, UInt32, label: UInt32 = 0xFFFFFF)
     case glyph(RemoteFileKind, UInt32)
     case folder(UInt32)
+    /// The Android robot, for app packages.
+    case android(UInt32 = 0x3DDC84)
 }
 
 enum FileIconTheme {
@@ -22,6 +24,7 @@ enum FileIconTheme {
     private static let docker: FileIconSpec = .badge("DKR", 0x2496ED)
     private static let key: FileIconSpec = .badge("KEY", 0xC49A00, label: darkLabel)
     private static let font: FileIconSpec = .badge("Aa", 0xE53935)
+    private static let android: FileIconSpec = .android()
     private static let byName: [String: FileIconSpec] = [
         "dockerfile": docker,
         "containerfile": docker,
@@ -203,7 +206,12 @@ enum FileIconTheme {
         "so": .badge("BIN", 0x607D8B),
         "o": .badge("BIN", 0x607D8B),
         "bin": .badge("BIN", 0x607D8B),
-        "log": .glyph(.text, 0xAFB42B)
+        "log": .glyph(.text, 0xAFB42B),
+        "apk": android,
+        "aab": android,
+        "apks": android,
+        "xapk": android,
+        "apkm": android
     ]
     private static let folderColors: [String: UInt32] = [
         "src": 0x4CAF50,
@@ -343,6 +351,8 @@ struct RemoteFileIcon: View {
                     .tracking(-size * 0.012).foregroundStyle(Color(uiColor: UIColor(hex: labelColor))).lineLimit(1).fixedSize()
             case .glyph(let kind, let color):
                 AppIcon(FileIconTheme.glyphIcon(kind), size: size).foregroundStyle(Color(uiColor: UIColor(hex: color)))
+            case .android(let color):
+                AppIcon("ic_file_android", size: size).foregroundStyle(Color(uiColor: UIColor(hex: color)))
             }
             if link {
                 let r = size * 0.21
