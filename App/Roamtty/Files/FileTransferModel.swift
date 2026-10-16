@@ -28,6 +28,23 @@ struct TransferJob: Identifiable {
     var fraction: Double? { guard let total, total > 0 else { return nil }; return min(1, Double(bytes) / Double(total)) }
     var speed: String { formattedBytes(Int64(Double(bytes) / max(1, Date().timeIntervalSince(started)))) + "/s" }
 }
+/// Hands a transfer's progress to the main thread without holding the transfer up. A transfer reports every chunk
+/// it reads or writes (up to 64 KiB), and its worker used to wait for the main thread each time. It now leaves the
+/// latest numbers here and queues at most one hand-over, so the screens get them at most once per main-loop turn.
+final class TransferProgressRelay {
+    private let lock = NSLock()
+    private var latest: (bytes: Int64, total: Int64?)?
+    private let apply: (Int64, Int64?) -> Void
+    init(_ apply: @escaping (Int64, Int64?) -> Void) { self.apply = apply }
+    func send(_ bytes: Int64, _ total: Int64?) {
+        lock.lock(); let queued = latest != nil; latest = (bytes, total); lock.unlock()
+        guard !queued else { return }
+        DispatchQueue.main.async { [self] in
+            lock.lock(); let value = latest; latest = nil; lock.unlock()
+            if let value { apply(value.bytes, value.total) }
+        }
+    }
+}
 @MainActor final class FileTransferModel: ObservableObject {
     private final class InsertionTarget {
         weak var runtime: SessionRuntime?
@@ -73,6 +90,8 @@ struct TransferJob: Identifiable {
         jobs.removeAll { $0.state != .running }
     }
     private func update(_ id: UUID, _ apply: (inout TransferJob) -> Void) { if let index = jobs.firstIndex(where: { $0.id == id }) { apply(&jobs[index]) } }
+    /// Where a job's transfer reports its bytes and total.
+    private func progressRelay(for id: UUID) -> TransferProgressRelay { TransferProgressRelay { bytes, total in self.update(id) { $0.bytes = bytes; $0.total = total } } }
     func upload(_ url: URL, directory: String, host: Host, model: AppModel, insert: Bool = false, targetSessionID: String? = nil, name: String? = nil, targetRuntime: SessionRuntime? = nil, connectionTarget: RemoteConnectionTarget? = nil) {
         let connectionTarget = connectionTarget ?? targetRuntime.map { RemoteConnectionTarget.session($0) }
             ?? model.connectionTarget(hostID: host.id, sessionID: targetSessionID)
@@ -91,10 +110,11 @@ struct TransferJob: Identifiable {
                 guard !cancellation.isCancelled else { throw RoamError.cancelled }
                 let ssh = try await model.connection(for: connectionTarget)
                 guard !cancellation.isCancelled else { throw RoamError.cancelled }
+                let progress = progressRelay(for: job.id)
                 try await performInBackground {
                     var sent: Int64 = 0
                     try Self.uploadTree(url: url, path: target, ssh: ssh, count: 0, cancellation: cancellation) { bytes, total in
-                        DispatchQueue.main.sync { self.update(job.id) { $0.bytes = sent + bytes; $0.total = total.map { sent + $0 } } }
+                        progress.send(sent + bytes, total.map { sent + $0 })
                     } completed: { bytes in sent += bytes }
                 }
                 guard !cancellations.contains(job.id) else { return }
@@ -140,9 +160,8 @@ struct TransferJob: Identifiable {
                     guard !token.isCancelled else { continue }
                     let ssh = try await model.connection(for: connectionTarget)
                     guard !token.isCancelled else { continue }
-                    try await performInBackground {
-                        try ssh.upload(png, to: job.remotePath, progress: { bytes, total in DispatchQueue.main.sync { self.update(job.id) { $0.bytes = bytes; $0.total = total } } }, cancellation: token)
-                    }
+                    let progress = progressRelay(for: job.id)
+                    try await performInBackground { try ssh.upload(png, to: job.remotePath, progress: progress.send, cancellation: token) }
                     guard !token.isCancelled else { continue }
                     let input = try TerminalAttachment.imageInput(job.remotePath, bracketed: false)
                     update(job.id) { $0.state = .complete; $0.pendingInsertion = input }
@@ -185,10 +204,11 @@ struct TransferJob: Identifiable {
                 reservedDestinations.insert(destination.path); reservedPath = destination.path
                 if entry.isDirectory { directoryDownload = try LocalDownloadDirectory(in: folder) }
                 let workingURL = directoryDownload?.directoryURL ?? destination
+                let progress = progressRelay(for: job.id)
                 try await performInBackground {
                     var received: Int64 = 0
                     try Self.downloadTree(entry: entry, destination: workingURL, ssh: ssh, depth: 0, cancellation: cancellation) { bytes, total in
-                        DispatchQueue.main.sync { self.update(job.id) { $0.bytes = received + bytes; $0.total = entry.isDirectory ? nil : total } }
+                        progress.send(received + bytes, entry.isDirectory ? nil : total)
                     } completed: { bytes in received += bytes }
                 }
                 guard !cancellation.isCancelled else { return }

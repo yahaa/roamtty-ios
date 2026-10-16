@@ -55,10 +55,7 @@ extension AppModel {
     func deleteHost(_ host: Host) {
         do {
             invalidateHostConnections(host.id)
-            for record in records where record.hostID == host.id {
-                cancelLaunch(record.id); runtimes[record.id]?.clearLoginCredentials(); runtimes.removeValue(forKey: record.id)?.discard()
-                sessionSubscriptions.removeValue(forKey: record.id); MoshPreference.forget(record.id)
-            }
+            for record in records where record.hostID == host.id { cancelLaunch(record.id); dropRuntime(record.id) }
             credentialCache.forget(host.id)
             try vault.remove(hostID: host.id); try store?.deleteHost(id: host.id)
             metrics.removeValue(forKey: host.id); metricSeries.removeValue(forKey: host.id); monitorStates.removeValue(forKey: host.id)

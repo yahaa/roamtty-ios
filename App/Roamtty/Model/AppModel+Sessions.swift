@@ -173,12 +173,17 @@ extension AppModel {
     }
     /// `discard: false` leaves the runtime to a caller that still uses its connection and discards it after.
     private func removeSession(_ record: SessionRecord, discard: Bool = true) {
-        runtimes[record.id]?.clearLoginCredentials()
-        if let runtime = runtimes.removeValue(forKey: record.id), discard { runtime.discard() }
-        sessionSubscriptions.removeValue(forKey: record.id)
-        MoshPreference.forget(record.id)
+        dropRuntime(record.id, discard: discard)
         autoReconnectedAt.removeValue(forKey: record.id); waitingForHostSince.removeValue(forKey: record.id)
         journal.forget(record.id); persistJournal()
+    }
+    /// Lets go of a session's runtime for good: its login, its terminal, its updates and its transport choice.
+    /// `discard: false` leaves the terminal to a caller that still uses its connection.
+    func dropRuntime(_ id: String, discard: Bool = true) {
+        runtimes[id]?.clearLoginCredentials()
+        if let runtime = runtimes.removeValue(forKey: id), discard { runtime.discard() }
+        sessionSubscriptions.removeValue(forKey: id)
+        MoshPreference.forget(id)
     }
 
     // MARK: Reconnecting by itself
@@ -198,10 +203,12 @@ extension AppModel {
     func reconnectFromList() {
         guard foreground else { return }
         let now = Date()
-        for record in records {
-            guard let host = host(record.hostID), canLoginSilently(host), !retriedThisVisit.contains(record.id) else { continue }
+        for record in records where !retriedThisVisit.contains(record.id) {
             let end = sessionEnd(record)
-            guard SessionReconnect.fromList(end), SessionReconnect.delay(lastAttempt: autoReconnectedAt[record.id], now: now) == 0 else { continue }
+            // This runs every two seconds: the session's own state rules it out before its host's login is read
+            // from the Keychain.
+            guard SessionReconnect.fromList(end), SessionReconnect.delay(lastAttempt: autoReconnectedAt[record.id], now: now) == 0,
+                  let host = host(record.hostID), canLoginSilently(host) else { continue }
             // An offline host is left alone, not retried on every visit: a fresh probe must find its sshd first.
             if !hostConnected(host) {
                 let since: Date
