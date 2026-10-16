@@ -54,6 +54,34 @@ final class TerminalGestureUITests: RoamttyLiveUITestCase {
         closeTerminal()
     }
 
+    /// As on Android, a quick flick keeps scrolling after the finger lifts; a drag that stops first does not.
+    func testTmuxFlickKeepsScrollingAfterRelease() throws {
+        let surface = try openTerminal()
+        try runCommand("seq -f 'FLING_%04g' 1 1500")
+        waitForOutput("FLING_1500", surface: surface)
+        let upper = surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+        let lower = surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        func lastLine() -> Int {
+            let value = surface.value as? String ?? ""
+            let numbers = value.components(separatedBy: "FLING_").dropFirst().compactMap { Int($0.prefix(4)) }
+            return numbers.max() ?? 0
+        }
+        func settled() -> Int {
+            var previous = -1, current = lastLine()
+            while current != previous { previous = current; Thread.sleep(forTimeInterval: 1); current = lastLine() }
+            return current
+        }
+        upper.press(forDuration: 0.05, thenDragTo: lower, withVelocity: 300, thenHoldForDuration: 0.3)
+        let afterDrag = settled()
+        let dragged = 1500 - afterDrag
+        XCTAssertGreaterThan(dragged, 0, "The drag entered tmux copy-mode")
+        upper.press(forDuration: 0.05, thenDragTo: lower, withVelocity: 3000, thenHoldForDuration: 0)
+        let flicked = afterDrag - settled()
+        XCTAssertGreaterThan(flicked, dragged * 3 / 2, "A flick over the same distance carries on after release")
+        capture("Flick kept scrolling tmux history after release")
+        closeTerminal()
+    }
+
     func testCursorRowTapAndDoubleTapAfterKeyboardIsPutAway() throws {
         let surface = try openTerminal()
         let escape = app.buttons["cursor-escape"]
