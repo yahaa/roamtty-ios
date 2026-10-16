@@ -75,6 +75,13 @@ import RoamttyTransport
     private var scrollGeneration: UUID?
     private var scrollAccumulator = TerminalScrollAccumulator()
     private var sendingScrollEvent = false
+    /// Carries a vertical swipe on after the finger lifts (Android's fling); any new touch stops it.
+    private var scrollInertia: TerminalScrollInertia?
+    private var scrollInertiaLink: CADisplayLink?
+    private var scrollInertiaStart: CFTimeInterval = 0
+    private var scrollInertiaPoint = CGPoint.zero
+    private var scrollInertiaGeneration: UUID?
+    private var scrollInertiaDisposition = TerminalScrollDisposition.ignored
     private var inputGestureHadPinch = false
     /// The mouse mode the host asked for, kept by xterm's rules; see `TerminalMouseTracking`.
     private var mouseTracking = TerminalMouseTracking()
@@ -118,7 +125,9 @@ import RoamttyTransport
             self?.clearModifiers(); self?.capturedPaste = Data(); self?.capturedPasteBracketed = bracketed; self?.capturedPasteTooLarge = false
         }
         (terminalView as? AccessibleTerminalView)?.pasteFinished = { [weak self] in self?.finishNativePaste() }
-        let touchObserver = TerminalTouchObserver { [weak self] in self?.workspaceTouches += 1; self?.inputGestureHadPinch = false }
+        let touchObserver = TerminalTouchObserver { [weak self] in
+            self?.workspaceTouches += 1; self?.inputGestureHadPinch = false; self?.stopScrollInertia()
+        }
         terminalView.addGestureRecognizer(touchObserver)
         let swipe = UIPanGestureRecognizer(target: self, action: #selector(horizontalSwipe(_:)))
         swipe.minimumNumberOfTouches = 1; swipe.maximumNumberOfTouches = 1; swipe.delegate = self
@@ -345,7 +354,7 @@ import RoamttyTransport
     func close() {
         pendingPaste = nil; capturedPaste = nil
         swipeHold?.cancel(); swipeHold = nil; swipeGeneration = nil
-        scrollGeneration = nil; scrollAccumulator.reset()
+        scrollGeneration = nil; scrollAccumulator.reset(); stopScrollInertia()
         generation = UUID(); worker?.cancel(); worker = nil; mosh?.close(); mosh = nil
         lifetimeCancellation.cancel(); cancelStartup()
         cursorTimer?.cancel(); keyboardHide?.cancel(); cursorControls = TerminalCursorControls(); cursorRowBounds = nil; cursorRowKey = .escape
@@ -490,23 +499,34 @@ import RoamttyTransport
     }
     @objc private func verticalScroll(_ recognizer: UIPanGestureRecognizer) {
         switch recognizer.state {
-        case .began: scrollGeneration = generation; scrollAccumulator.reset()
+        case .began: scrollGeneration = generation; scrollAccumulator.reset(); stopScrollInertia()
         case .changed: break
-        case .ended, .cancelled, .failed: scrollGeneration = nil; scrollAccumulator.reset(); return
+        case .ended:
+            defer { scrollGeneration = nil; scrollAccumulator.reset() }
+            guard !inputGestureHadPinch, scrollGeneration == generation else { return }
+            startScrollInertia(velocityY: recognizer.velocity(in: terminalView).y, at: recognizer.location(in: terminalView))
+            return
+        case .cancelled, .failed: scrollGeneration = nil; scrollAccumulator.reset(); return
         default: return
         }
         guard !inputGestureHadPinch, scrollGeneration == generation, recognizer.numberOfTouches == 1 else { scrollGeneration = nil; return }
         let disposition = scrollDisposition
         guard disposition == .wheel || disposition == .arrows else { scrollGeneration = nil; return }
+        let rows = scrollAccumulator.rowsDown(translationY: recognizer.translation(in: terminalView).y, rowHeight: scrollCellSize.height)
+        scrollRemotely(rows: rows, disposition: disposition, at: recognizer.location(in: terminalView))
+    }
+    private var scrollCellSize: CGSize {
         let terminal = terminalView.getTerminal(), optimal = terminalView.getOptimalFrameSize()
-        let cell = CGSize(width: optimal.width / CGFloat(max(1, terminal.cols)), height: optimal.height / CGFloat(max(1, terminal.rows)))
-        let rows = scrollAccumulator.rowsDown(translationY: recognizer.translation(in: terminalView).y, rowHeight: cell.height)
+        return CGSize(width: optimal.width / CGFloat(max(1, terminal.cols)), height: optimal.height / CGFloat(max(1, terminal.rows)))
+    }
+    private func scrollRemotely(rows: Int, disposition: TerminalScrollDisposition, at position: CGPoint) {
         guard rows != 0 else { return }
+        let terminal = terminalView.getTerminal()
         if disposition == .arrows {
             let key = TerminalKeys.arrow(rows < 0 ? "A" : "B", applicationCursor: terminal.applicationCursor, control: false, shift: false)
             _ = send(String(repeating: key, count: abs(rows)))
         } else {
-            let position = recognizer.location(in: terminalView)
+            let cell = scrollCellSize
             let point = TerminalScrolling.mousePoint(CGPoint(x: position.x - terminalView.contentOffset.x, y: position.y - terminalView.contentOffset.y), cell: cell, columns: terminal.cols, rows: terminal.rows)
             let flags = terminal.encodeButton(button: TerminalScrolling.mouseButton(rowsDown: rows), release: false, shift: false, meta: false, control: false)
             sendingScrollEvent = true
@@ -515,6 +535,30 @@ import RoamttyTransport
                 terminal.sendEvent(buttonFlags: flags, x: point.column, y: point.row, pixelX: point.pixelX, pixelY: point.pixelY)
             }
         }
+    }
+    /// A finger moving up scrolls down, so the fling runs against the touch velocity.
+    private func startScrollInertia(velocityY: CGFloat, at position: CGPoint) {
+        stopScrollInertia()
+        let disposition = scrollDisposition, rowHeight = scrollCellSize.height
+        guard disposition == .wheel || disposition == .arrows, rowHeight > 0,
+              let inertia = TerminalScrollInertia(rowsPerSecond: -Double(velocityY / rowHeight), screenRows: terminalView.getTerminal().rows) else { return }
+        scrollInertia = inertia; scrollInertiaPoint = position
+        scrollInertiaGeneration = generation; scrollInertiaDisposition = disposition
+        scrollInertiaStart = CACurrentMediaTime()
+        let link = CADisplayLink(target: self, selector: #selector(stepScrollInertia(_:)))
+        link.add(to: .main, forMode: .common); scrollInertiaLink = link
+    }
+    @objc private func stepScrollInertia(_ link: CADisplayLink) {
+        // Like Android, a fling stops once the session or the host's scrolling mode changes under it.
+        guard var inertia = scrollInertia, scrollInertiaGeneration == generation, scrollDisposition == scrollInertiaDisposition else { stopScrollInertia(); return }
+        let rows = inertia.rowsDown(after: link.targetTimestamp - scrollInertiaStart)
+        scrollInertia = inertia
+        scrollRemotely(rows: rows, disposition: scrollInertiaDisposition, at: scrollInertiaPoint)
+        if inertia.finished { stopScrollInertia() }
+    }
+    private func stopScrollInertia() {
+        scrollInertiaLink?.invalidate(); scrollInertiaLink = nil
+        scrollInertia = nil; scrollInertiaGeneration = nil
     }
     @objc private func horizontalSwipe(_ recognizer: UIPanGestureRecognizer) {
         let movement = recognizer.translation(in: terminalView)
@@ -645,7 +689,7 @@ import RoamttyTransport
         }
     }
     @objc private func pinchFont(_ recognizer: UIPinchGestureRecognizer) {
-        if recognizer.state == .began { inputGestureHadPinch = true; scrollGeneration = nil; swipeGeneration = nil; swipeHold?.cancel(); swipeHold = nil }
+        if recognizer.state == .began { inputGestureHadPinch = true; scrollGeneration = nil; stopScrollInertia(); swipeGeneration = nil; swipeHold?.cancel(); swipeHold = nil }
         if recognizer.state == .ended { onFontScaled?(Double(terminalView.font.pointSize.rounded())); return }
         guard recognizer.state == .changed else { return }
         let size = min(28, max(8, terminalView.font.pointSize * recognizer.scale))
