@@ -93,8 +93,12 @@ public func remoteNameMatchRank(name: String, query: String) -> Int? {
         }
         return 3
     }
-    let value = normalize(name), needle = normalize(query).trimmingCharacters(in: .whitespacesAndNewlines)
-    if needle.isEmpty || value == needle { return 0 }
+    // An empty query matches every name. The file list asks about each of its entries, so a name is normalized only
+    // once there is a query to compare it with.
+    let needle = normalize(query).trimmingCharacters(in: .whitespacesAndNewlines)
+    if needle.isEmpty { return 0 }
+    let value = normalize(name)
+    if value == needle { return 0 }
     if let result = rank(value, needle) { return result }
     let terms = needle.split(whereSeparator: \.isWhitespace)
     guard terms.count > 1 else { return nil }

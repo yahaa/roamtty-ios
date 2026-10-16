@@ -4,8 +4,8 @@ import RoamttyCore
 /// Android `ItermuxDrawer`: brand header, Hosts with its count, the open sessions, then Settings and Help.
 struct DrawerScreen: View {
     @EnvironmentObject var model: AppModel
-    private var sessions: [SessionRecord] { model.sessionsByActivity }
     var body: some View {
+        let sessions = model.sessionsByActivity
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 0) {
                 Image("RoamttyLogo").resizable().scaledToFit().frame(width: 48, height: 48)

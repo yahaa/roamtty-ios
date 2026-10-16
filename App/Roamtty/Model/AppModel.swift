@@ -16,8 +16,6 @@ import RoamttyTransport
     @Published var records: [SessionRecord] = []
     @Published var path: [AppRoute] = []
     @Published var homeTab: HomeTab = .sessions
-    /// When each host's shown reachability was measured.
-    @Published var reachabilityCheckedAt: [String: Date] = [:]
     @Published var sheet: AppSheet?
     @Published var drawer = false
     @Published var error: String?
@@ -26,7 +24,6 @@ import RoamttyTransport
     @Published var metricSeries: [String: HostMetricSeries] = [:]
     @Published var monitorStates: [String: HostMonitorState] = [:]
     @Published var reachability: [String: HostReachability] = [:]
-    @Published var hostPhases: [String: ConnectionPhase] = [:]
     @Published var incomingFiles: [URL] = []
     @Published var childModalCount = 0
     /// Login questions waiting for the user; `authentication` is the one on screen.
@@ -38,6 +35,11 @@ import RoamttyTransport
     // MARK: Bookkeeping shared by the feature extensions
 
     var store: AppStore?
+    // Read by the model only, so not published: a change redraws nothing.
+    /// When each host's shown reachability was measured.
+    var reachabilityCheckedAt: [String: Date] = [:]
+    /// Where each host's shared connection (files, plugins, metrics) stands.
+    var hostPhases: [String: ConnectionPhase] = [:]
     let vault = SecretVault()
     var journal = SessionJournal()
     var foreground = true

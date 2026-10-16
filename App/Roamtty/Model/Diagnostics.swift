@@ -11,6 +11,8 @@ final class Diagnostics: NSObject, MXMetricManagerSubscriber {
     private var events: URL { folder.appendingPathComponent("events.log") }
     private static let reportLimit = 20
     private static let eventLimit = 400
+    /// One formatter for every line and report name: making one costs more than the line it stamps.
+    private static let timestamps = ISO8601DateFormatter()
 
     private override init() {
         let base = (try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)) ?? FileManager.default.temporaryDirectory
@@ -37,7 +39,7 @@ final class Diagnostics: NSObject, MXMetricManagerSubscriber {
     /// One line with the time, the event and the memory footprint; an exit iOS forces leaves no line of its own,
     /// so the last lines before a `launch` show what the app was doing.
     func log(_ event: String, _ detail: String = "") {
-        let line = "\(ISO8601DateFormatter().string(from: Date())) \(event) footprint=\(Self.footprintMiB().map { "\($0)MiB" } ?? "?") \(detail)\n"
+        let line = "\(Self.timestamps.string(from: Date())) \(event) footprint=\(Self.footprintMiB().map { "\($0)MiB" } ?? "?") \(detail)\n"
         queue.async { [events] in
             var text = (try? String(contentsOf: events, encoding: .utf8)) ?? ""
             text += line
@@ -56,7 +58,7 @@ final class Diagnostics: NSObject, MXMetricManagerSubscriber {
 
     private func save(_ json: Data, name: String, end: Date) {
         queue.async { [folder] in
-            let stamp = ISO8601DateFormatter().string(from: end).replacingOccurrences(of: ":", with: "")
+            let stamp = Self.timestamps.string(from: end).replacingOccurrences(of: ":", with: "")
             try? json.write(to: folder.appendingPathComponent("\(stamp)-\(name).json"), options: .atomic)
             let reports = ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [])
                 .filter { $0.pathExtension == "json" }.sorted { $0.lastPathComponent > $1.lastPathComponent }

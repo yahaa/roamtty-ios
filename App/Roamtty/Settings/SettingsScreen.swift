@@ -39,9 +39,10 @@ struct SettingsScreen: View {
                         }
                         if let fontError { Text(fontError).font(.footnote).foregroundStyle(Palette.danger).padding(16).accessibilityIdentifier("settings-font-error") }
                         VStack(spacing: 10) {
+                            let preview = fonts.font(selection: model.settings.font, size: model.settings.fontSize)
                             HStack { Text(model.text("字号", "Font size")); Spacer(); Text("\(Int(model.settings.fontSize)) pt").foregroundStyle(Palette.secondary).accessibilityIdentifier("settings-font-size-value") }
                             Slider(value: $model.settings.fontSize, in: 8...28, step: 1).accessibilityLabel(model.text("字号", "Font size")).accessibilityIdentifier("settings-font-size")
-                            Text("❯ ssh developer@roamtty\n你好，世界  echo 'Hello, world'\nλ → 0123456789 {} []").font(Font(fonts.font(selection: model.settings.font, size: model.settings.fontSize))).frame(maxWidth: .infinity, alignment: .leading).padding(12).background(Palette.background, in: RoundedRectangle(cornerRadius: 10)).accessibilityIdentifier("settings-font-preview").accessibilityValue(fonts.font(selection: model.settings.font, size: model.settings.fontSize).fontName)
+                            Text("❯ ssh developer@roamtty\n你好，世界  echo 'Hello, world'\nλ → 0123456789 {} []").font(Font(preview)).frame(maxWidth: .infinity, alignment: .leading).padding(12).background(Palette.background, in: RoundedRectangle(cornerRadius: 10)).accessibilityIdentifier("settings-font-preview").accessibilityValue(preview.fontName)
                         }.padding(16).panelDivider()
                         Toggle(model.text("固定工具箱", "Keep toolbox open"), isOn: $model.settings.toolboxPinned).padding(16).accessibilityIdentifier("settings-toolbox-pinned")
                     }

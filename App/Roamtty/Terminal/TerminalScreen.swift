@@ -210,18 +210,17 @@ struct TerminalScreen: View {
     }
     private func collapseIfFloating() { if !toolbox.pinned { toolbox.collapseDock(at: now) } }
     private func dock(in viewport: CGSize, twoColumns: Bool, reserved: Bool) -> some View {
-        let controls = dockControls
-        let rows = twoColumns ? 1 + (controls.count + 1) / 2 : 2 + controls.count
+        let rows = twoColumns ? 1 + (Self.dockControlCount + 1) / 2 : 2 + Self.dockControlCount
         let width: CGFloat = twoColumns ? 96 : 48, height = CGFloat(rows) * 48
         let frame = TerminalDockGeometry.frame(viewport: viewport, content: CGSize(width: width, height: height + 12), endInset: reserved ? 0 : 8, avoiding: reserved ? nil : cursorFrame())
         return ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 0) {
                 if twoColumns {
                     HStack(spacing: 0) { collapseButton; sessionMenu }
-                    LazyVGrid(columns: [GridItem(.fixed(48), spacing: 0), GridItem(.fixed(48), spacing: 0)], spacing: 0) { ForEach(controls.indices, id: \.self) { controls[$0] } }
+                    LazyVGrid(columns: [GridItem(.fixed(48), spacing: 0), GridItem(.fixed(48), spacing: 0)], spacing: 0) { dockControls }
                 } else {
                     collapseButton; sessionMenu
-                    ForEach(controls.indices, id: \.self) { controls[$0] }
+                    dockControls
                 }
             }.padding(.vertical, 6)
         }.frame(width: frame.width, height: frame.height)
@@ -229,16 +228,15 @@ struct TerminalScreen: View {
             .shadow(color: .black.opacity(reserved ? 0 : 0.25), radius: reserved ? 0 : 4, y: 2)
             .position(x: frame.midX, y: frame.midY).accessibilityIdentifier("terminal-dock")
     }
-    private var dockControls: [AnyView] {
-        let files = connected
-        return [
-            AnyView(dockButton("ic_cloud_upload", model.text("上传文件", "Upload files"), id: "upload-file", enabled: files) { fileAction = .upload }),
-            AnyView(dockButton("ic_cloud_download", model.text("下载文件", "Download files"), id: "download-file", enabled: files) { fileAction = .download }),
-            AnyView(dockButton("ic_image", model.text("插入图片", "Insert image"), id: "select-image", enabled: files) { fileAction = .image }),
-            AnyView(dockButton("ic_commands", model.text("常用命令", "Common commands"), id: "common-commands", enabled: connected) { runtime.terminalView.resignFirstResponder(); commandSheet = true }),
-            AnyView(settingsMenu),
-        ]
+    /// The keys below the dock's collapse and session keys; `dockControlCount` sizes the dock for them.
+    @ViewBuilder private var dockControls: some View {
+        dockButton("ic_cloud_upload", model.text("上传文件", "Upload files"), id: "upload-file", enabled: connected) { fileAction = .upload }
+        dockButton("ic_cloud_download", model.text("下载文件", "Download files"), id: "download-file", enabled: connected) { fileAction = .download }
+        dockButton("ic_image", model.text("插入图片", "Insert image"), id: "select-image", enabled: connected) { fileAction = .image }
+        dockButton("ic_commands", model.text("常用命令", "Common commands"), id: "common-commands", enabled: connected) { runtime.terminalView.resignFirstResponder(); commandSheet = true }
+        settingsMenu
     }
+    private static let dockControlCount = 5
     private var collapseButton: some View {
         Button {
             runtime.controlArmed = false; runtime.shiftArmed = false

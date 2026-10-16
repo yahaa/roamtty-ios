@@ -61,6 +61,7 @@ struct FileBrowserScreen: View {
         do { try model.validate(connectionTarget) } catch { return nil }
         return runtime
     }
+    /// The entries on screen: filtered, ranked and sorted, which walks every entry of a large folder.
     private var shown: [RemoteEntry] {
         let source = selectedOnly ? selected : searchPrefix.isEmpty ? entries : searchEntries
         let query = selectedOnly ? filter : remotePathSearch(directory: directory, query: filter).name
@@ -74,8 +75,10 @@ struct FileBrowserScreen: View {
         }.map { $0.0 }
     }
     var body: some View {
+        // Worked out once per update: the summary, the list and its empty state all show the same entries.
+        let shown = self.shown
         VStack(spacing: 0) {
-            listingSummary
+            listingSummary(shown)
             if mutationID != nil { mutationProgress }
             if let actionError {
                 HStack(alignment: .top, spacing: 12) {
@@ -261,7 +264,7 @@ struct FileBrowserScreen: View {
             .accessibilityIdentifier("files-breadcrumb-" + path)
     }
     /// Android `ListingSummary`: what is shown, what is hidden, and the sort control.
-    private var listingSummary: some View {
+    private func listingSummary(_ shown: [RemoteEntry]) -> some View {
         let folders = shown.filter(\.isDirectory).count, files = shown.count - folders
         let hidden = max(0, (searchPrefix.isEmpty && !selectedOnly ? entries.count : shown.count) - shown.count)
         let parts = [folders > 0 ? model.text("\(folders) 个文件夹", "\(folders) folders") : nil,

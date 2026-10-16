@@ -84,12 +84,15 @@ struct EmptyMessage: View {
         }.padding(32).frame(maxWidth: .infinity)
     }
 }
+extension ConnectionPhase {
+    /// A connection's colour: up, closed, on its way, or failed.
+    var tone: Color { self == .connected ? Palette.success : self == .disconnected ? Palette.secondary : active ? Palette.warning : Palette.danger }
+}
 struct PhaseLabel: View {
     @EnvironmentObject var model: AppModel
     let phase: ConnectionPhase
-    var tone: Color { phase == .connected ? Palette.success : phase == .disconnected ? Palette.secondary : phase.active ? Palette.warning : Palette.danger }
     var body: some View {
-        HStack(spacing: 6) { Circle().fill(tone).frame(width: 8, height: 8); Text(model.phaseText(phase)).font(.caption) }.foregroundStyle(tone)
+        HStack(spacing: 6) { Circle().fill(phase.tone).frame(width: 8, height: 8); Text(model.phaseText(phase)).font(.caption) }.foregroundStyle(phase.tone)
     }
 }
 struct RoamButtonStyle: ButtonStyle {
