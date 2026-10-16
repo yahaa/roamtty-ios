@@ -32,9 +32,9 @@ The UI reference is the current reachable Android UI in `../roamtty`, especially
 
 | Android feature | iOS implementation |
 | --- | --- |
-| Host-only home, search, drawer | `Hosts/HostsScreen.swift`, `RoamttyApp.swift` |
+| Host-only home, search, drawer | `Hosts/HostsScreen.swift`, `Root/DrawerScreen.swift` |
 | Password, private key and interactive host editor | `Hosts/HostEditorScreen.swift` |
-| First-use fingerprint approval, keyboard-interactive fields | `Model/AppModel.swift`, `AuthenticationOverlay` |
+| First-use fingerprint approval, keyboard-interactive fields | `Model/AppModel+Connections.swift`, `Hosts/AuthenticationOverlay.swift` |
 | Changed fingerprint blocks connection | Transport pin store plus explicit `FingerprintReview`; as on Android, 移除旧记录并重连 reconnects at once and shows the new fingerprint |
 | mosh first-contact timeout falls back to SSH | `SessionRuntime` shows Android's 提示 card ("mosh 无法连接（可能未放行 UDP 60000–61000），已改用 SSH。") once the fallback connects |
 | Host online state and latency | `Model/Reachability.swift`: online only once sshd's identification arrives (our own goes first); latency is DNS + TCP connect |
@@ -45,9 +45,9 @@ The UI reference is the current reachable Android UI in `../roamtty`, especially
 | Close (ends tmux on the server), force delete, restart sessions | `AppModel.closeSession`, `forceDeleteSession`, `restartSession` |
 | SSH-only remote folder picker, recent folders, detected default session mode, Claude/Codex/Grok permission hints and command previews | `Hosts/LaunchScreen.swift`, Core `RemoteFolders` and `HostLaunchPolicy` |
 | tmux/mosh detection and explicit installation | `Hosts/PluginsScreen.swift` |
-| Native terminal rendering and keyboard input | `Terminal/SessionRuntime.swift`, SwiftTerm 1.13.0 |
+| Native terminal rendering and keyboard input | `Terminal/SessionRuntime.swift`, `Terminal/TerminalViews.swift`, SwiftTerm 1.13.0 |
 | Ctrl, arrows, Esc, Tab, function keys, ghost shortcuts and toolbox | `TerminalScreen.swift`, `GhostShortcuts.swift`, Core `TerminalShortcuts` |
-| Cursor-row keyboard tap, double-tap Tab, triple-tap paste, floating Enter/Esc/slash arrows | `SessionRuntime.swift`, `TerminalInteraction.swift`, `CursorRowButtons.swift` |
+| Cursor-row keyboard tap, double-tap Tab, triple-tap paste, floating Enter/Esc/slash arrows | `SessionRuntime+Gestures.swift`, `SessionRuntime+Input.swift`, `TerminalInteraction.swift`, `CursorRowButtons.swift` |
 | Scrollback, text selection/copy, paste, pinch font size | Native SwiftTerm/UIKit |
 | Common commands and remote bash/zsh history | `CommandSheet`, Core `ShellHistoryCommands` |
 | Path-aware fuzzy file search, new folder, persistent Name/Size/Modified/Type sorting, hidden files and batch download | `Files/FileBrowserScreen.swift` |
