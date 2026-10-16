@@ -35,6 +35,25 @@ final class TerminalGestureUITests: RoamttyLiveUITestCase {
         closePlainTerminal()
     }
 
+    func testTmuxVerticalSwipeScrollsHistory() throws { try swipeScrollsTmuxHistory(mosh: false) }
+    /// mosh resends its modes after every resize; tracking must survive the 1006 reset/set pair.
+    func testMoshTmuxVerticalSwipeScrollsHistory() throws { try swipeScrollsTmuxHistory(mosh: true) }
+    private func swipeScrollsTmuxHistory(mosh: Bool) throws {
+        let surface = try openTerminal(preferMosh: mosh)
+        XCTAssertEqual(terminalTransport.hasSuffix("mosh"), mosh)
+        try runCommand("seq -f 'HIST_%03g' 1 400")
+        waitForOutput("HIST_400", surface: surface)
+        // A downward drag sends wheel-up events; tmux enters copy-mode and shows earlier lines.
+        let upper = surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+        let lower = surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+        for _ in 0..<2 { upper.press(forDuration: 0.05, thenDragTo: lower, withVelocity: 300, thenHoldForDuration: 0.2) }
+        let scrolled = NSPredicate { element, _ in !((element as? XCUIElement)?.value as? String ?? "HIST_400").contains("HIST_400") }
+        expectation(for: scrolled, evaluatedWith: surface).expectationDescription = "tmux scrolled back through its history"
+        waitForExpectations(timeout: 10)
+        capture("Vertical swipe scrolled tmux history" + (mosh ? " over mosh" : ""))
+        closeTerminal()
+    }
+
     func testCursorRowTapAndDoubleTapAfterKeyboardIsPutAway() throws {
         let surface = try openTerminal()
         let escape = app.buttons["cursor-escape"]

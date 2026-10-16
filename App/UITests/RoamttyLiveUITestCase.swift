@@ -127,7 +127,8 @@ class RoamttyLiveUITestCase: XCTestCase {
         XCTAssertTrue(surface.waitForExistence(timeout: 8))
         let ghost = app.buttons["terminal-ghost"]
         // A reading tap wakes the ghost; one landing while the keyboard slides away can be absorbed, so retry.
-        for _ in 0..<3 where !ghost.exists {
+        // Always wake it once: a ghost that is still shown may be fading out and gone before the tap lands.
+        for attempt in 0..<3 where attempt == 0 || !ghost.exists {
             surface.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.2)).tap()
             if ghost.waitForExistence(timeout: 2) { break }
         }
