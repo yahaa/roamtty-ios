@@ -74,15 +74,18 @@ final class CommandHistoryUITests: RoamttyLiveUITestCase {
         let payload = "CLIPBOARD_" + token
         // Clear only this terminal's screen and scrollback, then copy its real
         // selected rendered text. The test never reads a pre-existing clipboard.
-        try runCommand("printf '\\033[3J\\033[2J\\033[H'; " + emit(payload))
+        // The terminal runs under the status bar, so the payload fills the top rows
+        // and the press lands on it below the status bar.
+        try runCommand("printf '\\033[3J\\033[2J\\033[H'; for row in 1 2 3 4 5 6 7 8 9 10 11 12; do " + emit(payload) + "; done")
         waitForOutput(payload, surface: surface)
         // Long-press opens SwiftTerm's native selection and edit menu.
-        surface.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.02)).press(forDuration: 1.2)
+        let press = surface.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.1))
+        press.press(forDuration: 1.2)
         let selectAll = nativeMenu(NSPredicate(format: "label == 'Select All' OR label == '全选'"))
         XCTAssertTrue(selectAll.waitForExistence(timeout: 3)); selectAll.tap()
         capture("Native terminal selection")
         // With text selected, a second long-press offers Copy.
-        surface.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.02)).press(forDuration: 1.2)
+        press.press(forDuration: 1.2)
         let copy = nativeMenu(NSPredicate(format: "label == 'Copy' OR label == '拷贝' OR label == '复制'"))
         if !copy.waitForExistence(timeout: 3) { saveFailureScreenshot("copy") }
         XCTAssertTrue(copy.exists); copy.tap()
