@@ -1,5 +1,6 @@
 import UIKit
 import SwiftUI
+import Combine
 import SwiftTerm
 import RoamttyCore
 import RoamttyTransport
@@ -15,7 +16,6 @@ import RoamttyTransport
     @Published var currentDirectory = "~"
     @Published var controlArmed = false
     @Published var shiftArmed = false
-    @Published var outputRevision = 0
     @Published private(set) var workspaceTouches = 0
     @Published var pendingPaste: String?
     /// Why the terminal is not connected: a drop or a restore reconnects by itself (Android `reconnectsOnOpen`).
@@ -59,6 +59,8 @@ import RoamttyTransport
     private let lifetimeCancellation = TransferCancellation()
     private var worker: Task<Void, Never>?
     private weak var selectionTap: UITapGestureRecognizer?
+    /// The recognizers this runtime put on the terminal view, taken off again by `discard`.
+    private var ownRecognizers: [UIGestureRecognizer] = []
     private var cursorControls = TerminalCursorControls()
     private var cursorTimer: Task<Void, Never>?
     private var keyboardHide: Task<Void, Never>?
@@ -139,6 +141,15 @@ import RoamttyTransport
         terminalView.panGestureRecognizer.require(toFail: scroll)
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinchFont(_:)))
         terminalView.addGestureRecognizer(pinch)
+        ownRecognizers = [single, double, triple, touchObserver, swipe, scroll, pinch]
+    }
+    /// Fires before a change to what the screens outside this terminal show of it: the session list, the drawer
+    /// and the session menu. Output, the cursor and gestures stay with the terminal's own views, so a busy
+    /// terminal does not redraw the whole app on every chunk it receives.
+    var summaryWillChange: AnyPublisher<Void, Never> {
+        func changes<T>(_ publisher: Published<T>.Publisher) -> AnyPublisher<Void, Never> { publisher.dropFirst().map { _ in () }.eraseToAnyPublisher() }
+        return Publishers.MergeMany(changes($record), changes($phase), changes($end), changes($agentStatus),
+                                    changes($paneDirectory), changes($transportName), changes($launchedAgent)).eraseToAnyPublisher()
     }
     static func background(_ scheme: ColorScheme) -> UIColor { UIColor(hex: scheme == .dark ? 0x252728 : 0xFFFDF9) }
     func configure(settings: AppSettings, scheme: ColorScheme) {
@@ -223,7 +234,7 @@ import RoamttyTransport
     }
     private func receive(_ data: Data, token: UUID, attempt: UUID) {
         guard generation == token, startupAttempt == attempt else { return }
-        terminalView.feed(byteArray: Array(data)[...]); outputRevision += 1
+        terminalView.feed(byteArray: Array(data)[...])
         mouseTracking.consume(data); restoreMouseTracking()
         queueCursorRefresh()
         if !startupSent {
@@ -363,6 +374,17 @@ import RoamttyTransport
         end = .ended; phase = .disconnected; terminalView.resignFirstResponder()
     }
     func probe() { mosh?.probe() }
+    /// Closes the session for good once the app has let go of it. SwiftTerm's display link retains its view
+    /// until `updateUiClosed`, so without this every reconnect kept the old terminal alive: its buffers and a
+    /// screen-sized backing store, until iOS ended the app for its memory.
+    func discard() {
+        close()
+        terminalView.updateUiClosed()
+        terminalView.terminalDelegate = nil
+        for recognizer in ownRecognizers { terminalView.removeGestureRecognizer(recognizer) }
+        ownRecognizers = []
+        onFailure = nil; onFontScaled = nil
+    }
 
     // MARK: Agent status (Android TerminalConnection.agentStatus)
 
@@ -742,7 +764,7 @@ import RoamttyTransport
     func bell(source: TerminalView) { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
     func clipboardCopy(source: TerminalView, content: Data) { /* OSC 52 is intentionally ignored. Native selection copying remains available. */ }
     func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {}
-    func rangeChanged(source: TerminalView, startY: Int, endY: Int) { outputRevision += 1; queueCursorRefresh() }
+    func rangeChanged(source: TerminalView, startY: Int, endY: Int) { queueCursorRefresh() }
 }
 func shellQuote(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\"'\"'") + "'" }
 
@@ -797,12 +819,15 @@ struct NativeTerminal: UIViewRepresentable {
         // mouse input; native long-press selection must remain local.
         viewportChanged?()
     }
+    deinit { TerminalCensus.change(-1) }
     override init(frame: CGRect) {
+        TerminalCensus.change(1)
         super.init(frame: frame); terminalReady = true
         getTerminal().setCursorStyle(.steadyBlock)
         isAccessibilityElement = true; accessibilityLabel = "Terminal"; accessibilityTraits = [.updatesFrequently]
     }
     required init?(coder: NSCoder) {
+        TerminalCensus.change(1)
         super.init(coder: coder); terminalReady = true
         getTerminal().setCursorStyle(.steadyBlock)
         isAccessibilityElement = true; accessibilityLabel = "Terminal"
@@ -811,6 +836,14 @@ struct NativeTerminal: UIViewRepresentable {
         get { String(decoding: getTerminal().getBufferAsData().suffix(16_384), as: UTF8.self) }
         set { }
     }
+}
+
+/// How many terminal views are alive, for the diagnostics log: more than the open sessions means some leaked.
+enum TerminalCensus {
+    private static let lock = NSLock()
+    private static var count = 0
+    static var live: Int { lock.lock(); defer { lock.unlock() }; return count }
+    static func change(_ delta: Int) { lock.lock(); count += delta; lock.unlock() }
 }
 
 /// Observes the initial workspace press without recognizing or consuming a gesture.

@@ -1,0 +1,11 @@
+PasswordAuthentication yes
+KbdInteractiveAuthentication yes
+PermitRootLogin no
+AllowUsers itermux_test
+AuthorizedKeysFile /run/fixture/authorized_keys
+AllowTcpForwarding no
+X11Forwarding no
+PrintMotd no
+PrintLastLog no
+AcceptEnv LANG LC_*
+LogLevel ERROR

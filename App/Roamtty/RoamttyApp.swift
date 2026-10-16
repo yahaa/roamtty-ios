@@ -7,6 +7,7 @@ typealias Host = RoamttyCore.Host
 @main struct RoamttyApp: App {
     @StateObject private var model = AppModel()
     @Environment(\.scenePhase) private var scenePhase
+    init() { Diagnostics.shared.start() }
     var body: some Scene {
         WindowGroup {
             RootScreen().environmentObject(model).preferredColorScheme(model.colorScheme).tint(Palette.accent)

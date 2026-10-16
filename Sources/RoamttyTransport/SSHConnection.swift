@@ -311,13 +311,15 @@ public final class SSHConnection {
     public func resize(columns: Int, rows: Int) {
         stateLock.lock(); pendingSize = (max(2, columns), max(2, rows)); stateLock.unlock()
     }
+    /// The most terminal output gathered before it is handed over.
+    static let burstLimit = 128 * 1024
     public func runTerminal(onOutput: @escaping (Data) -> Void) throws {
         guard let channel = terminal else { throw RoamError.invalid("Terminal is not open") }
         defer {
             stateLock.lock(); acceptingInput = false; input.reset(); terminal = nil; stateLock.unlock()
             closeChannel(channel); onPhase?(.disconnected)
         }
-        var buffer = [UInt8](repeating: 0, count: 8192)
+        var buffer = [UInt8](repeating: 0, count: 32768)
         var outgoing = Data(); var offset = 0
         var lastAlive = Date()
         while !isStopped {
@@ -337,14 +339,23 @@ public final class SSHConnection {
                 if sent > 0 { offset += sent; if offset == outgoing.count { outgoing.removeAll(keepingCapacity: true); offset = 0 } }
                 else if sent < 0 && sent != LIBSSH2_ERROR_EAGAIN { throw error(Int32(sent)) }
             }
-            var received = false
+            // A burst is drained up to `burstLimit` and handed over once: each hand-over waits for the main
+            // thread, so one per 8 KiB read kept it busy for as long as a large output ran.
+            var chunk = Data()
             for stream in 0...1 {
-                let count = buffer.withUnsafeMutableBytes { raw in
-                    locked { libssh2_channel_read_ex(channel, Int32(stream), raw.bindMemory(to: CChar.self).baseAddress, raw.count) }
+                while chunk.count < Self.burstLimit {
+                    let count = buffer.withUnsafeMutableBytes { raw in
+                        locked { libssh2_channel_read_ex(channel, Int32(stream), raw.bindMemory(to: CChar.self).baseAddress, raw.count) }
+                    }
+                    if count > 0 { chunk.append(contentsOf: buffer[0..<count]) }
+                    else if count < 0 && count != LIBSSH2_ERROR_EAGAIN {
+                        if !chunk.isEmpty { onOutput(chunk) }
+                        throw error(Int32(count))
+                    } else { break }
                 }
-                if count > 0 { onOutput(Data(buffer[0..<count])); received = true }
-                else if count < 0 && count != LIBSSH2_ERROR_EAGAIN { throw error(Int32(count)) }
             }
+            let received = !chunk.isEmpty
+            if received { onOutput(chunk) }
             if locked({ libssh2_channel_eof(channel) }) != 0 { return }
             if Date().timeIntervalSince(lastAlive) > 15 {
                 var seconds: Int32 = 0
