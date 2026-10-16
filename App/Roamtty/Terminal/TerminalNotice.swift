@@ -47,7 +47,6 @@ struct TerminalConnectionProgress: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let phase: ConnectionPhase
     let onCancel: () -> Void
-    @State private var lifted = false
     private var label: String {
         switch phase {
         case .verifying: return model.text("等待核对主机指纹", "Waiting for host-key verification")
@@ -57,11 +56,8 @@ struct TerminalConnectionProgress: View {
     }
     var body: some View {
         HStack(spacing: 0) {
-            Image("RoamttyLogo").resizable().scaledToFit().frame(width: 52, height: 52)
-                .offset(y: lifted ? -2 : 1)
-                .animation(reduceMotion ? nil : .easeInOut(duration: 1.4).repeatForever(autoreverses: true), value: lifted)
-                .onAppear { lifted = true }
-                .accessibilityLabel(label).accessibilityIdentifier("terminal-connection-motion")
+            RoamttyLogoArt(animated: !reduceMotion).frame(width: 52, height: 52)
+                .accessibilityElement().accessibilityLabel(label).accessibilityIdentifier("terminal-connection-motion")
             VStack(alignment: .leading, spacing: 4) {
                 Text("SSH").font(.system(size: 10, design: .monospaced)).tracking(1.5).foregroundStyle(Palette.secondary)
                 Text(label).font(.subheadline.weight(.medium)).animation(.easeInOut(duration: 0.18), value: label)
