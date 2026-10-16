@@ -115,6 +115,8 @@ import RoamttyTransport
         super.init()
         terminalView.terminalDelegate = self
         terminalView.inputAccessoryView = nil
+        // Android keeps xterm's fixed 256-colour cube and grey ramp instead of deriving them from the 16 ANSI colours.
+        terminalView.getTerminal().options.ansi256PaletteStrategy = .xterm
         // iOS 26 frosts a scroll view's edges under the status bar and home indicator; the terminal stays clear to the edge.
         if #available(iOS 26.0, *) { terminalView.topEdgeEffect.isHidden = true; terminalView.bottomEdgeEffect.isHidden = true }
         // The page lays the terminal under the status bar itself; the scroll view must not add its own safe-area insets.
@@ -138,6 +140,16 @@ import RoamttyTransport
                                     changes($paneDirectory), changes($transportName), changes($launchedAgent)).eraseToAnyPublisher()
     }
     static func background(_ scheme: ColorScheme) -> UIColor { UIColor(hex: scheme == .dark ? 0x252728 : 0xFFFDF9) }
+    /// Android's 16 ANSI colours (`TerminalColorScheme`), so a program's colours look the same on both. Black is the
+    /// grey Claude Code paints its prompt rows with, rather than SwiftTerm's pure black.
+    static func ansiColors(_ scheme: ColorScheme) -> [SwiftTerm.Color] {
+        let values: [Int] = scheme == .dark
+            ? [0x202221, 0xD97579, 0x80C99A, 0xD9BB76, 0x7EADD8, 0xBD9BD5, 0x79C4CD, 0xD9D4CC,
+               0x777A75, 0xF18E92, 0xA5DFB4, 0xEFD391, 0xA6CAEB, 0xD4B5E7, 0xA1DEE3, 0xF5F1EB]
+            : [0x2B2A27, 0xA33B49, 0x277550, 0x8A6317, 0x285F9A, 0x82539C, 0x177986, 0x837D74,
+               0x6F6B64, 0xBD4A56, 0x31865B, 0x9C7524, 0x3977B7, 0x9563AD, 0x248D99, 0x5F5B54]
+        return values.map { SwiftTerm.Color(red: UInt16($0 >> 16 & 255) * 257, green: UInt16($0 >> 8 & 255) * 257, blue: UInt16($0 & 255) * 257) }
+    }
     func configure(settings: AppSettings, scheme: ColorScheme) {
         let fonts = FontCatalog.shared
         if configuredFont != settings.font || configuredSize != settings.fontSize || configuredFontRevision != fonts.revision {
@@ -146,6 +158,7 @@ import RoamttyTransport
             configuredFontRevision = fonts.revision
         }
         if configuredScheme != scheme {
+            terminalView.installColors(Self.ansiColors(scheme))
             terminalView.nativeBackgroundColor = Self.background(scheme)
             terminalView.nativeForegroundColor = UIColor(hex: scheme == .dark ? 0xF3F0EA : 0x2B2A27)
             terminalView.caretColor = UIColor(hex: scheme == .dark ? 0xEFA783 : 0x9E462C)
