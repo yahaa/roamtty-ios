@@ -42,6 +42,20 @@ extension SessionRuntime {
         return status
     }
 
+    /// The folder the terminal is in now, asked of the host; what the shell last reported when the host does not say.
+    func workingDirectory() async -> String {
+        let fallback = paneDirectory.isEmpty ? currentDirectory : paneDirectory
+        guard phase == .connected, let ssh, ssh.isConnected else { return fallback }
+        let command = RemoteCommands.workingDirectory(tmux: record.mode == .tmux ? record.remoteName : nil), cancellation = lifetimeCancellation
+        let output = try? await performInBackground { () -> String? in
+            let result = try ssh.exec(command, input: Data(), timeout: 5, cancellation: cancellation)
+            return result.status == 0 ? String(decoding: result.output, as: UTF8.self) : nil
+        }
+        guard let directory = validWorkingDirectory(output) else { return fallback }
+        if record.mode == .tmux { paneDirectory = directory } else { currentDirectory = directory }
+        return directory
+    }
+
     /// Answers the agent's request for permission with its default choice (Enter: "Yes" in Claude Code, Codex and
     /// Grok). Asks the host first, so a request already answered on another screen gets no stray Enter.
     func approveAgent() async -> Bool {

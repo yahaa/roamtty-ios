@@ -69,8 +69,8 @@ struct CursorKeyButton: View {
                 else if let systemIcon { Image(systemName: systemIcon).font(.system(size: 13, weight: .medium)) }
                 else { Text(text ?? "").font(.system(size: 10, weight: .medium, design: .monospaced)) }
             }.foregroundStyle(Palette.accent).frame(width: 28, height: 20)
-                .background(Palette.raised.opacity(0.85), in: RoundedRectangle(cornerRadius: 6))
-                .overlay { RoundedRectangle(cornerRadius: 6).stroke(Palette.outline.opacity(0.5), lineWidth: 1) }
+                .background(Palette.raised.opacity(0.35), in: RoundedRectangle(cornerRadius: 6))
+                .overlay { RoundedRectangle(cornerRadius: 6).stroke(Palette.outline.opacity(0.35), lineWidth: 1) }
                 .frame(width: 40, height: 32).contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityLabel(label).accessibilityIdentifier(id)
     }
