@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import RoamttyCore
 
 typealias Host = RoamttyCore.Host
@@ -29,6 +30,8 @@ typealias Host = RoamttyCore.Host
 struct RootScreen: View {
     @EnvironmentObject var model: AppModel
     @State private var selectedShareUpload: UUID?
+    /// How far a horizontal swipe has pulled the open drawer back towards the left edge.
+    @State private var drawerDrag: CGFloat = 0
     var body: some View {
         ZStack(alignment: .leading) {
             NavigationStack(path: $model.path) {
@@ -57,11 +60,15 @@ struct RootScreen: View {
                     }
             }
             if model.drawer {
-                Color.black.opacity(0.35).ignoresSafeArea().onTapGesture { withAnimation { model.drawer = false } }
-                DrawerScreen().frame(width: min(360, UIScreen.main.bounds.width * 0.82)).transition(.move(edge: .leading))
+                let width = min(360, UIScreen.main.bounds.width * 0.82)
+                Color.black.opacity(0.35 * (1 + drawerDrag / width)).ignoresSafeArea().onTapGesture { withAnimation { model.drawer = false } }
+                    .gesture(drawerSwipe(width: width))
+                DrawerScreen().frame(width: width).offset(x: drawerDrag).transition(.move(edge: .leading))
+                    .simultaneousGesture(drawerSwipe(width: width))
             }
             AuthenticationOverlay()
         }
+        .onChange(of: model.drawer) { open in if open { drawerDrag = 0 } }
         .sheet(item: $model.sheet) { sheet in
             ZStack {
                 switch sheet {
@@ -104,6 +111,19 @@ struct RootScreen: View {
                     .task(id: notice) { try? await Task.sleep(nanoseconds: 4_000_000_000); if model.notice == notice { model.notice = nil } }
             }
         }
+    }
+    /// The drawer follows a leftward swipe and closes once it has moved a third of its width or is flung.
+    private func drawerSwipe(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                guard abs(value.translation.width) > abs(value.translation.height) || drawerDrag != 0 else { return }
+                drawerDrag = min(0, value.translation.width)
+            }
+            .onEnded { value in
+                let close = drawerDrag != 0 && (drawerDrag < -width / 3 || value.predictedEndTranslation.width < -width / 2)
+                // A closed drawer keeps its offset until it opens again, so it slides out from where the finger left it.
+                withAnimation(.easeOut(duration: 0.2)) { if close { model.drawer = false } else { drawerDrag = 0 } }
+            }
     }
     private func completeShareHandoff() {
         guard let requestID = selectedShareUpload else { return }
@@ -186,5 +206,22 @@ struct DrawerScreen: View {
                 PhaseLabel(phase: phase)
             }.padding(.leading, 16).padding(.trailing, 24).frame(minHeight: 56).contentShape(Capsule())
         }.buttonStyle(.plain).padding(.horizontal, 12).accessibilityIdentifier("drawer-session-\(record.id)")
+    }
+}
+
+/// SwiftUI turns the edge swipe back off on pages that hide the navigation bar, such as the terminal.
+/// Keep it on for every pushed page, and let it win over the terminal's own pans that start near the edge.
+extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
+    override open func viewDidLoad() {
+        super.viewDidLoad()
+        interactivePopGestureRecognizer?.delegate = self
+    }
+    public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === interactivePopGestureRecognizer else { return true }
+        return viewControllers.count > 1 && transitionCoordinator == nil
+    }
+    public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        gestureRecognizer === interactivePopGestureRecognizer && otherGestureRecognizer is UIPanGestureRecognizer
+            && !(otherGestureRecognizer is UIScreenEdgePanGestureRecognizer)
     }
 }

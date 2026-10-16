@@ -115,7 +115,8 @@ struct TransferJob: Identifiable {
         insertionTargets.removeValue(forKey: id)
         return true
     }
-    func uploadImages(_ images: [PhotosPickerItem], runtime: SessionRuntime, model: AppModel, connectionTarget: RemoteConnectionTarget? = nil) {
+    /// Returns the queued jobs so the caller can follow them until their paths are in the terminal.
+    @discardableResult func uploadImages(_ images: [PhotosPickerItem], runtime: SessionRuntime, model: AppModel, connectionTarget: RemoteConnectionTarget? = nil) -> [UUID] {
         let connectionTarget = connectionTarget ?? .session(runtime)
         let queued = images.prefix(9).map { item -> (PhotosPickerItem, TransferJob, TransferCancellation) in
             let path = TerminalAttachment.remotePNGPath()
@@ -149,6 +150,11 @@ struct TransferJob: Identifiable {
                 } catch { if !token.isCancelled { update(job.id) { $0.state = .failed; $0.message = error.localizedDescription } } }
             }
         }
+        return queued.map(\.1.id)
+    }
+    /// True once every listed job has uploaded and its path went into the terminal; false while any runs, failed or waits.
+    func inserted(_ ids: [UUID]) -> Bool {
+        !ids.isEmpty && ids.allSatisfy { id in jobs.first { $0.id == id }.map { $0.state == .complete && $0.pendingInsertion == nil } ?? false }
     }
     func download(_ entry: RemoteEntry, host: Host, model: AppModel, name: String? = nil, connectionTarget: RemoteConnectionTarget? = nil) {
         let connectionTarget = connectionTarget ?? .host(host.id)

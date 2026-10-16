@@ -27,6 +27,7 @@ struct TerminalFileActions: View {
     @State private var urls: [URL] = []
     @State private var transfers = false
     @State private var showPhotoTransfers = false
+    @State private var imageJobs: [UUID] = []
     @State private var failure: String?
 
     init(runtime: SessionRuntime, action: TerminalFileAction, onLaunchDirectory: @escaping (Bool, String) -> Void) {
@@ -65,12 +66,12 @@ struct TerminalFileActions: View {
         .photosPicker(isPresented: $photoPicker, selection: $photos, maxSelectionCount: 9, matching: .images, preferredItemEncoding: .current)
         .onChange(of: photos) { selected in
             guard !selected.isEmpty else { return }
-            model.files.uploadImages(selected, runtime: runtime, model: model, connectionTarget: connectionTarget)
+            imageJobs = model.files.uploadImages(selected, runtime: runtime, model: model, connectionTarget: connectionTarget)
             photos = []; showPhotoTransfers = true
             if !photoPicker { transfers = true; showPhotoTransfers = false }
         }
         .onChange(of: photoPicker) { presented in if !presented && showPhotoTransfers { transfers = true; showPhotoTransfers = false } }
-        .sheet(isPresented: $transfers, onDismiss: { dismiss() }) { TransferScreen(transfers: model.files).environmentObject(model) }
+        .sheet(isPresented: $transfers, onDismiss: { dismiss() }) { TransferScreen(transfers: model.files, closeWhenInserted: imageJobs).environmentObject(model) }
         .task {
             guard !started else { return }; started = true
             if action == .upload { filePicker = true }

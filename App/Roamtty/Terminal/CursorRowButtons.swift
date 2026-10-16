@@ -7,21 +7,27 @@ struct CursorRowButtons: View {
     var trailingInset: CGFloat = 0
     /// Where the pet's arrow keys sit, in this view's coordinates: a cursor row within their span slides left of them.
     var avoid: CGRect? = nil
+    /// iPhone keyboards have no dismiss key: while one is up, a key beside Esc/Enter puts it away.
+    var keyboardVisible = false
     var body: some View {
         GeometryReader { geometry in
             if runtime.phase == .connected, let row = runtime.cursorRowBounds {
                 let height: CGFloat = 32
                 let y = min(max(row.midY, height / 2), max(height / 2, geometry.size.height - height / 2))
+                let keys: CGFloat = keyboardVisible ? 2 : 1
                 let shift: CGFloat = avoid.map { y - height / 2 < $0.maxY && y + height / 2 > $0.minY ? $0.width + 8 + 40 : 0 } ?? 0
-                Group {
+                HStack(spacing: 0) {
+                    if keyboardVisible {
+                        CursorKeyButton(systemIcon: "keyboard.chevron.compact.down", label: model.text("收起键盘", "Hide keyboard"), id: "cursor-hide-keyboard") { runtime.hideKeyboard() }
+                    }
                     switch runtime.cursorRowKey {
                     case .enter:
                         CursorKeyButton(systemIcon: "return", label: model.text("回车", "Enter"), id: "cursor-enter") { runtime.sendCursorKey(.enter) }
                     case .escape:
                         CursorKeyButton(text: "Esc", label: model.text("发送 Esc", "Send Esc"), id: "cursor-escape") { runtime.sendCursorKey(.escape) }
                     }
-                }.frame(width: 40, height: height)
-                    .position(x: max(20, geometry.size.width + trailingInset - 20 - shift), y: y)
+                }.frame(width: keys * 40, height: height)
+                    .position(x: max(keys * 20, geometry.size.width + trailingInset - keys * 20 - shift), y: y)
                     .animation(.easeInOut(duration: 0.12), value: runtime.cursorRowKey)
                     .animation(.easeInOut(duration: 0.12), value: shift)
             }
