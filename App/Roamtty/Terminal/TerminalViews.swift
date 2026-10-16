@@ -53,17 +53,17 @@ struct NativeTerminal: UIViewRepresentable {
     /// every update. Someone reading back, or with a finger or fling on the view, keeps their place; a view left
     /// at the bottom still follows the output.
     func feedKeepingPlace(_ bytes: ArraySlice<UInt8>) {
-        let terminal = getTerminal(), before = terminal.displayBuffer
-        let rowHeight = getOptimalFrameSize().height / CGFloat(max(1, terminal.rows))
-        let bottom = CGFloat(before.lines.count - before.rows) * rowHeight
-        let reading = rowHeight > 0 && !terminal.isDisplayBufferAlternate
-            && (isTracking || isDecelerating || contentOffset.y < bottom - rowHeight / 2)
-        let place = contentOffset.y, lines = before.lines.count, yDisp = before.yDisp
+        let terminal = getTerminal(), screen = CGFloat(max(1, terminal.rows))
+        let rowHeight = getOptimalFrameSize().height / screen
+        // SwiftTerm sizes the content to its buffer, one row per line, and snaps to its last screenful.
+        func lines() -> Int { rowHeight > 0 ? Int((contentSize.height / rowHeight).rounded()) : 0 }
+        let reading = rowHeight > 0 && !terminal.isCurrentBufferAlternate
+            && (isTracking || isDecelerating || contentOffset.y < contentSize.height - (screen + 0.5) * rowHeight)
+        let place = contentOffset.y, before = lines(), top = terminal.getTopVisibleRow()
         feed(byteArray: bytes)
-        guard reading, !terminal.isDisplayBufferAlternate else { return }
-        let after = terminal.displayBuffer
+        guard reading, !terminal.isCurrentBufferAlternate else { return }
         // A full scrollback drops its oldest lines as new ones arrive; move up with the text being read.
-        let dropped = max(0, (after.yDisp - yDisp) - (after.lines.count - lines))
+        let dropped = max(0, (terminal.getTopVisibleRow() - top) - (lines() - before))
         let target = min(max(0, contentSize.height - bounds.height), max(0, place - CGFloat(dropped) * rowHeight))
         if contentOffset.y != target { contentOffset.y = target }
     }
