@@ -48,6 +48,25 @@ struct NativeTerminal: UIViewRepresentable {
         default: return style
         }
     }
+    /// Feeds host output without pulling a reader back. SwiftTerm puts the view at the live bottom on each new line
+    /// and each synchronized-output frame, as Claude Code draws, so dragging back through a busy terminal fought
+    /// every update. Someone reading back, or with a finger or fling on the view, keeps their place; a view left
+    /// at the bottom still follows the output.
+    func feedKeepingPlace(_ bytes: ArraySlice<UInt8>) {
+        let terminal = getTerminal(), screen = CGFloat(max(1, terminal.rows))
+        let rowHeight = getOptimalFrameSize().height / screen
+        // SwiftTerm sizes the content to its buffer, one row per line, and snaps to its last screenful.
+        func lines() -> Int { rowHeight > 0 ? Int((contentSize.height / rowHeight).rounded()) : 0 }
+        let reading = rowHeight > 0 && !terminal.isCurrentBufferAlternate
+            && (isTracking || isDecelerating || contentOffset.y < contentSize.height - (screen + 0.5) * rowHeight)
+        let place = contentOffset.y, before = lines(), top = terminal.getTopVisibleRow()
+        feed(byteArray: bytes)
+        guard reading, !terminal.isCurrentBufferAlternate else { return }
+        // A full scrollback drops its oldest lines as new ones arrive; move up with the text being read.
+        let dropped = max(0, (terminal.getTopVisibleRow() - top) - (lines() - before))
+        let target = min(max(0, contentSize.height - bounds.height), max(0, place - CGFloat(dropped) * rowHeight))
+        if contentOffset.y != target { contentOffset.y = target }
+    }
     override func selectionChanged(source: Terminal) { super.selectionChanged(source: source); viewportChanged?() }
     /// The host hid the cursor (DECTCEM), as Claude Code's and Codex's panels do; it is then parked anywhere.
     private(set) var hostHidCursor = false
@@ -75,6 +94,15 @@ struct NativeTerminal: UIViewRepresentable {
     override var accessibilityValue: String? {
         get { String(decoding: getTerminal().getBufferAsData().suffix(16_384), as: UTF8.self) }
         set { }
+    }
+}
+
+extension TerminalView {
+    /// Back to the live bottom before input the app sends itself. SwiftTerm's `scroll(toPosition: 1)` only moves the
+    /// terminal's own viewport, which stays at the bottom while the view is dragged back through its history.
+    func scrollToLiveOutput() {
+        scroll(toPosition: 1)
+        contentOffset.y = max(0, contentSize.height - bounds.height)
     }
 }
 
