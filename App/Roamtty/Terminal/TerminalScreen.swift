@@ -27,10 +27,8 @@ struct TerminalScreen: View {
     private var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
     /// The terminal view sits inside these insets of its viewport, as on Android (10 / 6 / 6 dp).
     private static let inset = EdgeInsets(top: 6, leading: 10, bottom: 0, trailing: 6)
-    /// The window's safe area: the page runs under the status bar and home indicator, but the first row starts
-    /// below the status bar. Read from the window because the page ignores the safe area, so its own insets are 0.
-    @State private var windowInsets = UIEdgeInsets.zero
-    private var statusBarTop: CGFloat { windowInsets.top }
+    /// The status bar's height: the page runs under it, but the first row starts below it.
+    @State private var statusBarTop: CGFloat = 0
     private var top: CGFloat { statusBarTop + Self.inset.top }
 
     var body: some View {
@@ -47,7 +45,7 @@ struct TerminalScreen: View {
                                 .padding(Self.inset).padding(.top, statusBarTop)
                             notice.padding(.top, statusBarTop)
                         }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                        if editor { editorBar(landscape: landscape).padding(.bottom, keyboardVisible ? 0 : windowInsets.bottom) }
+                        if editor { editorBar(landscape: landscape).padding(.bottom, keyboardVisible ? 0 : page.safeAreaInsets.bottom) }
                     }
                     if reserved {
                         dock(in: CGSize(width: twoColumns ? 96 : 48, height: page.size.height), twoColumns: twoColumns, reserved: true)
@@ -67,8 +65,8 @@ struct TerminalScreen: View {
                     }
                 }
             }
-            .onAppear { windowInsets = Self.windowSafeArea() }
-            .onChange(of: page.size) { _ in windowInsets = Self.windowSafeArea() }
+            .onAppear { statusBarTop = page.safeAreaInsets.top }
+            .onChange(of: page.safeAreaInsets.top) { statusBarTop = $0 }
         }
         // As on Android, the terminal draws under the transparent status bar and down to the bottom edge;
         // only the keyboard still pushes it up.
@@ -134,11 +132,6 @@ struct TerminalScreen: View {
             }.environmentObject(model)
         }
         .sheet(isPresented: $reverifySheet) { FingerprintReview(host: runtime.host) { model.reconnect(runtime.record) }.environmentObject(model) }
-    }
-
-    private static func windowSafeArea() -> UIEdgeInsets {
-        UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
-            .first(where: { $0.isKeyWindow })?.safeAreaInsets ?? .zero
     }
 
     @ViewBuilder private var notice: some View {
