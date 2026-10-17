@@ -129,9 +129,10 @@ struct HomeSessionsList: View {
     }
 }
 
-/// One session: its tile beside its name and the last prompt ("你: …"), then, across the whole row, what the agent
-/// answered or runs and a status line with where it runs and what the agent needs (allow a request, or a follow-up
-/// typed right here). A plain terminal has its host and folder beneath its name. Long press for its menu.
+/// One session: its tile beside its name and the last prompt ("你: …", or "等待输入中…" while an idle agent has had
+/// none), then, across the whole row, what the agent answered or runs and a status line with where it runs and what
+/// the agent needs (allow a request, or a follow-up typed right here). A plain terminal has its host and folder beneath
+/// its name. Long press for its menu.
 struct SessionRow: View {
     @EnvironmentObject var model: AppModel
     let record: SessionRecord
@@ -161,6 +162,9 @@ struct SessionRow: View {
         let activity = agentActivity(status)
         let reply = replyPreview(status?.reply ?? "")
         let waiting = status?.state == .waiting, idle = status?.state == .idle
+        // The line under the name holds the prompt, or says an idle agent awaits one, so every agent row reads alike;
+        // where it runs then moves to the status line.
+        let promptLine = !prompt.isEmpty || idle
         VStack(alignment: .leading, spacing: 0) {
             if divider { Rectangle().fill(Palette.foreground.opacity(0.07)).frame(height: 1).padding(.leading, 14) }
             VStack(alignment: .leading, spacing: 0) {
@@ -175,6 +179,9 @@ struct SessionRow: View {
                         if !prompt.isEmpty {
                             (Text(model.text("你: ", "You: ")).foregroundColor(Palette.secondary.opacity(0.7)) + Text(prompt))
                                 .font(.system(size: 13)).foregroundStyle(Palette.secondary).lineLimit(1).accessibilityIdentifier("home-session-prompt-\(record.id)")
+                        } else if idle {
+                            Text(model.text("等待输入中…", "Awaiting input…")).font(.system(size: 13)).italic().foregroundStyle(Palette.secondary.opacity(0.7)).lineLimit(1)
+                                .accessibilityIdentifier("home-session-awaiting-\(record.id)")
                         } else {
                             Text(location).font(.system(size: 13)).foregroundStyle(Palette.secondary).lineLimit(1).truncationMode(.middle)
                                 .accessibilityIdentifier("home-session-location-\(record.id)")
@@ -194,7 +201,8 @@ struct SessionRow: View {
                     statusView(status: live ? status : nil, phase: !phase.active && model.sessionComingBack(record) ? .connecting : phase, kind: kind, activity: activity, waiting: waiting, idle: idle)
                     HStack(spacing: 6) {
                         Spacer(minLength: 0)
-                        if !prompt.isEmpty { Text(location).font(.system(size: 12)).foregroundStyle(Palette.secondary.opacity(0.8)).lineLimit(1).truncationMode(.middle) }
+                        if promptLine { Text(location).font(.system(size: 12)).foregroundStyle(Palette.secondary.opacity(0.8)).lineLimit(1).truncationMode(.tail)
+                            .accessibilityIdentifier("home-session-location-\(record.id)") }
                         ForEach(sessionTransportTags(mode: record.mode, mosh: connected && runtime?.transportName == "mosh"), id: \.self) { MetaTag(text: $0) }
                         if waiting && live {
                             RowAction(label: model.text("查看", "View"), plain: true) { model.openSession(record) }.accessibilityIdentifier("home-session-view-\(record.id)")
