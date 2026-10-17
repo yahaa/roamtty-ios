@@ -8,7 +8,12 @@ typealias Host = RoamttyCore.Host
     @StateObject private var model = AppModel()
     @Environment(\.scenePhase) private var scenePhase
     @State private var splash = true
-    init() { Diagnostics.shared.start() }
+    init() {
+        // iOS reclaims a suspended app's sockets, and the first write after resuming can raise SIGPIPE even with
+        // SO_NOSIGPIPE set; its default action kills the app with no crash report. Ignored, the write fails with EPIPE.
+        signal(SIGPIPE, SIG_IGN)
+        Diagnostics.shared.start()
+    }
     var body: some Scene {
         WindowGroup {
             RootScreen().environmentObject(model).preferredColorScheme(model.colorScheme).tint(Palette.accent)
