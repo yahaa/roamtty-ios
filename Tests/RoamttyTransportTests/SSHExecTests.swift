@@ -182,6 +182,59 @@ final class SSHExecTests: XCTestCase {
         XCTAssertEqual(try client.exec("printf cached-connection-reusable").output, Data("cached-connection-reusable".utf8))
     }
 
+    func testCancellingSFTPRequestDuringSendBackpressureKeepsConnectionUsable() throws {
+        let client = try connection(); defer { client.disconnect() }
+        let remote = "/tmp/roamtty-ios-" + UUID().uuidString
+        XCTAssertEqual(try client.exec("mkdir -m 700 " + remote).status, 0)
+        defer { _ = try? client.exec("rm -rf -- " + remote, timeout: 3) }
+        let token = TransferCancellation()
+        // Channel open, subsystem request and SFTP init go first; the mkdir request is the fourth send.
+        let gate = ExecSendBackpressure(until: .distantFuture, skipping: 3, window: 0.2) { token.cancel() }
+        let restore = blockSends(client, using: gate)
+        let started = Date()
+        do { try client.createDirectory(remote + "/created", cancellation: token) }
+        catch { XCTAssertEqual(error as? RoamError, .cancelled) }
+        restore()
+        XCTAssertGreaterThan(gate.blockedSends, 0, "The SFTP request must meet EAGAIN")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5)
+        // A request left half-sent would hold libssh2's send slot and time this out after 20 s.
+        XCTAssertTrue(client.isConnected)
+        let reuse = Date()
+        XCTAssertEqual(try client.exec("printf reusable", timeout: 3).output, Data("reusable".utf8))
+        XCTAssertLessThan(Date().timeIntervalSince(reuse), 3)
+    }
+
+    func testResizeDuringSendBackpressureEndsAtTheLastSize() throws {
+        let client = try connection(); defer { client.disconnect() }
+        try client.openTerminal(mode: .shell, remoteName: "", columns: 80, rows: 24)
+        let lock = NSLock(); var output = ""
+        func text() -> String { lock.lock(); defer { lock.unlock() }; return output }
+        func waitFor(_ marker: String, timeout: TimeInterval = 8) -> Bool {
+            let deadline = Date().addingTimeInterval(timeout)
+            while Date() < deadline { if text().contains(marker) { return true }; Thread.sleep(forTimeInterval: 0.02) }
+            return false
+        }
+        let finished = expectation(description: "terminal worker ends")
+        DispatchQueue.global().async {
+            try? client.runTerminal { data in lock.lock(); output += String(decoding: data, as: UTF8.self); lock.unlock() }
+            finished.fulfill()
+        }
+        defer { client.disconnect(); wait(for: [finished], timeout: 5) }
+        XCTAssertTrue(client.write(Data("printf 'READY-%s\\n' OK\r".utf8)))
+        XCTAssertTrue(waitFor("READY-OK"))
+        let gate = ExecSendBackpressure(until: Date().addingTimeInterval(0.6))
+        let restore = blockSends(client, using: gate)
+        client.resize(columns: 100, rows: 40)
+        let blocked = Date().addingTimeInterval(0.5)
+        while gate.blockedSends == 0 && Date() < blocked { Thread.sleep(forTimeInterval: 0.005) }
+        XCTAssertGreaterThan(gate.blockedSends, 0, "The first resize must meet EAGAIN")
+        client.resize(columns: 120, rows: 50)
+        while Date() < gate.until { Thread.sleep(forTimeInterval: 0.02) }
+        restore()
+        XCTAssertTrue(client.write(Data("printf 'SIZE-%s-\\n' \"$(stty size)\"\r".utf8)))
+        XCTAssertTrue(waitFor("SIZE-50 120-"), "stty saw: \(text().components(separatedBy: "SIZE-").last ?? "")")
+    }
+
     private func assertRemoteTermination(timeout: Bool, sudo: Bool = false, ignoringTerm: Bool = false, sendBackpressure: TimeInterval? = nil) throws {
         let client = try connection(); defer { client.disconnect() }
         let token = TransferCancellation()
@@ -250,9 +303,20 @@ final class SSHExecTests: XCTestCase {
 }
 
 private final class ExecSendBackpressure {
-    let until: Date
+    private(set) var until: Date
     var blockedSends = 0
-    init(until: Date) { self.until = until }
+    /// With `onBlock`, sends pass until `skipping` went; the next one starts a `window` of EAGAIN and calls it.
+    private var skipping: Int
+    private let window: TimeInterval
+    private var onBlock: (() -> Void)?
+    init(until: Date, skipping: Int = 0, window: TimeInterval = 0, onBlock: (() -> Void)? = nil) {
+        self.until = until; self.skipping = skipping; self.window = window; self.onBlock = onBlock
+    }
+    func blocks() -> Bool {
+        if skipping > 0 { skipping -= 1; return false }
+        if let start = onBlock { onBlock = nil; until = Date().addingTimeInterval(window); start() }
+        return Date() < until
+    }
 }
 
 // This is libssh2's existing per-session socket callback, not a production test
@@ -261,7 +325,7 @@ private final class ExecSendBackpressure {
 private let execBackpressuredSend: @convention(c) (Int32, UnsafeRawPointer?, Int, Int32, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> Int = { socket, bytes, count, flags, abstract in
     guard let pointer = abstract?.pointee else { return -Int(EINVAL) }
     let gate = Unmanaged<ExecSendBackpressure>.fromOpaque(pointer).takeUnretainedValue()
-    if Date() < gate.until {
+    if gate.blocks() {
         gate.blockedSends += 1
         Thread.sleep(forTimeInterval: 0.003)
         return -Int(EAGAIN)

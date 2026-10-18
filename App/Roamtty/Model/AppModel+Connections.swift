@@ -46,8 +46,8 @@ extension AppModel {
     // MARK: Credentials
 
     /// The login for `host`: cached, saved, or asked for. A session kept on its original login passes the
-    /// `retained` credentials and does not touch the saved ones.
-    func credentials(for host: Host, owner: String? = nil, retained: Credentials? = nil, useSavedCredentials: Bool = true) async throws -> Credentials {
+    /// `retained` credentials and does not touch the saved ones. `asking: false` fails instead of asking.
+    func credentials(for host: Host, owner: String? = nil, retained: Credentials? = nil, useSavedCredentials: Bool = true, asking: Bool = true) async throws -> Credentials {
         let hostGeneration = generations.host(host.id), ownerGeneration = owner.map { generations.owner($0) }
         try Task.checkCancellation()
         guard foreground else { throw RoamError.cancelled }
@@ -58,6 +58,7 @@ extension AppModel {
         let originalTarget = useSavedCredentials ? "" : "\(host.username)@\(host.address):\(host.port)\n"
         func stillWanted() -> Bool { foreground && !Task.isCancelled && isCurrent(hostID: host.id, generation: hostGeneration, owner: owner, ownerGeneration: ownerGeneration) }
         if host.auth == .password && credentials.password == nil {
+            guard asking else { throw RoamError.cancelled }
             let answer = await ask(title: host.name, message: originalTarget + text("密码仅用于本次连接", "Password is used for this connection"), labels: [text("密码", "Password")], echo: [false], owner: owner)
             guard let password = answer?.first else { throw RoamError.cancelled }
             guard stillWanted() else { throw RoamError.cancelled }
@@ -67,6 +68,7 @@ extension AppModel {
             throw RoamError.invalid(useSavedCredentials ? text("请编辑主机并导入私钥", "Edit this host and import a private key") : text("原会话的私钥凭据已清除。请恢复原主机并导入它的私钥后重连。", "The original session's private key credentials have expired. Restore the original host and import its key before reconnecting."))
         }
         if host.auth == .key && credentials.passphrase == nil, let key = credentials.privateKey, PrivateKeys.needsPassphrase(key) {
+            guard asking else { throw RoamError.cancelled }
             let answer = await ask(title: host.name, message: originalTarget + text("私钥已加密时请输入口令；未加密可留空。口令仅保存在内存。", "Enter the key passphrase, or leave it blank for an unencrypted key. Passphrases stay in memory only."), labels: [text("私钥口令", "Key passphrase")], echo: [false], owner: owner)
             guard let passphrase = answer?.first else { throw RoamError.cancelled }
             guard stillWanted() else { throw RoamError.cancelled }

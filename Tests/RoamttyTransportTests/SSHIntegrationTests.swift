@@ -51,6 +51,23 @@ final class SSHIntegrationTests: XCTestCase {
         try client.remove(remote + "/renamed")
         XCTAssertTrue(try client.listDirectory(remote).entries.isEmpty)
     }
+    func testNonUTF8NamesAreLeftOutRatherThanAliasingAnotherFile() throws {
+        let client = try connect(); defer { client.disconnect() }
+        let remote = "/tmp/roamtty-ios-" + UUID().uuidString
+        // bad\xff decodes lossily to the valid name bad\u{FFFD}, so both used to share one path.
+        XCTAssertEqual(try client.exec("mkdir -m 700 " + remote + " && cd " + remote + " && printf X > \"$(printf 'bad\\377')\" && printf KEEP > \"$(printf 'bad\\357\\277\\275')\"").status, 0)
+        defer { _ = try? client.exec("rm -rf -- " + remote) }
+        let listed = try client.listDirectory(remote)
+        XCTAssertEqual(listed.entries.map(\.name), ["bad\u{FFFD}"])
+        XCTAssertEqual(listed.unreadableNames, 1)
+        let entry = try XCTUnwrap(listed.entries.first)
+        XCTAssertEqual(entry.size, 4)
+        XCTAssertEqual(try client.readFile(entry.path).text, "KEEP")
+        XCTAssertThrowsError(try client.remove(remote, recursive: true), "A folder with unnamed entries must not be emptied")
+        XCTAssertEqual(try client.listDirectory(remote).entries.count, 1)
+        try client.remove(entry.path)
+        XCTAssertEqual(String(decoding: try client.exec("cd " + remote + " && cat -- *").output, as: UTF8.self), "X")
+    }
     func testEncryptedEd25519AndRSAKeys() throws {
         guard let path = ProcessInfo.processInfo.environment["ROAMTTY_TEST_KEYS"] else { throw XCTSkip("No fixture keys") }
         for name in ["ed25519", "rsa"] {

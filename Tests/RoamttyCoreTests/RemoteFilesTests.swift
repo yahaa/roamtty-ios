@@ -18,6 +18,14 @@ final class RemoteFilesTests: XCTestCase {
         XCTAssertTrue(isSafeRemoteDeletePath("/work/a b/"))
     }
 
+    func testTerminalPathTextQuotesNamesAndRefusesControlCharacters() {
+        XCTAssertEqual(terminalPathText("/work/a b/中文 'x'.txt"), "'/work/a b/中文 '\\''x'\\''.txt'")
+        // Ctrl-U would clear the typed line and CR submit what follows, however the path is quoted.
+        for path in ["", "/tmp/\u{15}printf REVIEW_EXECUTED\r", "/tmp/a\u{1b}[201~b", "/tmp/a\u{7f}", "/tmp/a\u{9b}", "/tmp/a\tb"] {
+            XCTAssertNil(terminalPathText(path), path)
+        }
+    }
+
     func testFuzzyNamesNormalizeWidthAndHandleWrappedCopies() {
         XCTAssertEqual(remoteNameMatchRank(name: "APP.APK", query: "app.apk"), 0)
         XCTAssertEqual(remoteNameMatchRank(name: "release-debug.apk", query: "rel"), 1)

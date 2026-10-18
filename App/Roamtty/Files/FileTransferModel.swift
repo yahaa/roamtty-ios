@@ -120,7 +120,7 @@ final class TransferProgressRelay {
                 guard !cancellations.contains(job.id) else { return }
                 update(job.id) { $0.state = .complete }
                 do { try SharedInbox.acknowledge([url]) } catch { update(job.id) { $0.message = model.text("上传已完成，但共享队列未能更新：", "Upload completed, but the shared queue could not be updated: ") + error.localizedDescription } }
-                if insert { update(job.id) { $0.pendingInsertion = shellQuote(target) }; insertPath(job.id, model: model) }
+                if insert, let text = terminalPathText(target) { update(job.id) { $0.pendingInsertion = text }; insertPath(job.id, model: model) }
             } catch { if !cancellations.contains(job.id) { update(job.id) { $0.state = .failed; $0.message = error.localizedDescription } } }
         }
     }
@@ -254,6 +254,7 @@ final class TransferProgressRelay {
             guard !entry.isSymlink else { throw RoamError.invalid("Symbolic-link directories are not downloaded recursively") }
             try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
             let listing = try ssh.listDirectory(entry.path, cancellation: cancellation)
+            guard listing.unreadableNames == 0 else { throw RoamError.invalid("文件夹中有无法识别的文件名（非 UTF-8），无法完整下载 / The folder holds names that are not UTF-8, so it can't be downloaded whole") }
             for child in listing.entries { try downloadTree(entry: child, destination: destination.appendingPathComponent(child.name), ssh: ssh, depth: depth + 1, cancellation: cancellation, progress: progress, completed: completed) }
         } else { try ssh.download(entry.path, to: destination, progress: progress, cancellation: cancellation); completed(entry.size ?? 0) }
     }

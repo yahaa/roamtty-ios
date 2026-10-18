@@ -13,6 +13,8 @@ struct FileBrowserScreen: View {
     @State private var connectionTarget: RemoteConnectionTarget
     @State private var directory = "."
     @State private var entries: [RemoteEntry] = []
+    /// Names in this folder that are not UTF-8; they are left out, since no path built from them would be exact.
+    @State private var unreadableNames = 0
     @State private var loading = false
     @State private var failure: String?
     @State private var actionError: String?
@@ -269,7 +271,8 @@ struct FileBrowserScreen: View {
         let hidden = max(0, (searchPrefix.isEmpty && !selectedOnly ? entries.count : shown.count) - shown.count)
         let parts = [folders > 0 ? model.text("\(folders) 个文件夹", "\(folders) folders") : nil,
                      files > 0 ? model.text("\(files) 个文件", "\(files) files") : nil,
-                     hidden > 0 ? model.text("\(hidden) 项未显示", "\(hidden) hidden") : nil].compactMap { $0 }
+                     hidden > 0 ? model.text("\(hidden) 项未显示", "\(hidden) hidden") : nil,
+                     unreadableNames > 0 ? model.text("\(unreadableNames) 个非 UTF-8 文件名未列出", "\(unreadableNames) non-UTF-8 names not listed") : nil].compactMap { $0 }
         return HStack(spacing: 8) {
             Text(parts.joined(separator: " · ")).font(.system(size: 12)).foregroundStyle(Palette.secondary).lineLimit(1).accessibilityIdentifier("files-summary")
             if loading || searching { ProgressView().scaleEffect(0.7) }
@@ -318,11 +321,19 @@ struct FileBrowserScreen: View {
         if !entry.isDirectory { Button(model.text("选择", "Select")) { selecting = true; toggleSelection(entry) } }
         Button(model.text("复制路径", "Copy path")) { UIPasteboard.general.string = entry.path }.accessibilityIdentifier("files-action-copy-path")
         if let runtime = targetRuntime {
-            Button(model.text("插入终端", "Insert in terminal")) { if runtime.send(shellQuote(entry.path)) { model.path = [.host(host.id), .terminal(runtime.record.id)] } }
+            Button(model.text("插入终端", "Insert in terminal")) { insertInTerminal(entry, runtime: runtime) }
         }
         Button(model.text("重命名", "Rename")) { newName = entry.name; renameEntry = entry }.accessibilityIdentifier("files-action-rename")
         Divider()
         Button(model.text("删除", "Delete"), role: .destructive) { deleteEntry = entry }.accessibilityIdentifier("files-action-delete")
+    }
+    /// Typed as a paste, so the shell takes the path as text; a control character in the name is refused rather than
+    /// dropped, since the path left without it would name another file.
+    private func insertInTerminal(_ entry: RemoteEntry, runtime: SessionRuntime) {
+        guard let text = terminalPathText(entry.path) else {
+            actionError = model.text("路径含控制字符，无法插入终端", "The path holds control characters, so it can't be inserted in the terminal"); return
+        }
+        if runtime.pasteText(text) { model.path = [.host(host.id), .terminal(runtime.record.id)] }
     }
     private func receiveImport(_ result: Result<[URL], Error>) {
         do { uploadURLs = try result.get() }
@@ -359,7 +370,7 @@ struct FileBrowserScreen: View {
             let listing = try await performInBackground { try ssh.listDirectory(path) }
             guard token == revision, !Task.isCancelled else { return }
             try model.validate(connectionTarget)
-            directory = listing.path; entries = listing.entries
+            directory = listing.path; entries = listing.entries; unreadableNames = listing.unreadableNames
         } catch { if token == revision { failure = error.localizedDescription } }
         if token == revision { loading = false }
     }

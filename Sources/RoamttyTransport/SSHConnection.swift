@@ -212,7 +212,8 @@ public final class SSHConnection {
             // Finish the shared init sequence, then dispose a cancelled result.
             let sftp = try pointer { libssh2_sftp_init(session) }
             if cancelled() {
-                _ = try? retry(timeout: 2) { libssh2_sftp_shutdown(sftp) }
+                do { try retry(timeout: 10) { libssh2_sftp_shutdown(sftp) } }
+                catch { if error as? RoamError == .timeout { disconnect() } }
                 throw RoamError.cancelled
             }
             return sftp
@@ -337,14 +338,18 @@ public final class SSHConnection {
         var buffer = [UInt8](repeating: 0, count: 32768)
         var outgoing = Data(); var offset = 0
         var lastAlive = Date()
+        // libssh2 resends the request it started after EAGAIN and ignores the size passed with the retry, so the
+        // size in flight is kept apart from a newer one, which goes once it is done.
+        var sizing: (Int, Int)?
         while !isStopped {
             stateLock.lock()
-            let size = pendingSize
+            if sizing == nil { sizing = pendingSize; pendingSize = nil }
             if outgoing.isEmpty { outgoing = input.pop() ?? Data(); offset = 0 }
             stateLock.unlock()
-            if let size {
+            var resized = false
+            if let size = sizing {
                 let rc = locked { libssh2_channel_request_pty_size_ex(channel, Int32(size.0), Int32(size.1), 0, 0) }
-                if rc == 0 { stateLock.lock(); if pendingSize?.0 == size.0 && pendingSize?.1 == size.1 { pendingSize = nil }; stateLock.unlock() }
+                if rc == 0 { sizing = nil; resized = true }
                 else if rc != LIBSSH2_ERROR_EAGAIN { throw error(rc) }
             }
             if !outgoing.isEmpty {
@@ -377,7 +382,8 @@ public final class SSHConnection {
                 try retry(timeout: 60) { libssh2_keepalive_send(session, &seconds) }
                 lastAlive = Date()
             }
-            if !received { try networkWait(wake: wake) }
+            stateLock.lock(); let newerSize = resized && pendingSize != nil; stateLock.unlock()
+            if !received && !newerSize { try networkWait(wake: wake) }
         }
         throw RoamError.cancelled
     }

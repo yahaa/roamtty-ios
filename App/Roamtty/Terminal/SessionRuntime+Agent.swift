@@ -20,7 +20,7 @@ extension SessionRuntime {
 
     /// Asks the host what the agent is doing now and shows it; a poll that got no answer keeps what was shown.
     @discardableResult func pollAgentStatus() async -> AgentStatus? {
-        guard record.mode == .tmux, let ssh, ssh.isConnected else { return agentStatus }
+        guard record.mode == .tmux, let ssh = await sideConnection() else { return agentStatus }
         let command = RemoteCommands.agentStatus(record.remoteName), cancellation = lifetimeCancellation
         let output = try? await performInBackground { () -> String? in
             let result = try ssh.exec(command, input: Data(), timeout: 5, cancellation: cancellation)
@@ -45,7 +45,7 @@ extension SessionRuntime {
     /// The folder the terminal is in now, asked of the host; what the shell last reported when the host does not say.
     func workingDirectory() async -> String {
         let fallback = paneDirectory.isEmpty ? currentDirectory : paneDirectory
-        guard phase == .connected, let ssh, ssh.isConnected else { return fallback }
+        guard phase == .connected, let ssh = await sideConnection() else { return fallback }
         let command = RemoteCommands.workingDirectory(tmux: record.mode == .tmux ? record.remoteName : nil), cancellation = lifetimeCancellation
         let output = try? await performInBackground { () -> String? in
             let result = try ssh.exec(command, input: Data(), timeout: 5, cancellation: cancellation)
@@ -77,7 +77,7 @@ extension SessionRuntime {
 
     /// Restarts the tmux pane in its folder and types its foreground program again; false when tmux was not reached.
     func restartPane() async -> Bool {
-        guard record.mode == .tmux, phase == .connected, let ssh else { return false }
+        guard record.mode == .tmux, phase == .connected, let ssh = await sideConnection() else { return false }
         let command = RemoteCommands.restartPane(record.remoteName), cancellation = lifetimeCancellation
         guard let result = try? await performInBackground({ try ssh.exec(command, input: Data(), timeout: 10, cancellation: cancellation) }), result.status == 0 else { return false }
         let program = String(decoding: result.output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -89,7 +89,7 @@ extension SessionRuntime {
 
     /// Ends this session's tmux session on the server over the live connection; false when it could not.
     func killRemoteSession() async -> Bool {
-        guard record.mode == .tmux, let ssh, ssh.isConnected else { return false }
+        guard record.mode == .tmux, let ssh = await sideConnection() else { return false }
         let script = RemoteCommands.killTmux(record.remoteName)
         return (try? await performInBackground { try ssh.exec(HostPluginProbe.command, input: Data(script.utf8), timeout: 15) })?.status == 0
     }
