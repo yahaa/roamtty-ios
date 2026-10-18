@@ -64,7 +64,10 @@ extension SessionRuntime {
         _ = pasteText(text)
     }
     func copySelection() { terminalView.copy(nil) }
+    /// The agent this session runs, as its hooks report it, or the one it was started for until a poll has answered.
+    /// Reading the screen is left for an agent started by hand or without hooks.
     func screenApp() -> ScreenApp {
+        if let agent = CodingAgent.fromCommand(agentStatus?.agent) ?? (agentPolled ? nil : launchedAgent) { return ScreenApp(agent) }
         let terminal = terminalView.getTerminal()
         let lines = (0..<terminal.rows).map { terminal.getLine(row: $0)?.translateToString(trimRight: true) ?? "" }
         return ScreenApp.detect(rows: lines, cursorRow: terminal.getCursorLocation().y)

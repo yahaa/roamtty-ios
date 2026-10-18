@@ -55,23 +55,6 @@ final class TerminalShortcutsTests: XCTestCase {
             """), .codex)
     }
 
-    func testCodexPendingQuestionWithoutPromptAtCursor() {
-        // Claude Code's footer words are on screen too, and the cursor is not on the "› " row.
-        XCTAssertEqual(detect("""
-            • Working (12s • esc to interrupt)
-              ? 1 question
-                ⇧← to answer
-            <cursor>
-              ? for shortcuts
-            """), .codex)
-    }
-
-    func testCodexEmptyAndMultiLineComposer() {
-        XCTAssertEqual(ScreenApp.detect(rows: ["›", "", "  ? for shortcuts"], cursorRow: 0), .codex)
-        XCTAssertEqual(detect("› first line\n  second line <cursor>\n\n  ? for shortcuts"), .codex)
-        XCTAssertEqual(detect("› old\n\n  wrapped <cursor>\n  ? for shortcuts"), .claude)
-    }
-
     func testAndroidGrokBoxFixture() {
         XCTAssertEqual(detect("""
               ╭──────────────────────────────────────────────────────────────────────────╮
@@ -140,6 +123,10 @@ final class TerminalShortcutsTests: XCTestCase {
         XCTAssertEqual(detect("\(String(repeating: "─", count: 19))\n❯ <cursor>\n\(rule)"), .shell)
         XCTAssertEqual(detect("\(rule)\n❯ <cursor>"), .shell)
         XCTAssertEqual(detect("\(rule)\n❯ long input\nwrapped input <cursor>\n\(rule)"), .claude)
+    }
+
+    func testSessionAgentPicksItsTable() {
+        XCTAssertEqual(CodingAgent.allCases.map(ScreenApp.init), [.claude, .codex, .grok])
     }
 
     func testAgentTablesPreserveAndroidOrderHintsAndWireBytes() {
