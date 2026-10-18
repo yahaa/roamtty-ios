@@ -117,6 +117,15 @@ extension AppModel {
                 self.credentialCache.rejectLogin(host.id)
             }
         }
+        // Only a login that needs no answer from the user: it runs in the background, from the status poll.
+        runtime.reopenSideConnection = { [weak self, weak runtime] in
+            guard let self, let runtime, host.auth != .interactive, self.runtimes[record.id] === runtime, self.isCurrent(hostID: host.id, generation: hostGeneration, owner: record.id, ownerGeneration: ownerGeneration) else { throw RoamError.cancelled }
+            let retained = runtime.loginSnapshot.reconnect(using: savedHost).retainedCredentials
+            let creds = try await self.credentials(for: host, owner: record.id, retained: retained, useSavedCredentials: usesSavedCredentials, asking: false)
+            let ssh = try self.makeConnection(host, credentials: creds, owner: record.id)
+            do { try await performInBackground { try ssh.connect() } } catch { self.disconnectSoon(ssh); throw error }
+            return ssh
+        }
         runtimes.updateValue(runtime, forKey: record.id)?.discard()
         sessionSubscriptions[record.id] = runtime.summaryWillChange.sink { [weak self] in self?.objectWillChange.send() }
         objectWillChange.send()
@@ -145,7 +154,7 @@ extension AppModel {
     // MARK: Closing
 
     /// Ends a session outright, without asking: a connected tmux session is killed on the server over its live
-    /// connection and its card goes; a disconnected one logs in to kill it. A connecting one only stops connecting.
+    /// connection and its card goes once that worked; a disconnected one logs in to kill it. A connecting one only stops connecting.
     /// A tmux session that was already on the server is only detached: its card goes and the session keeps running.
     func closeSession(_ record: SessionRecord) {
         if path.last == .terminal(record.id) { leaveTerminal() }
@@ -154,8 +163,16 @@ extension AppModel {
             cancelLaunch(record.id); runtime?.close(); removeSession(record); return
         }
         if let runtime, runtime.phase == .connected {
-            cancelLaunch(record.id); removeSession(record, discard: false)
-            Task { _ = await runtime.killRemoteSession(); runtime.clearLoginCredentials(); runtime.discard() }
+            // The card goes only once the server ended the session, so a failure leaves it there to try again.
+            cancelLaunch(record.id)
+            Task {
+                guard await runtime.killRemoteSession() else {
+                    error = text("未能终止远端会话，请检查连接后重试；长按卡片可强制删除", "Couldn't end the remote session. Check the connection and try again, or long-press the card to force delete it")
+                    return
+                }
+                guard records.contains(where: { $0.id == record.id }) else { return }
+                removeSession(record)
+            }
         } else if let runtime, runtime.phase.active {
             cancelLaunch(record.id); runtime.close()
         } else {
@@ -203,17 +220,15 @@ extension AppModel {
             }
         }
     }
-    /// `discard: false` leaves the runtime to a caller that still uses its connection and discards it after.
-    private func removeSession(_ record: SessionRecord, discard: Bool = true) {
-        dropRuntime(record.id, discard: discard)
+    private func removeSession(_ record: SessionRecord) {
+        dropRuntime(record.id)
         autoReconnectedAt.removeValue(forKey: record.id); waitingForHostSince.removeValue(forKey: record.id)
         journal.forget(record.id); persistJournal()
     }
     /// Lets go of a session's runtime for good: its login, its terminal, its updates and its transport choice.
-    /// `discard: false` leaves the terminal to a caller that still uses its connection.
-    func dropRuntime(_ id: String, discard: Bool = true) {
+    func dropRuntime(_ id: String) {
         runtimes[id]?.clearLoginCredentials()
-        if let runtime = runtimes.removeValue(forKey: id), discard { runtime.discard() }
+        runtimes.removeValue(forKey: id)?.discard()
         sessionSubscriptions.removeValue(forKey: id)
         MoshPreference.forget(id)
         AgentStatusMemory.set(nil, for: id)

@@ -224,8 +224,8 @@ struct SessionRow: View {
             // Close ends everything it runs, without asking; a tmux session that was already on the server is only detached.
             Button(role: .destructive) { model.closeSession(record) } label: { Label { Text(record.external ? model.text("断开", "Detach") : model.text("关闭", "Close")) } icon: { Image("ic_delete") } }
                 .accessibilityIdentifier("home-session-close-\(record.id)")
-            // Closing a disconnected tmux session logs in to end it, which an offline host never allows.
-            if record.mode == .tmux && !record.external && !phase.active {
+            // Closing a tmux session ends it on the server, which an offline or unanswering host never allows.
+            if record.mode == .tmux && !record.external {
                 Button(role: .destructive) { forceDelete = true } label: { Label { Text(model.text("强制删除", "Force delete")) } icon: { Image("ic_delete") } }
                     .accessibilityIdentifier("home-session-forget-\(record.id)")
             }

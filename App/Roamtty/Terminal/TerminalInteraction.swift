@@ -202,5 +202,3 @@ struct TerminalScrollAccumulator {
     }
 }
 
-/// Quotes `text` as one word for a POSIX shell, for paths typed into the terminal.
-func shellQuote(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\"'\"'") + "'" }

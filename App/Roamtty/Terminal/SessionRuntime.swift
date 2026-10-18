@@ -82,6 +82,11 @@ import RoamttyTransport
     /// Shown as the 提示 card once the SSH fallback connects (Android `moshFallback` → `inputWarning`).
     private var fallbackNotice: String?
     var agentPoll: Task<Void, Never>?
+    /// Logs in again for the SSH connection a mosh terminal keeps for its side work (the status poll, the tmux
+    /// actions), once that one dropped while mosh carried on. Set by the app, which owns logins.
+    var reopenSideConnection: (() async throws -> SSHConnection)?
+    private var sideReconnect: Task<SSHConnection?, Never>?
+    private var sideReconnectAt: Date?
     static let moshFallbackNotice = "mosh 无法连接（可能未放行 UDP 60000–61000），已改用 SSH。 / Mosh unavailable (UDP 60000–61000 may be blocked), so this session uses SSH."
     static let tmuxNotReadyMessage = "tmux 未在 8 秒内准备就绪，请重连 / tmux was not ready within 8 seconds; reconnect"
 
@@ -184,7 +189,8 @@ import RoamttyTransport
         if let agent { launchedAgent = agent.agent }
         let hooks = agent.flatMap { $0.reportsStatus ? $0.agent : nil }
         let token = generation
-        ssh.onPhase = { [weak self] value in DispatchQueue.main.async { guard self?.generation == token else { return }; self?.phase = value == .connected && self?.startupSent == false ? .connecting : value } }
+        // Once mosh carries the terminal, SSH only does side work: its drop must not stop a terminal that still works.
+        ssh.onPhase = { [weak self] value in DispatchQueue.main.async { guard self?.generation == token, self?.mosh == nil else { return }; self?.phase = value == .connected && self?.startupSent == false ? .connecting : value } }
         let startup: String? = agent?.commandLine ?? StartDirectory.command(directory)
         let mode = record.mode, name = record.remoteName, existing = record.external, cols = columns, rows = rows
         let lifetime = lifetimeCancellation
@@ -234,6 +240,28 @@ import RoamttyTransport
             } catch { guard self?.generation == token else { return }; self?.cancelStartup(); self?.fail(error) }
         }
     }
+    /// The SSH connection for side work, logged in again when it dropped under a working mosh terminal; nil when
+    /// there is none. A failed login waits `sideReconnectInterval` before the next try.
+    func sideConnection() async -> SSHConnection? {
+        if let ssh, ssh.isConnected { return ssh }
+        guard mosh != nil, phase == .connected, let reopenSideConnection else { return nil }
+        if let sideReconnect { return await sideReconnect.value }
+        if let sideReconnectAt, Date().timeIntervalSince(sideReconnectAt) < Self.sideReconnectInterval { return nil }
+        sideReconnectAt = Date()
+        let token = generation
+        let task = Task { [weak self] () -> SSHConnection? in
+            guard let connection = try? await reopenSideConnection() else { return nil }
+            guard let self, self.generation == token, self.mosh != nil else { DispatchQueue.global(qos: .utility).async { connection.disconnect() }; return nil }
+            let previous = self.ssh; self.ssh = connection; self.sideReconnectAt = nil
+            DispatchQueue.global(qos: .utility).async { previous?.disconnect() }
+            return connection
+        }
+        sideReconnect = task
+        let connection = await task.value
+        if generation == token { sideReconnect = nil }
+        return connection
+    }
+    static let sideReconnectInterval: TimeInterval = 30
     private func receive(_ data: Data, token: UUID, attempt: UUID) {
         guard generation == token, startupAttempt == attempt else { return }
         if let view = terminalView as? AccessibleTerminalView { view.feedKeepingPlace(Array(data)[...]) }
@@ -366,6 +394,7 @@ import RoamttyTransport
         lifetimeCancellation.cancel(); cancelStartup()
         cursorTimer?.cancel(); keyboardHide?.cancel(); cursorControls = TerminalCursorControls(); cursorRowBounds = nil; cursorRowKey = .escape
         stopAgentStatusPolling()
+        sideReconnect?.cancel(); sideReconnect = nil; sideReconnectAt = nil
         let connection = ssh; ssh = nil; DispatchQueue.global(qos: .utility).async { connection?.disconnect() }
         end = .ended; phase = .disconnected; terminalView.resignFirstResponder()
     }
@@ -379,6 +408,6 @@ import RoamttyTransport
         terminalView.terminalDelegate = nil
         for recognizer in ownRecognizers { terminalView.removeGestureRecognizer(recognizer) }
         ownRecognizers = []
-        onFailure = nil; onFontScaled = nil
+        onFailure = nil; onFontScaled = nil; reopenSideConnection = nil
     }
 }

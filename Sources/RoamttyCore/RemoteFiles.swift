@@ -20,7 +20,9 @@ public struct RemoteEntry: Codable, Identifiable, Equatable, Sendable {
 public struct RemoteDirectory: Codable, Equatable, Sendable {
     public var path: String
     public var entries: [RemoteEntry]
-    public init(path: String, entries: [RemoteEntry]) { self.path = path; self.entries = entries }
+    /// Entries left out because their names are not UTF-8: a lossy name would point at another file.
+    public var unreadableNames: Int
+    public init(path: String, entries: [RemoteEntry], unreadableNames: Int = 0) { self.path = path; self.entries = entries; self.unreadableNames = unreadableNames }
 }
 
 public func joinRemotePath(directory: String, name: String) -> String {
@@ -49,6 +51,13 @@ public func validWorkingDirectory(_ output: String?) -> String? {
 
 public func isSafeRemoteEntryName(_ name: String) -> Bool {
     !name.isEmpty && name != "." && name != ".." && !name.contains("/") && !name.contains("\\") && !name.containsPathControl
+}
+
+/// The path as typed into a terminal, quoted for the shell; nil when it holds a control character, which a terminal
+/// would act on (Ctrl-U clears the line, CR submits it) however the shell quotes it.
+public func terminalPathText(_ path: String) -> String? {
+    guard !path.isEmpty, !path.unicodeScalars.contains(where: { $0.value < 32 || (127...159).contains($0.value) }) else { return nil }
+    return RemoteCommands.shellQuote(path)
 }
 
 public func isSafeRemoteDeletePath(_ path: String) -> Bool {
