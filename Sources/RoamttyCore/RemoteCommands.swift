@@ -27,10 +27,11 @@ public enum RemoteCommands {
             "exec tmux new-session -A -D -s \(name) /bin/sh -c \"\(pane)\" \(options)"
         return "exec /bin/sh -c " + shellQuote(script)
     }
-    /// One line per tmux session on the server, `windows<TAB>attached clients<TAB>last activity<TAB>name<TAB>folder`
-    /// (see `TmuxSessionInfo.parse`); nothing when no tmux server runs, and exit status 127 without tmux.
+    /// One line per tmux session on the server, `windows<TAB>attached clients<TAB>last activity<TAB>pane command<TAB>
+    /// agent report<TAB>name<TAB>folder`, the report as `agentStatus` reads it (see `TmuxSessionInfo.parse`); nothing
+    /// when no tmux server runs, and exit status 127 without tmux. The hook strips tabs from what it records.
     public static let tmuxSessions = "/bin/sh -c " + shellQuote(pathSetup + "; command -v tmux >/dev/null 2>&1 || exit 127; " +
-        "tmux -u list-sessions -F '#{session_windows}\t#{session_attached}\t#{session_activity}\t#{session_name}\t#{pane_current_path}' 2>/dev/null; exit 0")
+        "tmux -u list-sessions -F '#{session_windows}\t#{session_attached}\t#{session_activity}\t#{pane_current_command}\t#{@roamtty_agent}|#{@roamtty_worked}|#{@roamtty_task}|#{@roamtty_reply}\t#{session_name}\t#{pane_current_path}' 2>/dev/null; exit 0")
     public static func killTmux(_ name: String) -> String {
         let name = sanitizeSessionName(name)
         return pathSetup + "\ntmux has-session -t =\(name) 2>/dev/null || exit 0\nexec tmux kill-session -t =\(name)\n"
@@ -386,19 +387,33 @@ public struct TmuxSessionInfo: Equatable, Identifiable, Sendable {
     public var activity: Date?
     /// The folder of its active pane.
     public var directory: String
+    /// The program in the foreground of its active pane ("zsh", "vim", "claude"); empty when tmux did not say.
+    public var command: String
+    /// What an agent the app's hooks watch reports from it; nil without one, or once the pane is back at a shell.
+    public var agent: AgentStatus?
     public var id: String { name }
-    public init(name: String, windows: Int, attached: Int, activity: Date?, directory: String) {
+    public init(name: String, windows: Int, attached: Int, activity: Date?, directory: String, command: String = "", agent: AgentStatus? = nil) {
         self.name = name; self.windows = windows; self.attached = attached; self.activity = activity; self.directory = directory
+        self.command = command; self.agent = agent
+    }
+    /// Whether its pane is only at a shell prompt.
+    public var idleShell: Bool {
+        var program = Substring(command); while program.first == "-" { program.removeFirst() }
+        return agent == nil && (program.isEmpty || AgentStatus.shells.contains(String(program)))
     }
     /// The app's tmux commands take only names `RemoteCommands.sanitizeSessionName` keeps as they are.
     public var attachable: Bool { RemoteCommands.sanitizeSessionName(name) == name }
     /// `RemoteCommands.tmuxSessions` output, most recently used first.
     public static func parse(_ output: String) -> [TmuxSessionInfo] {
         output.split(whereSeparator: \.isNewline).compactMap { line -> TmuxSessionInfo? in
-            let fields = line.split(separator: "\t", maxSplits: 4, omittingEmptySubsequences: false).map(String.init)
-            guard fields.count >= 4, !fields[3].isEmpty, let windows = Int(fields[0]), let attached = Int(fields[1]) else { return nil }
-            return TmuxSessionInfo(name: fields[3], windows: windows, attached: attached,
-                                   activity: TimeInterval(fields[2]).map(Date.init(timeIntervalSince1970:)), directory: fields.count > 4 ? fields[4] : "")
+            let fields = line.split(separator: "\t", maxSplits: 6, omittingEmptySubsequences: false).map(String.init)
+            guard fields.count >= 6, !fields[5].isEmpty, let windows = Int(fields[0]), let attached = Int(fields[1]) else { return nil }
+            let directory = fields.count > 6 ? fields[6] : ""
+            // As `RemoteCommands.agentStatus` prints it; the clock is left out, as the list shows no elapsed time.
+            let agent = AgentStatus.parse(fields[3] + "|" + fields[4] + (directory.isEmpty ? "" : "\n" + directory) + "\n0")
+            return TmuxSessionInfo(name: fields[5], windows: windows, attached: attached,
+                                   activity: TimeInterval(fields[2]).map(Date.init(timeIntervalSince1970:)), directory: directory,
+                                   command: fields[3], agent: agent)
         }.sorted { ($0.activity ?? .distantPast) > ($1.activity ?? .distantPast) }
     }
 }
