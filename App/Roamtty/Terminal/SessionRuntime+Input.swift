@@ -64,10 +64,10 @@ extension SessionRuntime {
         _ = pasteText(text)
     }
     func copySelection() { terminalView.copy(nil) }
-    /// The agent this session runs, as its hooks report it, or the one it was started for until a poll has answered.
-    /// Reading the screen is left for an agent started by hand or without hooks.
+    /// The agent the session was started for, else the one its hooks report. Reading the screen is left for an agent
+    /// started by hand in a plain session: Codex hides its cursor and parks it anywhere, so the screen can mislead.
     func screenApp() -> ScreenApp {
-        if let agent = CodingAgent.fromCommand(agentStatus?.agent) ?? (agentPolled ? nil : launchedAgent) { return ScreenApp(agent) }
+        if let agent = launchedAgent ?? CodingAgent.fromCommand(agentStatus?.agent) { return ScreenApp(agent) }
         let terminal = terminalView.getTerminal()
         let lines = (0..<terminal.rows).map { terminal.getLine(row: $0)?.translateToString(trimRight: true) ?? "" }
         return ScreenApp.detect(rows: lines, cursorRow: terminal.getCursorLocation().y)
