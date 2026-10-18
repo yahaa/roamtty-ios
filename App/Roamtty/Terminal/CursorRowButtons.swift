@@ -20,19 +20,21 @@ struct CursorRowButtons: View {
     @ObservedObject private var cursor: TerminalCursorRow
     /// Android aligns the keys to the viewport's end, past the terminal's own end padding.
     var trailingInset: CGFloat = 0
+    /// Keep the key's touch target above the system home gesture area.
+    var bottomInset: CGFloat = 0
     /// Where the pet's arrow keys sit, in this view's coordinates: a cursor row within their span slides left of them.
     var avoid: CGRect? = nil
     /// iPhone keyboards have no dismiss key: while one is up, a key beside Esc/Enter puts it away.
     var keyboardVisible = false
-    init(runtime: SessionRuntime, trailingInset: CGFloat = 0, avoid: CGRect? = nil, keyboardVisible: Bool = false) {
+    init(runtime: SessionRuntime, trailingInset: CGFloat = 0, bottomInset: CGFloat = 0, avoid: CGRect? = nil, keyboardVisible: Bool = false) {
         self.runtime = runtime; cursor = runtime.cursorRow
-        self.trailingInset = trailingInset; self.avoid = avoid; self.keyboardVisible = keyboardVisible
+        self.trailingInset = trailingInset; self.bottomInset = bottomInset; self.avoid = avoid; self.keyboardVisible = keyboardVisible
     }
     var body: some View {
         GeometryReader { geometry in
             if runtime.phase == .connected, let row = runtime.cursorRowBounds {
                 let height: CGFloat = 32
-                let y = min(max(row.midY, height / 2), max(height / 2, geometry.size.height - height / 2))
+                let y = min(max(row.midY, height / 2), max(height / 2, geometry.size.height - bottomInset - height / 2))
                 let keys: CGFloat = keyboardVisible ? 2 : 1
                 let shift: CGFloat = avoid.map { y - height / 2 < $0.maxY && y + height / 2 > $0.minY ? $0.width + 8 + 40 : 0 } ?? 0
                 HStack(spacing: 0) {

@@ -35,7 +35,10 @@ struct TerminalScreen: View {
 
     var body: some View {
         GeometryReader { page in
-            let landscape = page.size.width > page.size.height
+            // Keyboard avoidance shrinks page height on portrait iPads. Keep the
+            // editor's layout stable so its UITextView retains keyboard focus.
+            let windowSize = runtime.terminalView.window?.bounds.size ?? page.size
+            let landscape = windowSize.width > windowSize.height
             let twoColumns = TerminalDockGeometry.twoColumns(landscape: landscape, keyboardVisible: keyboardVisible, height: page.size.height)
             let reserved = dockAvailable && toolbox.pinned
             ZStack(alignment: .topLeading) {
@@ -45,7 +48,7 @@ struct TerminalScreen: View {
                             NativeTerminal(runtime: runtime, settings: model.settings).clipped()
                                 .overlay {
                                     CursorRowReader(cursor: runtime.cursorRow) {
-                                        if connected && !editor { CursorRowButtons(runtime: runtime, trailingInset: Self.inset.trailing, avoid: petArrowsShown ? petArrowBounds(in: page.size).offsetBy(dx: -Self.inset.leading, dy: -Self.inset.top) : nil, keyboardVisible: keyboardVisible) }
+                                        if connected && !editor { CursorRowButtons(runtime: runtime, trailingInset: Self.inset.trailing, bottomInset: keyboardVisible ? 0 : (runtime.terminalView.window?.safeAreaInsets.bottom ?? page.safeAreaInsets.bottom), avoid: petArrowsShown ? petArrowBounds(in: page.size).offsetBy(dx: -Self.inset.leading, dy: -Self.inset.top) : nil, keyboardVisible: keyboardVisible) }
                                     }
                                 }
                                 .padding(Self.inset)
