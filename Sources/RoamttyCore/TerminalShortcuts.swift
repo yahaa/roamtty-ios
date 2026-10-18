@@ -15,6 +15,14 @@ public enum ScreenApp: String, CaseIterable, Sendable {
         }
     }
 
+    public init(_ agent: CodingAgent) {
+        switch agent {
+        case .claude: self = .claude
+        case .codex: self = .codex
+        case .grok: self = .grok
+        }
+    }
+
     private static let geminiModel = try! NSRegularExpression(pattern: #"\bgemini-\d"#, options: .caseInsensitive)
     private static let codexContext = try! NSRegularExpression(pattern: #"\b[Cc]ontext \d+% left|\d+% context left"#)
     private static let rule = try! NSRegularExpression(pattern: #"^\s*─{20,}\s*$"#)

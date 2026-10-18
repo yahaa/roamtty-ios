@@ -64,9 +64,12 @@ extension SessionRuntime {
         _ = pasteText(text)
     }
     func copySelection() { terminalView.copy(nil) }
+    /// The agent the session was started for, else the one its hooks report, else what the screen shows (an agent
+    /// started by hand in a plain session).
     func screenApp() -> ScreenApp {
+        if let agent = launchedAgent ?? CodingAgent.fromCommand(agentStatus?.agent) { return ScreenApp(agent) }
         let terminal = terminalView.getTerminal()
-        let lines = (0..<terminal.rows).map { terminal.getLine(row: $0)?.translateToString(trimRight: true) ?? "" }
+        let lines = (0..<terminal.rows).map { terminal.getLine(row: $0)?.screenText ?? "" }
         return ScreenApp.detect(rows: lines, cursorRow: terminal.getCursorLocation().y)
     }
 
@@ -122,9 +125,20 @@ extension SessionRuntime {
         if cursorRowBounds != value { cursorRowBounds = value }
         if visible {
             let terminal = view.getTerminal()
-            if let row = terminal.getLine(row: terminal.getCursorLocation().y) { cursorControls.observe(row: row.translateToString(trimRight: true)) }
+            if let row = terminal.getLine(row: terminal.getCursorLocation().y) { cursorControls.observe(row: row.screenText) }
             if slashCommandLine != cursorControls.onSlashLine { slashCommandLine = cursorControls.onSlashLine }
             updateCursorKey()
+        }
+    }
+}
+
+extension BufferLine {
+    /// The row as Android reads it, with a space for each cell never written. SwiftTerm gives those as "\0", and
+    /// Codex skips its blank cells when it draws, so its prompt read "›\0Ask Codex…" and was not taken for one.
+    var screenText: String {
+        translateToString(trimRight: true) { cell in
+            let character = cell.getCharacter()
+            return character == "\0" ? " " : character
         }
     }
 }

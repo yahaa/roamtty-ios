@@ -125,6 +125,10 @@ final class TerminalShortcutsTests: XCTestCase {
         XCTAssertEqual(detect("\(rule)\n❯ long input\nwrapped input <cursor>\n\(rule)"), .claude)
     }
 
+    func testSessionAgentPicksItsTable() {
+        XCTAssertEqual(CodingAgent.allCases.map(ScreenApp.init), [.claude, .codex, .grok])
+    }
+
     func testAgentTablesPreserveAndroidOrderHintsAndWireBytes() {
         // Wire bytes are deliberately numeric: confusing Ctrl+P with Alt+P or replacing
         // Shift arrows with plain arrows changes the remote application's action.
