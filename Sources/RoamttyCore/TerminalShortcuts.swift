@@ -19,6 +19,8 @@ public enum ScreenApp: String, CaseIterable, Sendable {
     private static let codexContext = try! NSRegularExpression(pattern: #"\b[Cc]ontext \d+% left|\d+% context left"#)
     private static let rule = try! NSRegularExpression(pattern: #"^\s*─{20,}\s*$"#)
     private static let claudeFooters = ["shift+tab to cycle", "⏵⏵", "⏸ plan mode", "? for shortcuts", "esc to interrupt"]
+    /// Codex's pending-question hint, which nothing else prints.
+    private static let codexHints = ["⇧← to answer", "shift+← to answer", "shift + ← to answer"]
 
     /// `cursorRow` is an index into the supplied visible screen rows, not scrollback.
     /// Matches Android ScreenApp: three rows above through eight below the cursor.
@@ -27,14 +29,14 @@ public enum ScreenApp: String, CaseIterable, Sendable {
         let cursor = min(max(cursorRow, 0), rows.count - 1)
         let near = rows[max(cursor - 3, 0)..<min(cursor + 9, rows.count)]
         if near.contains(where: { matches(geminiModel, $0) || $0.contains("Type your message") }) { return .gemini }
-        if near.contains(where: { matches(codexContext, $0) }) { return .codex }
+        if near.contains(where: { row in matches(codexContext, row) || codexHints.contains(where: row.contains) }) { return .codex }
         if near.contains(where: {
             ($0.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("─╯") &&
                 ($0.contains("Grok") || $0.contains("always-approve"))) || $0.contains("Ctrl+x:shortcuts")
         }) { return .grok }
         // Codex's prompt; its footer also says "? for shortcuts" and "esc to interrupt", and a phone-wide screen cuts
         // "Context … left" off.
-        if rows[cursor].drop(while: { $0.isWhitespace }).hasPrefix("› ") { return .codex }
+        if codexPrompt(rows, cursor: cursor) { return .codex }
         if near.contains(where: { line in claudeFooters.contains(where: line.contains) }) || claudePrompt(rows, cursor: cursor) {
             return .claude
         }
@@ -43,6 +45,17 @@ public enum ScreenApp: String, CaseIterable, Sendable {
 
     private static func matches(_ expression: NSRegularExpression, _ row: String) -> Bool {
         expression.firstMatch(in: row, range: NSRange(row.startIndex..., in: row)) != nil
+    }
+
+    /// Codex's `›` composer row holding the cursor, or the one its indented continuation rows wrap from. An empty
+    /// composer is a bare `›`, its trailing space trimmed away.
+    private static func codexPrompt(_ rows: [String], cursor: Int) -> Bool {
+        for index in stride(from: cursor, through: max(cursor - 3, 0), by: -1) {
+            let row = rows[index].drop(while: { $0.isWhitespace })
+            if row == "›" || row.hasPrefix("› ") { return true }
+            guard index > 0, rows[index].first?.isWhitespace == true, !row.isEmpty else { return false }
+        }
+        return false
     }
 
     private static func claudePrompt(_ rows: [String], cursor: Int) -> Bool {

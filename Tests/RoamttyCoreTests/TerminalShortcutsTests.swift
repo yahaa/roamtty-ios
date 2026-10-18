@@ -55,6 +55,23 @@ final class TerminalShortcutsTests: XCTestCase {
             """), .codex)
     }
 
+    func testCodexPendingQuestionWithoutPromptAtCursor() {
+        // Claude Code's footer words are on screen too, and the cursor is not on the "› " row.
+        XCTAssertEqual(detect("""
+            • Working (12s • esc to interrupt)
+              ? 1 question
+                ⇧← to answer
+            <cursor>
+              ? for shortcuts
+            """), .codex)
+    }
+
+    func testCodexEmptyAndMultiLineComposer() {
+        XCTAssertEqual(ScreenApp.detect(rows: ["›", "", "  ? for shortcuts"], cursorRow: 0), .codex)
+        XCTAssertEqual(detect("› first line\n  second line <cursor>\n\n  ? for shortcuts"), .codex)
+        XCTAssertEqual(detect("› old\n\n  wrapped <cursor>\n  ? for shortcuts"), .claude)
+    }
+
     func testAndroidGrokBoxFixture() {
         XCTAssertEqual(detect("""
               ╭──────────────────────────────────────────────────────────────────────────╮
