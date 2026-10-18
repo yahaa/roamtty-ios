@@ -154,36 +154,74 @@ struct LaunchScreen: View {
                 ForEach(sessions) { session in
                     let selected = session.name == tmuxSelection
                     let open = model.records.contains { $0.hostID == host.id && $0.mode == .tmux && $0.remoteName == session.name }
+                    let agent = tmuxAgent(session)
+                    let headline = tmuxHeadline(session, agent: agent)
                     Button { tmuxSelection = session.name } label: {
                         HStack(spacing: 12) {
-                            Image(systemName: "rectangle.on.rectangle").font(.system(size: 18)).foregroundStyle(Palette.accent).frame(width: 22)
+                            if let agent { AgentIcon(agent: agent, size: 32, state: session.agent?.state) } else { TerminalTile(size: 32) }
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack(spacing: 6) {
-                                    Text(session.name).font(.body.weight(.medium)).lineLimit(1)
+                                    Text(headline).font(.body.weight(.medium)).lineLimit(1)
                                     if open { Badge(text: model.text("已打开", "Open")) }
                                 }
-                                Text(tmuxDetail(session, open: open)).font(.caption).foregroundStyle(session.attachable ? Palette.secondary : Palette.danger).lineLimit(1)
+                                if let doing = tmuxDoing(session) {
+                                    Text(doing).font(.caption).foregroundStyle(session.agent?.state.color ?? Palette.secondary).lineLimit(1)
+                                }
+                                Text(tmuxDetail(session, headline: headline)).font(.caption).foregroundStyle(session.attachable ? Palette.secondary : Palette.danger).lineLimit(1)
                             }.frame(maxWidth: .infinity, alignment: .leading)
                             if selected { Image(systemName: "checkmark").font(.system(size: 15, weight: .semibold)).foregroundStyle(Palette.accent) }
                         }.padding(.horizontal, 16).padding(.vertical, 8).frame(minHeight: 52).contentShape(Rectangle())
                             .background(selected ? Palette.accent.opacity(0.1) : Color.clear)
                     }.buttonStyle(.plain).disabled(!session.attachable).opacity(session.attachable ? 1 : 0.5)
-                        .overlay(alignment: .bottom) { Rectangle().fill(Palette.outline).frame(height: 0.5).padding(.leading, 50) }
+                        .overlay(alignment: .bottom) { Rectangle().fill(Palette.outline).frame(height: 0.5).padding(.leading, 60) }
                         .accessibilityIdentifier("launch-tmux-\(session.name)")
                 }
             }
         }.accessibilityIdentifier("launch-tmux-sessions")
     }
-    /// "3 个窗口 · 2 个客户端已连接 · ~/work · 5分钟前"
-    private func tmuxDetail(_ session: TmuxSessionInfo, open: Bool) -> String {
-        guard session.attachable else { return model.text("名称含有特殊字符，暂不支持打开", "Its name has special characters, so it can't be opened") }
-        var parts = [model.text("\(session.windows) 个窗口", session.windows == 1 ? "1 window" : "\(session.windows) windows")]
-        if session.attached > 0 { parts.append(model.text("\(session.attached) 个客户端已连接", session.attached == 1 ? "1 client attached" : "\(session.attached) clients attached")) }
-        if !session.directory.isEmpty {
-            if let homeDirectory, homeDirectory != "/", session.directory == homeDirectory || session.directory.hasPrefix(homeDirectory + "/") { parts.append("~" + session.directory.dropFirst(homeDirectory.count)) }
-            else { parts.append(session.directory) }
+    /// The agent in the session: the one its hooks report, else one running without them, by its program's name.
+    private func tmuxAgent(_ session: TmuxSessionInfo) -> CodingAgent? {
+        CodingAgent.fromCommand(session.agent?.agent) ?? CodingAgent.fromCommand(session.command)
+    }
+    /// What the session is for: its agent's task, else the agent or the program it runs and the folder
+    /// ("Claude · roamtty", "vim · roamtty"), else the folder of the shell; the session's own name when tmux said none.
+    private func tmuxHeadline(_ session: TmuxSessionInfo, agent: CodingAgent?) -> String {
+        if let task = session.agent?.task, !task.isEmpty { return task }
+        let path = tmuxPath(session.directory)
+        let program = agent?.shortLabel ?? (session.idleShell ? nil : session.command)
+        if let program { return path.isEmpty ? program : program + " · " + sessionListFolder(path) }
+        return path.isEmpty ? session.name : path
+    }
+    /// The agent's state and what it runs or last answered: "运行中 · Running npm test", "空闲 · 已修复…".
+    private func tmuxDoing(_ session: TmuxSessionInfo) -> String? {
+        guard let status = session.agent else { return nil }
+        let state: String
+        switch status.state {
+        case .working: state = model.text("运行中", "Running")
+        case .waiting: state = model.text("等待确认", "Needs approval")
+        case .idle: state = model.text("空闲", "Idle")
         }
+        let more = status.state == .idle ? replyPreview(status.reply) : agentActivity(status)
+        return more.isEmpty ? state : state + " · " + more
+    }
+    /// The home as `~`.
+    private func tmuxPath(_ directory: String) -> String {
+        if let homeDirectory, homeDirectory != "/", directory == homeDirectory || directory.hasPrefix(homeDirectory + "/") { return "~" + directory.dropFirst(homeDirectory.count) }
+        return directory
+    }
+    /// "~/work/app · 5分钟前 · 3 个窗口 · 2 个客户端已连接 · roamtty-1a2b": the folder unless the headline is it; a name
+    /// the app made up goes last, as it says least, one somebody chose first.
+    private func tmuxDetail(_ session: TmuxSessionInfo, headline: String) -> String {
+        guard session.attachable else { return model.text("名称含有特殊字符，暂不支持打开", "Its name has special characters, so it can't be opened") }
+        var parts: [String] = []
+        let path = tmuxPath(session.directory)
+        if !path.isEmpty && path != headline { parts.append(path) }
         if let activity = session.activity { parts.append(ago(activity)) }
+        if session.windows > 1 { parts.append(model.text("\(session.windows) 个窗口", "\(session.windows) windows")) }
+        if session.attached > 0 { parts.append(model.text("\(session.attached) 个客户端已连接", session.attached == 1 ? "1 client attached" : "\(session.attached) clients attached")) }
+        if headline != session.name {
+            if session.name.hasPrefix("roamtty-") { parts.append(session.name) } else { parts.insert(session.name, at: 0) }
+        }
         return parts.joined(separator: " · ")
     }
     /// How long ago, as the session list says it on Android: "刚刚", "3分钟前".

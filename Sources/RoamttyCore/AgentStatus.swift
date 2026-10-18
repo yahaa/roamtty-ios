@@ -27,7 +27,7 @@ public struct AgentStatus: Codable, Equatable, Sendable {
         self.elapsedMillis = elapsedMillis; self.directory = directory; self.workedSeconds = workedSeconds; self.reply = reply
     }
 
-    private static let shells: Set<String> = ["bash", "zsh", "fish", "dash", "ash", "ksh", "csh", "tcsh", "nu", "pwsh", "login"]
+    static let shells: Set<String> = ["bash", "zsh", "fish", "dash", "ash", "ksh", "csh", "tcsh", "nu", "pwsh", "login"]
 
     /// Agents that run under their `/bin/sh` launcher, which ends the report itself: the pane shows the launcher's
     /// shell while they run, "sh" on Linux but "bash" on macOS, whose `/bin/sh` is bash.

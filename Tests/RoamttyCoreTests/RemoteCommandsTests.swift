@@ -85,7 +85,7 @@ final class RemoteCommandsTests: XCTestCase {
     func testExistingTmuxSessionAttachesWithoutCreatingOrDetachingAndListsSessions() throws {
         try withCommands(["tmux": """
         case "$2" in
-          list-sessions) printf '2\\t1\\t1700000000\\twork\\t/home/me/a|b\\n1\\t0\\t1700000500\\tmy session\\t/tmp\\n';;
+          list-sessions) printf '2\\t1\\t1700000000\\tclaude\\tworking|1699999990|claude|Bash|npm test||fix the build|\\twork\\t/home/me/a|b\\n1\\t0\\t1700000500\\tzsh\\t|||\\tmy session\\t/tmp\\n';;
           *) printf '%s|' "$@"; printf '\\n';;
         esac
         """]) { environment in
@@ -96,10 +96,16 @@ final class RemoteCommandsTests: XCTestCase {
             XCTAssertEqual(list.0, 0)
             let sessions = TmuxSessionInfo.parse(list.1)
             XCTAssertEqual(sessions.map(\.name), ["my session", "work"])
-            XCTAssertEqual(sessions[1], TmuxSessionInfo(name: "work", windows: 2, attached: 1, activity: Date(timeIntervalSince1970: 1_700_000_000), directory: "/home/me/a|b"))
+            XCTAssertEqual(sessions[1], TmuxSessionInfo(name: "work", windows: 2, attached: 1, activity: Date(timeIntervalSince1970: 1_700_000_000), directory: "/home/me/a|b",
+                                                        command: "claude", agent: AgentStatus(state: .working, agent: "claude", tool: "Bash", detail: "npm test", task: "fix the build", directory: "/home/me/a|b")))
             XCTAssertEqual(sessions.map(\.attachable), [false, true])
+            XCTAssertEqual(sessions.map(\.idleShell), [true, false])
+            XCTAssertNil(sessions[0].agent)
         }
         XCTAssertEqual(TmuxSessionInfo.parse("garbage\nx\t1\t0\tname\n\n"), [])
+        // A pane back at its shell leaves an agent's last report behind: it no longer counts; a program still shows.
+        let stale = TmuxSessionInfo.parse("1\t0\t0\t-zsh\tidle|0|claude||||task|\tx\t/tmp\n1\t0\t0\tvim\t|||\ty\t\n")
+        XCTAssertEqual(stale.map(\.agent), [nil, nil]); XCTAssertEqual(stale.map(\.idleShell), [true, false])
     }
 
     func testPluginInstallerUsesUserHomebrewOnDarwinAndRejectsUnknownPackages() throws {
