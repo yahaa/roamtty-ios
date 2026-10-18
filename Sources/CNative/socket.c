@@ -43,3 +43,8 @@ int roam_tcp_connect(const char *host, int port, int timeout_ms) {
 }
 void roam_socket_shutdown(int fd) { if (fd >= 0) shutdown(fd, SHUT_RDWR); }
 void roam_socket_close(int fd) { if (fd >= 0) close(fd); }
+int roam_socket_peer(int fd, char *host, int length) {
+    struct sockaddr_storage address; socklen_t size = sizeof(address);
+    if (fd < 0 || length <= 0 || getpeername(fd, (struct sockaddr *)&address, &size) != 0) return -1;
+    return getnameinfo((struct sockaddr *)&address, size, host, (socklen_t)length, NULL, 0, NI_NUMERICHOST) == 0 ? 0 : -1;
+}

@@ -48,6 +48,13 @@ public final class SSHConnection {
     }
     var isStopped: Bool { stateLock.lock(); defer { stateLock.unlock() }; return stopped }
     public var isConnected: Bool { stateLock.lock(); defer { stateLock.unlock() }; return authenticated && !stopped }
+    /// The numeric address this connection actually reached, which a name with several addresses does not pin down.
+    var peerAddress: String? {
+        stateLock.lock(); let fd = socket; stateLock.unlock()
+        var buffer = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+        guard roam_socket_peer(fd, &buffer, Int32(buffer.count)) == 0 else { return nil }
+        return String(cString: buffer)
+    }
     func locked<T>(_ action: () throws -> T) rethrows -> T { libraryLock.lock(); defer { libraryLock.unlock() }; return try action() }
     /// `wake` lets queued input end the wait early.
     func networkWait(wake: WorkerWake? = nil) throws {
