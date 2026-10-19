@@ -210,7 +210,8 @@ import RoamttyTransport
                                 self?.mosh = mosh; self?.transportName = "mosh"
                                 self?.beginStartup(startup, ssh: ssh, mode: mode, name: name, previousClients: previous, token: token, attempt: attempt, afterFirstContact: true)
                             }
-                            try mosh.run(columns: cols, rows: rows, firstContactTimeout: 8, silenceTimeout: mode == .shell ? 43_740 : 840, stallTimeout: mode == .shell ? nil : 10) { data in
+                            try mosh.run(columns: cols, rows: rows, firstContactTimeout: 8, silenceTimeout: mode == .shell ? 43_740 : 840, stallTimeout: mode == .shell ? nil : 10,
+                                         log: { Diagnostics.shared.log("mosh", $0) }) { data in
                                 DispatchQueue.main.sync { self?.receive(data, token: token, attempt: attempt) }
                             }
                             return

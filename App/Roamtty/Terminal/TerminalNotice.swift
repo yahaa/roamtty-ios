@@ -46,8 +46,11 @@ struct TerminalConnectionProgress: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let phase: ConnectionPhase
+    /// The connection dropped and the terminal is about to log in again.
+    var reconnecting = false
     let onCancel: () -> Void
     private var label: String {
+        if reconnecting { return model.text("连接已断开，正在重新连接", "Connection lost, reconnecting") }
         switch phase {
         case .verifying: return model.text("等待核对主机指纹", "Waiting for host-key verification")
         case .authenticating: return model.text("正在进行 SSH 认证", "Authenticating")
@@ -77,8 +80,7 @@ struct TerminalConnectionNotice: View {
     @EnvironmentObject var model: AppModel
     let phase: ConnectionPhase
     let message: String?
-    /// Nil while the terminal reconnects by itself.
-    let onReconnect: (() -> Void)?
+    let onReconnect: () -> Void
     let onShell: () -> Void
     let onReverify: () -> Void
     /// iOS has no Back button and the terminal no navigation bar: the notice leads back to where it was opened from.
@@ -94,7 +96,7 @@ struct TerminalConnectionNotice: View {
                 Button(model.text("重新核验…", "Verify again…"), action: onReverify).buttonStyle(FilledButtonStyle()).accessibilityIdentifier("terminal-reverify")
             } else {
                 if phase == .tmuxMissing { Button(model.text("改用普通 SSH", "Use plain SSH"), action: onShell).buttonStyle(TextActionStyle()).accessibilityIdentifier("terminal-use-shell") }
-                if let onReconnect { Button(model.text("重新连接", "Reconnect"), action: onReconnect).buttonStyle(FilledButtonStyle()).accessibilityIdentifier("terminal-reconnect") }
+                Button(model.text("重新连接", "Reconnect"), action: onReconnect).buttonStyle(FilledButtonStyle()).accessibilityIdentifier("terminal-reconnect")
             }
         }
     }

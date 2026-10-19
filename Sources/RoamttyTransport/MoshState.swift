@@ -115,15 +115,31 @@ struct MoshState {
         if heardAny, probeSince == nil { probeSince = now }
     }
 
+    /// The worker did not run since well before `now`: iOS suspended the app. Input and a probe still waiting get
+    /// a whole stall limit from here, as the network could not answer while nothing was sent or read.
+    mutating func thawed(at now: TimeInterval) {
+        if inputPendingSince != nil { inputPendingSince = now }
+        if probeSince != nil { probeSince = now }
+    }
+
     func checkTimeout(at now: TimeInterval, firstContact: TimeInterval, silence: TimeInterval, stall: TimeInterval?) throws {
-        if !heardAny, now - start > firstContact { throw RoamError.timeout }
-        if heardAny, now - lastHeard > silence { throw RoamError.timeout }
-        guard heardAny, let stall else { return }
+        if timeoutReason(at: now, firstContact: firstContact, silence: silence, stall: stall) != nil { throw RoamError.timeout }
+    }
+
+    /// Why the session should give up now, for the diagnostics log; nil while it may keep waiting.
+    func timeoutReason(at now: TimeInterval, firstContact: TimeInterval, silence: TimeInterval, stall: TimeInterval?) -> String? {
+        func seconds(_ value: TimeInterval) -> String { String(format: "%.1fs", value) }
+        if !heardAny, now - start > firstContact { return "no first contact in " + seconds(now - start) }
+        if heardAny, now - lastHeard > silence { return "silent for " + seconds(now - lastHeard) }
+        guard heardAny, let stall else { return nil }
         if let waiting = [probeSince, inputPendingSince].compactMap({ $0 }).min(),
-           now - waiting > stall, now - lastHeard > stall { throw RoamError.timeout }
+           now - waiting > stall, now - lastHeard > stall {
+            return "stalled: probe=\(probeSince.map { seconds(now - $0) } ?? "-") input=\(inputPendingSince.map { seconds(now - $0) } ?? "-") heard=" + seconds(now - lastHeard)
+        }
         // Start the desync timer when a packet first fails to apply, not at the
         // last accepted state; otherwise a sleeping phone immediately fails.
-        if let unappliedSince, lastHeard - unappliedSince > 30 { throw RoamError.timeout }
+        if let unappliedSince, lastHeard - unappliedSince > 30 { return "unapplied for " + seconds(lastHeard - unappliedSince) }
+        return nil
     }
 
     mutating func receive(_ instruction: Mosh.Instruction, at now: TimeInterval) throws -> Accepted {
