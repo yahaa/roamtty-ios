@@ -135,10 +135,6 @@ final class TransferProgressRelay {
         insertionTargets.removeValue(forKey: id)
         return true
     }
-    /// The editor took these paths after the terminal refused them, so they no longer wait for a retry.
-    func discardPendingInsertions(_ ids: [UUID]) {
-        for id in ids { update(id) { $0.pendingInsertion = nil }; insertionTargets.removeValue(forKey: id) }
-    }
     /// Returns the queued jobs so the caller can follow them until their paths are in the terminal.
     @discardableResult func uploadImages(_ images: [PhotosPickerItem], runtime: SessionRuntime, model: AppModel, connectionTarget: RemoteConnectionTarget? = nil) -> [UUID] {
         let connectionTarget = connectionTarget ?? .session(runtime)
