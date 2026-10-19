@@ -114,3 +114,63 @@ struct TerminalInputNotice: View {
         }
     }
 }
+
+/// A pill at the top of the terminal while inserted photos upload. Tapping it opens the transfers page; once every
+/// path is in the terminal it says so briefly and goes away. A failure stays until it is dismissed or looked at.
+struct ImageUploadStatus: View {
+    @EnvironmentObject var model: AppModel
+    @ObservedObject var transfers: FileTransferModel
+    @Binding var jobs: [UUID]
+    let onOpen: () -> Void
+    @State private var inserted = 0
+
+    private var followed: [TransferJob] { jobs.compactMap { id in transfers.jobs.first { $0.id == id } }.filter { $0.state != .cancelled } }
+    private func done(_ job: TransferJob) -> Bool { job.state == .complete && job.pendingInsertion == nil }
+    /// Failed uploads, and uploads whose path could not go into the terminal.
+    private func stuck(_ job: TransferJob) -> Bool { job.state == .failed || (job.state == .complete && job.pendingInsertion != nil) }
+
+    var body: some View {
+        let followed = followed
+        Group {
+            if followed.contains(where: stuck) {
+                pill(model.text("图片上传失败，点按查看", "Photo upload failed. Tap for details"), color: Palette.danger) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                } trailing: {
+                    Button { jobs = [] } label: { Image(systemName: "xmark").font(.caption.weight(.semibold)).frame(width: 28, height: 28) }
+                        .buttonStyle(.plain).accessibilityLabel(model.text("关闭", "Dismiss")).accessibilityIdentifier("image-upload-dismiss")
+                }
+            } else if !followed.isEmpty {
+                let finished = followed.filter(done).count
+                let percent = followed.first { $0.state == .running }?.fraction.map { " · \(Int($0 * 100))%" } ?? ""
+                pill(model.text("正在插入图片 \(finished + 1)/\(followed.count)", "Inserting photo \(finished + 1) of \(followed.count)") + percent, color: Palette.foreground) {
+                    ProgressView().controlSize(.small)
+                } trailing: { EmptyView() }
+            } else if inserted > 0 {
+                pill(model.text("已插入 \(inserted) 张图片", inserted == 1 ? "Photo inserted" : "\(inserted) photos inserted"), color: Palette.foreground) {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Palette.accent)
+                } trailing: { EmptyView() }
+                .task { try? await Task.sleep(nanoseconds: 1_500_000_000); withAnimation(.easeOut(duration: 0.3)) { inserted = 0 } }
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: jobs)
+        .onReceive(transfers.$jobs) { _ in
+            let followed = self.followed
+            // Cancelled jobs simply drop out; the batch is over once every remaining photo is in the terminal.
+            if !jobs.isEmpty, followed.allSatisfy(done) { inserted = followed.count; jobs = [] }
+        }
+    }
+
+    private func pill<Leading: View, Trailing: View>(_ text: String, color: Color, @ViewBuilder leading: () -> Leading, @ViewBuilder trailing: () -> Trailing) -> some View {
+        HStack(spacing: 8) {
+            leading()
+            Text(text).font(.subheadline.weight(.medium)).foregroundStyle(color).lineLimit(1).monospacedDigit()
+            trailing()
+        }
+        .padding(.leading, 14).padding(.trailing, 10).frame(minHeight: 40)
+        .background(Palette.surface.opacity(0.97), in: Capsule())
+        .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
+        .contentShape(Capsule()).onTapGesture(perform: onOpen)
+        .transition(.move(edge: .top).combined(with: .opacity))
+        .accessibilityElement(children: .contain).accessibilityIdentifier("image-upload-status")
+    }
+}

@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import PhotosUI
 import RoamttyCore
 import RoamttyTransport
 
@@ -15,6 +16,11 @@ struct TerminalScreen: View {
     @State private var commandSheet = false
     @State private var fileAction: TerminalFileAction?
     @State private var launchAfterFiles: AppSheet?
+    @State private var photoPicker = false
+    @State private var photos: [PhotosPickerItem] = []
+    /// Photos uploading for this terminal; the status pill follows them until their paths are in it.
+    @State private var imageJobs: [UUID] = []
+    @State private var imageTransfers = false
     @State private var restartConfirm = false
     @State private var reverifySheet = false
     @State private var editor = false
@@ -45,6 +51,8 @@ struct TerminalScreen: View {
                                 }
                                 .padding(Self.inset)
                             notice.padding(.top, page.safeAreaInsets.top)
+                            ImageUploadStatus(transfers: model.files, jobs: $imageJobs) { imageTransfers = true }
+                                .frame(maxHeight: .infinity, alignment: .top).padding(.top, page.safeAreaInsets.top + 8)
                         }.frame(maxWidth: .infinity, maxHeight: .infinity)
                         if editor { editorBar(landscape: landscape).padding(.bottom, keyboardVisible ? 0 : page.safeAreaInsets.bottom) }
                     }
@@ -133,6 +141,14 @@ struct TerminalScreen: View {
                 fileAction = nil
             }.environmentObject(model)
         }
+        // Insert image opens the system picker straight from the dock; the photos upload in the background.
+        .photosPicker(isPresented: $photoPicker, selection: $photos, maxSelectionCount: 9, matching: .images, preferredItemEncoding: .current)
+        .onChange(of: photoPicker) { presented in model.childModalCount = max(0, model.childModalCount + (presented ? 1 : -1)) }
+        .onChange(of: photos) { selected in
+            guard !selected.isEmpty else { return }
+            imageJobs += model.files.uploadImages(selected, runtime: runtime, model: model); photos = []
+        }
+        .sheet(isPresented: $imageTransfers) { TransferScreen(transfers: model.files, closeWhenInserted: imageJobs).environmentObject(model) }
         .sheet(isPresented: $reverifySheet) { FingerprintReview(host: runtime.host) { model.reconnect(runtime.record) }.environmentObject(model) }
     }
 
@@ -232,7 +248,7 @@ struct TerminalScreen: View {
     @ViewBuilder private var dockControls: some View {
         dockButton("ic_cloud_upload", model.text("上传文件", "Upload files"), id: "upload-file", enabled: connected) { fileAction = .upload }
         dockButton("ic_cloud_download", model.text("下载文件", "Download files"), id: "download-file", enabled: connected) { fileAction = .download }
-        dockButton("ic_image", model.text("插入图片", "Insert image"), id: "select-image", enabled: connected) { fileAction = .image }
+        dockButton("ic_image", model.text("插入图片", "Insert image"), id: "select-image", enabled: connected) { photoPicker = true }
         dockButton("ic_commands", model.text("常用命令", "Common commands"), id: "common-commands", enabled: connected) { runtime.terminalView.resignFirstResponder(); commandSheet = true }
         settingsMenu
     }

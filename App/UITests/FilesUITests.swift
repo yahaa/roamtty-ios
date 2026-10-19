@@ -46,12 +46,9 @@ final class FilesUITests: RoamttyLiveUITestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 5), .completed)
         add.tap()
 
-        let status = app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH 'transfer-status-upload-roamtty-img-'")).firstMatch
-        XCTAssertTrue(status.waitForExistence(timeout: 30))
-        // Once every photo's path is in the terminal, the transfers page closes by itself and returns to it.
-        let done = app.buttons["transfer-done"]
-        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: done); waitForExpectations(timeout: 30)
+        // The picker returns straight to the terminal; the photo uploads behind a status pill, with no page in between.
         XCTAssertTrue(surface.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["transfer-done"].exists)
         // The inserted path names the upload: /tmp/roamtty-img-<UUID>.png.
         var path = ""
         expectation(for: NSPredicate { object, _ in
@@ -59,7 +56,7 @@ final class FilesUITests: RoamttyLiveUITestCase {
                   let range = value.filter({ !$0.isWhitespace }).range(of: #"/tmp/roamtty-img-[0-9A-Fa-f-]{36}\.png"#, options: .regularExpression) else { return false }
             path = String(value.filter { !$0.isWhitespace }[range]); return true
         }, evaluatedWith: surface)
-        waitForExpectations(timeout: 10)
+        waitForExpectations(timeout: 40)
         XCTAssertNotNil(UUID(uuidString: String(path.dropFirst("/tmp/roamtty-img-".count).dropLast(4))))
         let prematureSubmit = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS %@", submitted), object: surface)
         prematureSubmit.isInverted = true
