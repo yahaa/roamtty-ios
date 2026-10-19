@@ -78,6 +78,17 @@ final class MoshStateTests: XCTestCase {
         }
     }
 
+    func testThawGivesWaitingInputAWholeStallLimit() throws {
+        var state = MoshState(start: 0)
+        state.heard(at: 1, timestamp: 0, reply: 0xffff, sequence: 0)
+        state.enqueue(.keys(Data("a".utf8)), at: 2)
+        XCTAssertNotNil(state.timeoutReason(at: 600, firstContact: 8, silence: 840, stall: 10))
+        state.thawed(at: 600)
+        XCTAssertNil(state.timeoutReason(at: 609, firstContact: 8, silence: 840, stall: 10))
+        XCTAssertEqual(state.timeoutReason(at: 611, firstContact: 8, silence: 840, stall: 10), "stalled: probe=- input=11.0s heard=610.0s")
+        XCTAssertEqual(state.timeoutReason(at: 900, firstContact: 8, silence: 840, stall: nil), "silent for 899.0s")
+    }
+
     func testFreezeDoesNotBecomeDesyncUntilInapplicablePacketsPersist() throws {
         var state = MoshState(start: 0)
         state.heard(at: 1, timestamp: 0, reply: 0xffff, sequence: 0)

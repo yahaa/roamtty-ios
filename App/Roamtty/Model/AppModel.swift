@@ -122,6 +122,9 @@ import RoamttyTransport
         foreground = true
         Diagnostics.shared.log("foreground", "sessions=\(runtimes.count) terminals=\(TerminalCensus.live)")
         for runtime in runtimes.values { runtime.probe() }
+        // A terminal on screen that dropped while the app was away found the app in the background and did not
+        // reconnect then; it does now.
+        if case .terminal(let id)? = path.last, let record = records.first(where: { $0.id == id }) { Task { await reconnectOnOpen(record) } }
         restartVisibleMonitor()
         let existing = Set(incomingFiles + files.pendingUploadURLs).union(files.activeUploadURLs)
         incomingFiles.append(contentsOf: SharedInbox.consume().filter { !existing.contains($0) })

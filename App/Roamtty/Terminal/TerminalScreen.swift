@@ -139,12 +139,12 @@ struct TerminalScreen: View {
     @ViewBuilder private var notice: some View {
         if runtime.phase != .connected {
             GoldenSectionLayout {
-                if runtime.phase.active {
-                    TerminalConnectionProgress(phase: runtime.phase) { runtime.close() }
+                // A dropped terminal reconnects by itself, so it shows that instead of the failure.
+                if runtime.phase.active || SessionReconnect.onOpen(runtime.end) {
+                    TerminalConnectionProgress(phase: runtime.phase, reconnecting: !runtime.phase.active) { runtime.close() }
                 } else {
-                    // No button while the terminal reconnects by itself.
                     TerminalConnectionNotice(phase: runtime.phase, message: runtime.message,
-                                             onReconnect: SessionReconnect.onOpen(runtime.end) ? nil : { model.reconnect(runtime.record) },
+                                             onReconnect: { model.reconnect(runtime.record) },
                                              onShell: { model.reconnect(runtime.record, shell: true) },
                                              onReverify: { reverifySheet = true },
                                              onLeave: { if !model.path.isEmpty { model.path.removeLast() } })

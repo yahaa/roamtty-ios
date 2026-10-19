@@ -38,9 +38,10 @@ public final class MoshTransport {
 
     /// Blocks until remote shutdown, cancellation, or a fallback-worthy error.
     /// Plain shells can set `stallTimeout` to nil to wait through network outages.
-    /// The default silence limit is one minute below a 15-minute server timeout.
+    /// The default silence limit is one minute below a 15-minute server timeout. `log` hears why it gave up.
     public func run(columns: Int, rows: Int, firstContactTimeout: TimeInterval = 8,
                     silenceTimeout: TimeInterval = 14 * 60, stallTimeout: TimeInterval? = 10,
+                    log: @escaping (String) -> Void = { _ in },
                     onOutput: @escaping (Data) -> Void) throws {
         guard firstContactTimeout.isFinite, firstContactTimeout > 0,
               silenceTimeout.isFinite, silenceTimeout > 0,
@@ -54,6 +55,7 @@ public final class MoshTransport {
         var assembly = Mosh.Assembly()
         var instructionID: UInt64 = 0
         var lastHop = moshNow()
+        var lastTurn = moshNow()
         var shutdownByServer = false
         state.enqueue(.resize(columns: columns, rows: rows), at: moshNow())
 
@@ -92,8 +94,20 @@ public final class MoshTransport {
                 state.enqueue(.keys(bytes), at: now)
                 bytes.resetBytes(in: 0..<bytes.count)
             }
-            try state.checkTimeout(at: now, firstContact: firstContactTimeout, silence: silenceTimeout, stall: stallTimeout)
-            if pending.probe, state.heardAny {
+            // A turn takes at most a short poll plus delivering output, so a long gap means iOS froze the worker.
+            let frozen = now - lastTurn
+            let thawed = frozen > 5
+            lastTurn = now
+            if thawed {
+                log(String(format: "mosh resumed after %.1fs frozen", frozen))
+                state.thawed(at: now)
+            }
+            if let reason = state.timeoutReason(at: now, firstContact: firstContactTimeout, silence: silenceTimeout, stall: stallTimeout) {
+                log("mosh timeout: " + reason)
+                throw RoamError.timeout
+            }
+            // Thawing probes like a wake: the old source port's NAT mapping may be gone.
+            if pending.probe || thawed, state.heardAny {
                 state.requestProbe(at: now)
                 if let replacement = try? MoshDatagram(endpoint: socket.endpoint) { socket = replacement }
                 lastHop = now
