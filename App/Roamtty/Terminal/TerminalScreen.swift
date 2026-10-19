@@ -73,7 +73,7 @@ struct TerminalScreen: View {
                         }
                     }
                 }
-                ImageInsertStatus(transfers: model.files, jobs: $imageJobs).frame(width: page.size.width, height: page.size.height)
+                ImageInsertStatus(transfers: model.files, jobs: $imageJobs, topInset: page.safeAreaInsets.top).frame(width: page.size.width, height: page.size.height)
             }
         }
         // As on Android, the terminal draws under the transparent status bar and down to the bottom edge;

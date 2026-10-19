@@ -46,9 +46,10 @@ final class FilesUITests: RoamttyLiveUITestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 5), .completed)
         add.tap()
 
-        // A progress dialog follows the upload and closes by itself, without a notice, once the path is in the terminal.
+        // As on Android, a progress dialog follows the upload and gives way to a short top notice once the path is in.
         let dialog = app.descendants(matching: .any)["image-insert-dialog"]
         expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: dialog); waitForExpectations(timeout: 30)
+        XCTAssertTrue(app.descendants(matching: .any)["top-notice"].waitForExistence(timeout: 2))
         XCTAssertTrue(surface.waitForExistence(timeout: 10))
         // The inserted path names the upload: /tmp/roamtty-img-<UUID>.png.
         var path = ""

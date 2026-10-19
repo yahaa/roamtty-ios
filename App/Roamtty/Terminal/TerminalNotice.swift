@@ -115,12 +115,14 @@ struct TerminalInputNotice: View {
     }
 }
 
-/// Android `ImageInsertDialog`: progress while gallery photos upload into the terminal. It closes by itself once every
-/// photo is in, or on a cancel; otherwise it stays to show where each photo ended up.
+/// Android `ImageInsertDialog`: progress while gallery photos upload into the terminal. Once every photo is in, it gives
+/// way to Android's short top notice; a cancel closes it quietly; otherwise it stays to show where each photo ended up.
 struct ImageInsertStatus: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var transfers: FileTransferModel
     @Binding var jobs: [UUID]
+    let topInset: CGFloat
+    @State private var notice: String?
 
     private enum Outcome { case inserted, failed(String), cancelled }
     private func followed(in all: [TransferJob]) -> [TransferJob] { jobs.compactMap { id in all.first { $0.id == id } } }
@@ -140,8 +142,12 @@ struct ImageInsertStatus: View {
                 Color.black.opacity(0.32).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { }
                 card(followed).padding(.horizontal, 28).frame(maxWidth: 440)
             }
+            if let notice {
+                InsertedNotice(message: notice) { self.notice = nil }.padding(.top, topInset + 64).frame(maxHeight: .infinity, alignment: .top)
+            }
         }
         .animation(.easeOut(duration: 0.2), value: jobs)
+        .animation(.easeOut(duration: 0.25), value: notice)
         .onReceive(transfers.$jobs) { settle($0) }
     }
 
@@ -151,8 +157,11 @@ struct ImageInsertStatus: View {
         let followed = followed(in: all)
         guard !followed.isEmpty, !followed.contains(where: { $0.state == .running }) else { return }
         let outcomes = followed.map(outcome)
-        if outcomes.contains(where: { if case .cancelled = $0 { return true }; return false })
-            || outcomes.allSatisfy({ if case .inserted = $0 { return true }; return false }) { jobs = [] }
+        if outcomes.contains(where: { if case .cancelled = $0 { return true }; return false }) { jobs = [] }
+        else if outcomes.allSatisfy({ if case .inserted = $0 { return true }; return false }) {
+            notice = model.text("已插入 \(followed.count) 张图片", followed.count == 1 ? "Photo inserted" : "\(followed.count) photos inserted")
+            jobs = []
+        }
     }
 
     private func card(_ followed: [TransferJob]) -> some View {
@@ -231,5 +240,24 @@ struct ImageInsertStatus: View {
                 Text(label).font(.footnote).foregroundStyle(failed ? Palette.danger : Palette.secondary)
             }
         }.padding(.vertical, 10)
+    }
+}
+
+/// Android `TopNotice`: a toast-like confirmation that drops in under the status bar for two seconds.
+private struct InsertedNotice: View {
+    let message: String
+    let onDismiss: () -> Void
+    var body: some View {
+        HStack(spacing: 10) {
+            AppIcon("ic_check", size: 20).foregroundStyle(Palette.accent)
+            Text(message).font(.subheadline)
+        }
+        .padding(.leading, 12).padding(.trailing, 16).padding(.vertical, 10)
+        .foregroundStyle(Palette.foreground)
+        .background(Palette.surface, in: Capsule())
+        .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
+        .transition(.move(edge: .top).combined(with: .opacity))
+        .allowsHitTesting(false).accessibilityIdentifier("top-notice")
+        .task(id: message) { try? await Task.sleep(nanoseconds: 2_000_000_000); onDismiss() }
     }
 }
