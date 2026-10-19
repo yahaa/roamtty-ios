@@ -18,9 +18,8 @@ struct TerminalScreen: View {
     @State private var launchAfterFiles: AppSheet?
     @State private var photoPicker = false
     @State private var photos: [PhotosPickerItem] = []
-    /// Photos uploading for this terminal; the status pill follows them until their paths are in it.
+    /// Photos inserting into this terminal; their dialog follows them until each one has an outcome.
     @State private var imageJobs: [UUID] = []
-    @State private var imageTransfers = false
     @State private var restartConfirm = false
     @State private var reverifySheet = false
     @State private var editor = false
@@ -51,8 +50,6 @@ struct TerminalScreen: View {
                                 }
                                 .padding(Self.inset)
                             notice.padding(.top, page.safeAreaInsets.top)
-                            ImageUploadStatus(transfers: model.files, jobs: $imageJobs) { imageTransfers = true }
-                                .frame(maxHeight: .infinity, alignment: .top).padding(.top, page.safeAreaInsets.top + 8)
                         }.frame(maxWidth: .infinity, maxHeight: .infinity)
                         if editor { editorBar(landscape: landscape).padding(.bottom, keyboardVisible ? 0 : page.safeAreaInsets.bottom) }
                     }
@@ -76,6 +73,9 @@ struct TerminalScreen: View {
                         }
                     }
                 }
+                ImageInsertStatus(transfers: model.files, jobs: $imageJobs, topInset: page.safeAreaInsets.top) { paths in
+                    draft.insert(paths); editor = true; runtime.terminalView.resignFirstResponder()
+                }.frame(width: page.size.width, height: page.size.height)
             }
         }
         // As on Android, the terminal draws under the transparent status bar and down to the bottom edge;
@@ -148,7 +148,6 @@ struct TerminalScreen: View {
             guard !selected.isEmpty else { return }
             imageJobs += model.files.uploadImages(selected, runtime: runtime, model: model); photos = []
         }
-        .sheet(isPresented: $imageTransfers) { TransferScreen(transfers: model.files, closeWhenInserted: imageJobs).environmentObject(model) }
         .sheet(isPresented: $reverifySheet) { FingerprintReview(host: runtime.host) { model.reconnect(runtime.record) }.environmentObject(model) }
     }
 

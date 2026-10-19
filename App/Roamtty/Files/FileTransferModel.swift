@@ -135,6 +135,10 @@ final class TransferProgressRelay {
         insertionTargets.removeValue(forKey: id)
         return true
     }
+    /// The editor took these paths after the terminal refused them, so they no longer wait for a retry.
+    func discardPendingInsertions(_ ids: [UUID]) {
+        for id in ids { update(id) { $0.pendingInsertion = nil }; insertionTargets.removeValue(forKey: id) }
+    }
     /// Returns the queued jobs so the caller can follow them until their paths are in the terminal.
     @discardableResult func uploadImages(_ images: [PhotosPickerItem], runtime: SessionRuntime, model: AppModel, connectionTarget: RemoteConnectionTarget? = nil) -> [UUID] {
         let connectionTarget = connectionTarget ?? .session(runtime)
@@ -170,10 +174,6 @@ final class TransferProgressRelay {
             }
         }
         return queued.map(\.1.id)
-    }
-    /// True once every listed job has uploaded and its path went into the terminal; false while any runs, failed or waits.
-    func inserted(_ ids: [UUID]) -> Bool {
-        !ids.isEmpty && ids.allSatisfy { id in jobs.first { $0.id == id }.map { $0.state == .complete && $0.pendingInsertion == nil } ?? false }
     }
     func download(_ entry: RemoteEntry, host: Host, model: AppModel, name: String? = nil, connectionTarget: RemoteConnectionTarget? = nil) {
         let connectionTarget = connectionTarget ?? .host(host.id)

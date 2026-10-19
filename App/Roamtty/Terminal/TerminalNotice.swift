@@ -115,62 +115,166 @@ struct TerminalInputNotice: View {
     }
 }
 
-/// A pill at the top of the terminal while inserted photos upload. Tapping it opens the transfers page; once every
-/// path is in the terminal it says so briefly and goes away. A failure stays until it is dismissed or looked at.
-struct ImageUploadStatus: View {
+/// Android `ImageInsertDialog`: progress while gallery photos upload into the terminal, then, unless every photo went
+/// in, where each one ended up. When every photo is in, only a short notice drops in from the top; a cancel closes quietly.
+struct ImageInsertStatus: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var transfers: FileTransferModel
     @Binding var jobs: [UUID]
-    let onOpen: () -> Void
-    @State private var inserted = 0
+    let topInset: CGFloat
+    /// Paths the terminal refused go into the editor once the batch ends, so no photo is lost.
+    let onEditor: (String) -> Void
+    @State private var inEditor: Set<UUID> = []
+    @State private var notice: String?
 
-    private var followed: [TransferJob] { jobs.compactMap { id in transfers.jobs.first { $0.id == id } }.filter { $0.state != .cancelled } }
-    private func done(_ job: TransferJob) -> Bool { job.state == .complete && job.pendingInsertion == nil }
-    /// Failed uploads, and uploads whose path could not go into the terminal.
-    private func stuck(_ job: TransferJob) -> Bool { job.state == .failed || (job.state == .complete && job.pendingInsertion != nil) }
-
-    var body: some View {
-        let followed = followed
-        Group {
-            if followed.contains(where: stuck) {
-                pill(model.text("图片上传失败，点按查看", "Photo upload failed. Tap for details"), color: Palette.danger) {
-                    Image(systemName: "exclamationmark.circle.fill")
-                } trailing: {
-                    Button { jobs = [] } label: { Image(systemName: "xmark").font(.caption.weight(.semibold)).frame(width: 28, height: 28) }
-                        .buttonStyle(.plain).accessibilityLabel(model.text("关闭", "Dismiss")).accessibilityIdentifier("image-upload-dismiss")
-                }
-            } else if !followed.isEmpty {
-                let finished = followed.filter(done).count
-                let percent = followed.first { $0.state == .running }?.fraction.map { " · \(Int($0 * 100))%" } ?? ""
-                pill(model.text("正在插入图片 \(finished + 1)/\(followed.count)", "Inserting photo \(finished + 1) of \(followed.count)") + percent, color: Palette.foreground) {
-                    ProgressView().controlSize(.small)
-                } trailing: { EmptyView() }
-            } else if inserted > 0 {
-                pill(model.text("已插入 \(inserted) 张图片", inserted == 1 ? "Photo inserted" : "\(inserted) photos inserted"), color: Palette.foreground) {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Palette.accent)
-                } trailing: { EmptyView() }
-                .task { try? await Task.sleep(nanoseconds: 1_500_000_000); withAnimation(.easeOut(duration: 0.3)) { inserted = 0 } }
-            }
-        }
-        .animation(.easeOut(duration: 0.2), value: jobs)
-        .onReceive(transfers.$jobs) { _ in
-            let followed = self.followed
-            // Cancelled jobs simply drop out; the batch is over once every remaining photo is in the terminal.
-            if !jobs.isEmpty, followed.allSatisfy(done) { inserted = followed.count; jobs = [] }
+    private enum Outcome { case inserted, editor, failed(String?), cancelled }
+    private func followed(in all: [TransferJob]) -> [TransferJob] { jobs.compactMap { id in all.first { $0.id == id } } }
+    private func outcome(_ job: TransferJob, editor: Set<UUID>) -> Outcome {
+        switch job.state {
+        case .cancelled: return .cancelled
+        case .failed: return .failed(job.message)
+        default: return editor.contains(job.id) ? .editor : .inserted
         }
     }
 
-    private func pill<Leading: View, Trailing: View>(_ text: String, color: Color, @ViewBuilder leading: () -> Leading, @ViewBuilder trailing: () -> Trailing) -> some View {
-        HStack(spacing: 8) {
-            leading()
-            Text(text).font(.subheadline.weight(.medium)).foregroundStyle(color).lineLimit(1).monospacedDigit()
-            trailing()
+    var body: some View {
+        let followed = followed(in: transfers.jobs)
+        ZStack(alignment: .top) {
+            if !followed.isEmpty {
+                // Modal like Android's dialog: the terminal under it takes no touches until it closes.
+                Color.black.opacity(0.32).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { }
+                card(followed).padding(.horizontal, 28).frame(maxWidth: 440).frame(maxHeight: .infinity)
+            }
+            if let notice {
+                InsertedNotice(message: notice) { self.notice = nil }.padding(.top, topInset + 64)
+            }
         }
-        .padding(.leading, 14).padding(.trailing, 10).frame(minHeight: 40)
-        .background(Palette.surface.opacity(0.97), in: Capsule())
-        .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
-        .contentShape(Capsule()).onTapGesture(perform: onOpen)
+        .animation(.easeOut(duration: 0.2), value: jobs)
+        .animation(.easeOut(duration: 0.25), value: notice)
+        .onReceive(transfers.$jobs) { settle($0) }
+    }
+
+    /// `$jobs` publishes before the change lands, so the batch is judged on the jobs it hands over.
+    private func settle(_ all: [TransferJob]) {
+        let followed = followed(in: all)
+        guard !followed.isEmpty, !followed.contains(where: { $0.state == .running }) else { return }
+        let refused = followed.filter { $0.state == .complete && $0.pendingInsertion != nil && !inEditor.contains($0.id) }
+        let editor = inEditor.union(refused.map(\.id))
+        if !refused.isEmpty {
+            inEditor = editor
+            onEditor(refused.compactMap(\.pendingInsertion).joined(separator: " "))
+            let ids = refused.map(\.id)
+            DispatchQueue.main.async { transfers.discardPendingInsertions(ids) }
+        }
+        let outcomes = followed.map { outcome($0, editor: editor) }
+        if outcomes.contains(where: { if case .cancelled = $0 { return true }; return false }) { close() }
+        else if outcomes.allSatisfy({ if case .inserted = $0 { return true }; return false }) {
+            notice = model.text("已插入 \(followed.count) 张图片", followed.count == 1 ? "Photo inserted" : "\(followed.count) photos inserted")
+            close()
+        }
+    }
+    private func close() { jobs = []; inEditor = [] }
+
+    private func card(_ followed: [TransferJob]) -> some View {
+        let total = followed.count
+        let current = followed.first { $0.state == .running }
+        let done = followed.filter { $0.state != .running }.count
+        let outcomes = followed.map { outcome($0, editor: inEditor) }
+        let failed = outcomes.filter { if case .failed = $0 { return true }; return false }.count
+        let editor = outcomes.filter { if case .editor = $0 { return true }; return false }.count
+        let running = current != nil
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 14) {
+                badge(running ? "ic_image" : failed > 0 ? "ic_alert" : "ic_check",
+                      background: running ? Palette.raised : failed > 0 ? Palette.danger.opacity(0.18) : Palette.accentPanel,
+                      tint: running ? Palette.foreground : failed > 0 ? Palette.danger : Palette.accent)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(running ? model.text("正在插入图片", "Inserting photos") : failed == total ? model.text("图片插入失败", "Photos not inserted") : model.text("图片插入结果", "Photo results"))
+                        .font(.title3.weight(.semibold))
+                    let subtitle = running ? (total > 1 ? model.text("第 \(min(done + 1, total)) 张，共 \(total) 张", "Photo \(min(done + 1, total)) of \(total)") : nil)
+                        : [total - failed > 0 ? model.text("成功 \(total - failed) 张", "\(total - failed) inserted") : nil,
+                           failed > 0 ? model.text("失败 \(failed) 张", "\(failed) failed") : nil].compactMap { $0 }.joined(separator: " · ")
+                    if let subtitle { Text(subtitle).font(.subheadline).foregroundStyle(Palette.secondary).accessibilityIdentifier("image-insert-count") }
+                }
+            }
+            if let current {
+                let fraction = current.fraction ?? 0
+                ProgressView(value: (Double(done) + fraction) / Double(total)).tint(Palette.accent).padding(.top, 20).accessibilityIdentifier("image-insert-progress")
+                HStack {
+                    Text(current.total == nil ? model.text("正在处理图片…", "Preparing photo…") : model.text("正在上传…", "Uploading…"))
+                    Spacer()
+                    if let bytes = current.total { Text("\(formattedBytes(current.bytes)) / \(formattedBytes(bytes))").monospacedDigit() }
+                }.font(.subheadline).foregroundStyle(Palette.secondary).padding(.top, 12)
+            } else {
+                let results = VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(followed.enumerated()), id: \.element.id) { index, job in
+                        if index > 0 { Divider().padding(.leading, 32) }
+                        row(job, outcomes[index]).accessibilityIdentifier("image-insert-row-\(index)")
+                    }
+                    if editor > 0 {
+                        Text(model.text("终端暂时无法接收粘贴，这些图片路径已放入编辑区，确认后再发送。", "The terminal could not take the paste, so these paths are in the editor. Send them from there."))
+                            .font(.footnote).foregroundStyle(Palette.secondary).padding(.top, 8)
+                    }
+                }.padding(.top, 12)
+                // A short list sits in the card as it is; a long one scrolls within about half the screen.
+                ViewThatFits(in: .vertical) { results; ScrollView { results } }.frame(maxHeight: UIScreen.main.bounds.height * 0.52)
+            }
+            HStack {
+                Spacer()
+                if running {
+                    Button(model.text("取消", "Cancel")) { followed.filter { $0.state == .running }.forEach(transfers.cancel) }
+                        .buttonStyle(TextActionStyle()).foregroundStyle(Palette.danger).accessibilityIdentifier("image-insert-cancel")
+                } else {
+                    Button(model.text("完成", "Done")) { close() }.buttonStyle(FilledButtonStyle()).accessibilityIdentifier("image-insert-done")
+                }
+            }.padding(.top, 20)
+        }
+        .padding(24).foregroundStyle(Palette.foreground)
+        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 28))
+        .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
+        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+        .accessibilityElement(children: .contain).accessibilityIdentifier("image-insert-dialog")
+    }
+
+    private func badge(_ icon: String, background: Color, tint: Color) -> some View {
+        AppIcon(icon).foregroundStyle(tint).frame(width: 40, height: 40).background(background, in: Circle())
+    }
+
+    private func row(_ job: TransferJob, _ outcome: Outcome) -> some View {
+        let failed: Bool = { if case .failed = outcome { return true }; return false }()
+        let (icon, tint, label): (Image, Color, String) = {
+            switch outcome {
+            case .inserted: return (Image("ic_check"), Palette.accent, model.text("已插入终端", "In the terminal"))
+            case .editor: return (Image(systemName: "square.and.pencil"), Palette.secondary, model.text("已放入编辑区", "In the editor"))
+            case .failed(let message): return (Image("ic_alert"), Palette.danger, message ?? model.text("上传失败", "Upload failed"))
+            case .cancelled: return (Image(systemName: "xmark"), Palette.secondary, model.text("已取消", "Cancelled"))
+            }
+        }()
+        return HStack(spacing: 12) {
+            icon.renderingMode(.template).resizable().scaledToFit().frame(width: 20, height: 20).foregroundStyle(tint)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(job.name).lineLimit(1).truncationMode(.middle)
+                Text(label).font(.footnote).foregroundStyle(failed ? Palette.danger : Palette.secondary)
+            }
+        }.padding(.vertical, 10)
+    }
+}
+
+/// Android `TopNotice`: a toast-like confirmation that drops in under the status bar for two seconds.
+private struct InsertedNotice: View {
+    let message: String
+    let onDismiss: () -> Void
+    var body: some View {
+        HStack(spacing: 10) {
+            AppIcon("ic_check", size: 20).foregroundStyle(Palette.accent)
+            Text(message).font(.subheadline)
+        }
+        .padding(.leading, 12).padding(.trailing, 16).padding(.vertical, 10)
+        .foregroundStyle(Palette.foreground)
+        .background(Palette.surface, in: Capsule())
+        .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
         .transition(.move(edge: .top).combined(with: .opacity))
-        .accessibilityElement(children: .contain).accessibilityIdentifier("image-upload-status")
+        .allowsHitTesting(false).accessibilityIdentifier("top-notice")
+        .task(id: message) { try? await Task.sleep(nanoseconds: 2_000_000_000); onDismiss() }
     }
 }
