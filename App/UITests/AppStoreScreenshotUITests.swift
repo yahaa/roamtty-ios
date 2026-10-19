@@ -34,6 +34,9 @@ final class AppStoreScreenshotUITests: RoamttyLiveUITestCase {
         try shot("02-monitor", language: language)
 
         let surface = try openTerminal(directory: "~")
+        // The ordinary SSH fixture is enough; do not depend on a manually seeded demo folder.
+        try runCommand("mkdir -p ~/roamtty-demo && { test -e ~/roamtty-demo/README.md || printf '# Development workspace\\n\\nSample files for Roamtty screenshots.\\n' > ~/roamtty-demo/README.md; } && printf 'STORE_FIXTURE_''READY\\n'")
+        waitForOutput("STORE_FIXTURE_READY", surface: surface)
         try runCommand("clear; printf '\\n\\n\\033[1;36mDevelopment workspace\\033[0m\\n\\n'; uname -sm; printf '\\nSSH + tmux session\\n\\nProject files\\n'; ls -1 --color=always ~/roamtty-demo; printf '\\nStorage\\n'; df -h / | awk 'NR>1 {print $3 \" used of \" $2 \" (\" $5 \")\"}'; printf '\\nReady for SSH, tmux and SFTP.\\n'")
         waitForOutput("Project files", surface: surface)
         sleep(2)
