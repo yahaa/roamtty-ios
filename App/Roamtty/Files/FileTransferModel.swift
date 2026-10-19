@@ -171,10 +171,6 @@ final class TransferProgressRelay {
         }
         return queued.map(\.1.id)
     }
-    /// True once every listed job has uploaded and its path went into the terminal; false while any runs, failed or waits.
-    func inserted(_ ids: [UUID]) -> Bool {
-        !ids.isEmpty && ids.allSatisfy { id in jobs.first { $0.id == id }.map { $0.state == .complete && $0.pendingInsertion == nil } ?? false }
-    }
     func download(_ entry: RemoteEntry, host: Host, model: AppModel, name: String? = nil, connectionTarget: RemoteConnectionTarget? = nil) {
         let connectionTarget = connectionTarget ?? .host(host.id)
         let job = TransferJob(name: name ?? entry.name, uploading: false, remotePath: entry.path)

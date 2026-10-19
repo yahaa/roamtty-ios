@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import PhotosUI
 import RoamttyCore
 import RoamttyTransport
 
@@ -15,6 +16,10 @@ struct TerminalScreen: View {
     @State private var commandSheet = false
     @State private var fileAction: TerminalFileAction?
     @State private var launchAfterFiles: AppSheet?
+    @State private var photoPicker = false
+    @State private var photos: [PhotosPickerItem] = []
+    /// Photos inserting into this terminal; their dialog follows them until each one has an outcome.
+    @State private var imageJobs: [UUID] = []
     @State private var restartConfirm = false
     @State private var reverifySheet = false
     @State private var editor = false
@@ -68,6 +73,7 @@ struct TerminalScreen: View {
                         }
                     }
                 }
+                ImageInsertStatus(transfers: model.files, jobs: $imageJobs, topInset: page.safeAreaInsets.top).frame(width: page.size.width, height: page.size.height)
             }
         }
         // As on Android, the terminal draws under the transparent status bar and down to the bottom edge;
@@ -132,6 +138,13 @@ struct TerminalScreen: View {
                 launchAfterFiles = .launch(runtime.host, agent, directory: directory)
                 fileAction = nil
             }.environmentObject(model)
+        }
+        // Insert image opens the system picker straight from the dock; the photos upload in the background.
+        .photosPicker(isPresented: $photoPicker, selection: $photos, maxSelectionCount: 9, matching: .images, preferredItemEncoding: .current)
+        .onChange(of: photoPicker) { presented in model.childModalCount = max(0, model.childModalCount + (presented ? 1 : -1)) }
+        .onChange(of: photos) { selected in
+            guard !selected.isEmpty else { return }
+            imageJobs += model.files.uploadImages(selected, runtime: runtime, model: model); photos = []
         }
         .sheet(isPresented: $reverifySheet) { FingerprintReview(host: runtime.host) { model.reconnect(runtime.record) }.environmentObject(model) }
     }
@@ -232,7 +245,7 @@ struct TerminalScreen: View {
     @ViewBuilder private var dockControls: some View {
         dockButton("ic_cloud_upload", model.text("上传文件", "Upload files"), id: "upload-file", enabled: connected) { fileAction = .upload }
         dockButton("ic_cloud_download", model.text("下载文件", "Download files"), id: "download-file", enabled: connected) { fileAction = .download }
-        dockButton("ic_image", model.text("插入图片", "Insert image"), id: "select-image", enabled: connected) { fileAction = .image }
+        dockButton("ic_image", model.text("插入图片", "Insert image"), id: "select-image", enabled: connected) { photoPicker = true }
         dockButton("ic_commands", model.text("常用命令", "Common commands"), id: "common-commands", enabled: connected) { runtime.terminalView.resignFirstResponder(); commandSheet = true }
         settingsMenu
     }

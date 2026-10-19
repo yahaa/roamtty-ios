@@ -1,5 +1,4 @@
 import SwiftUI
-import PhotosUI
 import CoreTransferable
 import UniformTypeIdentifiers
 import ImageIO
@@ -7,7 +6,7 @@ import RoamttyCore
 import RoamttyTransport
 
 enum TerminalFileAction: String, Identifiable {
-    case upload, download, image
+    case upload, download
     var id: String { rawValue }
 }
 
@@ -23,12 +22,8 @@ struct TerminalFileActions: View {
     @State private var connectionTarget: RemoteConnectionTarget
     @State private var started = false
     @State private var filePicker = false
-    @State private var photoPicker = false
-    @State private var photos: [PhotosPickerItem] = []
     @State private var urls: [URL] = []
     @State private var transfers = false
-    @State private var showPhotoTransfers = false
-    @State private var imageJobs: [UUID] = []
     @State private var failure: String?
 
     init(runtime: SessionRuntime, action: TerminalFileAction, onLaunchDirectory: @escaping (Bool, String) -> Void) {
@@ -51,12 +46,12 @@ struct TerminalFileActions: View {
             } else {
                 NavigationStack {
                     VStack(spacing: 20) {
-                        Image(systemName: action == .image ? "photo" : "doc.badge.arrow.up").font(.largeTitle).foregroundStyle(Palette.accent)
-                        Text(action == .image ? model.text("图片将转换为 PNG（最长边不超过 4096 像素），上传后插入当前终端，不会自动发送回车。", "Photos are converted to PNG, up to 4096 pixels on the longest side. Their paths are inserted without pressing Enter.") : model.text("选择要上传的文件，然后确认远程目录和文件名。", "Choose files, then confirm their remote folder and names.")).foregroundStyle(Palette.secondary)
+                        Image(systemName: "doc.badge.arrow.up").font(.largeTitle).foregroundStyle(Palette.accent)
+                        Text(model.text("选择要上传的文件，然后确认远程目录和文件名。", "Choose files, then confirm their remote folder and names.")).foregroundStyle(Palette.secondary)
                         if let failure { Text(failure).foregroundStyle(Palette.danger) }
-                        Button(action == .image ? model.text("选择图片", "Choose photos") : model.text("选择文件", "Choose files")) { if action == .image { photoPicker = true } else { filePicker = true } }.buttonStyle(RoamButtonStyle(primary: true)).accessibilityIdentifier("terminal-file-choose")
+                        Button(model.text("选择文件", "Choose files")) { filePicker = true }.buttonStyle(RoamButtonStyle(primary: true)).accessibilityIdentifier("terminal-file-choose")
                         Spacer()
-                    }.padding(20).pageBackground().navigationTitle(action == .image ? model.text("插入图片", "Insert images") : model.text("上传文件", "Upload files"))
+                    }.padding(20).pageBackground().navigationTitle(model.text("上传文件", "Upload files"))
                         .navigationBarTitleDisplayMode(.inline)
                         .toolbar { ToolbarItem(placement: .cancellationAction) { Button(model.text("取消", "Cancel")) { dismiss() } } }
                 }
@@ -66,19 +61,10 @@ struct TerminalFileActions: View {
         .fileImporter(isPresented: $filePicker, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             do { urls = try result.get() } catch { failure = error.localizedDescription }
         }
-        .photosPicker(isPresented: $photoPicker, selection: $photos, maxSelectionCount: 9, matching: .images, preferredItemEncoding: .current)
-        .onChange(of: photos) { selected in
-            guard !selected.isEmpty else { return }
-            imageJobs = model.files.uploadImages(selected, runtime: runtime, model: model, connectionTarget: connectionTarget)
-            photos = []; showPhotoTransfers = true
-            if !photoPicker { transfers = true; showPhotoTransfers = false }
-        }
-        .onChange(of: photoPicker) { presented in if !presented && showPhotoTransfers { transfers = true; showPhotoTransfers = false } }
-        .sheet(isPresented: $transfers, onDismiss: { dismiss() }) { TransferScreen(transfers: model.files, closeWhenInserted: imageJobs).environmentObject(model) }
+        .sheet(isPresented: $transfers, onDismiss: { dismiss() }) { TransferScreen(transfers: model.files).environmentObject(model) }
         .task {
             guard !started else { return }; started = true
             if action == .upload { filePicker = true }
-            if action == .image { photoPicker = true }
             // The browser opens in the folder the terminal is in now, asked of the host.
             directory = await runtime.workingDirectory(); resolved = true
         }
