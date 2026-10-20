@@ -1,10 +1,10 @@
 import SwiftUI
 import RoamttyCore
 
-/// One session: its tile beside its name and the last prompt ("你: …", or "等待输入中…" while an idle agent has had
-/// none), then, across the whole row, what the agent answered or runs and a status line with where it runs and what
-/// the agent needs (allow a request, or a follow-up typed right here). A plain terminal has its host and folder beneath
-/// its name. Long press for its menu.
+/// One session: its tile beside its name, the chip of the host it runs on and the last prompt ("你: …", or "等待输入中…"
+/// while an idle agent has had none), then, across the whole row, what the agent answered or runs and a status line with
+/// how long it has been at it, its folder and what the agent needs (allow a request, or a follow-up typed right here). A
+/// plain terminal has its folder beneath its name. Long press for its menu.
 struct SessionRow: View {
     @EnvironmentObject var model: AppModel
     let record: SessionRecord
@@ -29,7 +29,8 @@ struct SessionRow: View {
         let agentPath = sessionListPath(status, username: username)
         let path = agentPath.isEmpty ? sessionListPath(runtime?.paneDirectory ?? "", username: username) : agentPath
         let name = rowName(status: status, path: path, kind: kind)
-        let location = orderedUnique([host?.name ?? "", path].filter { !$0.isEmpty && $0 != name }).joined(separator: " · ")
+        // Where it runs: the whole folder (the name holds only its last part); the host has its chip beside the name.
+        let location = path == name ? "" : path
         let prompt = status?.task ?? ""
         let activity = agentActivity(status)
         let reply = replyPreview(status?.reply ?? "")
@@ -46,7 +47,8 @@ struct SessionRow: View {
                         HStack(spacing: 6) {
                             if let kind { AgentNameBadge(agent: kind) }
                             MarqueeTitle(text: name).accessibilityIdentifier("home-session-title-\(record.id)")
-                            if let status, let runtime, live { elapsed(status, since: runtime.agentStatusAt) }
+                            if let host { HostChip(name: host.name, id: host.id, offline: model.hostOffline(record) && !phase.active).padding(.leading, 2)
+                                .accessibilityIdentifier("home-session-host-\(record.id)") }
                         }
                         if !prompt.isEmpty {
                             (Text(model.text("你: ", "You: ")).foregroundColor(Palette.secondary.opacity(0.7)) + Text(prompt))
@@ -54,8 +56,8 @@ struct SessionRow: View {
                         } else if idle {
                             Text(model.text("等待输入中…", "Awaiting input…")).font(.system(size: 13)).italic().foregroundStyle(Palette.secondary.opacity(0.7)).lineLimit(1)
                                 .accessibilityIdentifier("home-session-awaiting-\(record.id)")
-                        } else {
-                            Text(location).font(.system(size: 13)).foregroundStyle(Palette.secondary).lineLimit(1).truncationMode(.middle)
+                        } else if !location.isEmpty {
+                            Text(location).font(.system(size: 13, design: .monospaced)).foregroundStyle(Palette.secondary).lineLimit(1).truncationMode(.middle)
                                 .accessibilityIdentifier("home-session-location-\(record.id)")
                         }
                     }
@@ -71,9 +73,11 @@ struct SessionRow: View {
                 HStack(spacing: 8) {
                     // A dropped or restored session the list is about to reconnect says so, not "已断开".
                     statusView(status: live ? status : nil, phase: !phase.active && model.sessionComingBack(record) ? .connecting : phase, kind: kind, activity: activity, waiting: waiting, idle: idle)
+                    if let status, let runtime, live { elapsed(status, since: runtime.agentStatusAt).padding(.leading, -2) }
                     HStack(spacing: 6) {
                         Spacer(minLength: 0)
-                        if promptLine { Text(location).font(.system(size: 12)).foregroundStyle(Palette.secondary.opacity(0.8)).lineLimit(1).truncationMode(.tail)
+                        // Cut from its start, so the folder's own name stays.
+                        if promptLine && !location.isEmpty { Text(location).font(.system(size: 12, design: .monospaced)).foregroundStyle(Palette.secondary.opacity(0.8)).lineLimit(1).truncationMode(.head)
                             .accessibilityIdentifier("home-session-location-\(record.id)") }
                         ForEach(sessionTransportTags(mode: record.mode, mosh: connected && runtime?.transportName == "mosh"), id: \.self) { MetaTag(text: $0) }
                         if waiting && live {
@@ -122,7 +126,6 @@ struct SessionRow: View {
         if name.trimmingCharacters(in: .whitespaces).isEmpty { name = model.text("会话 \(record.number)", "Session \(record.number)") }
         return name
     }
-    private func orderedUnique(_ values: [String]) -> [String] { var seen = Set<String>(); return values.filter { seen.insert($0).inserted } }
 
     @ViewBuilder private func statusView(status: AgentStatus?, phase: ConnectionPhase, kind: CodingAgent?, activity: String, waiting: Bool, idle: Bool) -> some View {
         Group {
@@ -138,7 +141,7 @@ struct SessionRow: View {
     private func elapsed(_ status: AgentStatus, since: Date) -> some View {
         TimelineView(.periodic(from: since, by: 10)) { context in
             let seconds = status.elapsedMillis / 1000 + Int64(max(0, context.date.timeIntervalSince(since)))
-            Text(status.state == .idle ? agoText(seconds, english: model.english) : shortDuration(seconds))
+            Text("· " + (status.state == .idle ? agoText(seconds, english: model.english) : shortDuration(seconds)))
                 .font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.secondary.opacity(0.8)).lineLimit(1).fixedSize()
         }.accessibilityIdentifier("home-session-time-\(record.id)")
     }
@@ -173,5 +176,23 @@ struct SessionRow: View {
             if sent { draft = ""; replying = false; draftFocused = false }
             else { failure = model.text("未发送：Agent 不在等待输入", "Not sent: the agent is not waiting for input") }
         }
+    }
+}
+
+/// The host a session runs on: its name on a wash of `Palette.host`, grey around a hollow dot while the host is offline.
+private struct HostChip: View {
+    let name: String
+    let id: String
+    let offline: Bool
+
+    var body: some View {
+        let tint = offline ? Palette.secondary.opacity(0.7) : Palette.host(id)
+        HStack(spacing: 5) {
+            Circle().fill(offline ? Color.clear : tint).overlay { if offline { Circle().stroke(tint, lineWidth: 1.5) } }.frame(width: 6, height: 6)
+            Text(name).font(.system(size: 12, weight: .semibold)).foregroundStyle(tint).lineLimit(1).truncationMode(.tail)
+        }
+        .padding(.leading, 6).padding(.trailing, 8).padding(.vertical, 2)
+        .background(offline ? Palette.foreground.opacity(0.06) : tint.opacity(0.14), in: Capsule())
+        .frame(maxWidth: 140).fixedSize()
     }
 }

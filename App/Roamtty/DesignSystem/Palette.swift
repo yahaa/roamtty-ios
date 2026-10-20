@@ -25,6 +25,22 @@ enum Palette {
     static let onAccent = adaptive(0xFFFFFF, 0x442315)
     static let inverseSurface = adaptive(0x31302D, 0xE6E2DC)
     static let inverseForeground = adaptive(0xF4F0EA, 0x31302D)
+
+    /// Each host's own colour, picked by its id (hashed as Android's String.hashCode, since Swift's hash changes every
+    /// launch) so it stays put; none is a status colour (amber, green, red).
+    static func host(_ id: String) -> Color {
+        let hash = id.utf16.reduce(Int32(0)) { $0 &* 31 &+ Int32($1) }
+        let index = Int((Int64(hash) % Int64(hostColors.count) + Int64(hostColors.count)) % Int64(hostColors.count))
+        return hostColors[index]
+    }
+    private static let hostColors = [
+        adaptive(0x1F8A7E, 0x4FB6A8), // teal
+        adaptive(0x7B5BC9, 0xB394F0), // violet
+        adaptive(0x2F6FC4, 0x6AA7F5), // blue
+        adaptive(0xB8457F, 0xE88BB8), // pink
+        adaptive(0x1F86A6, 0x5CC3E0), // cyan
+        adaptive(0x4F5BC4, 0x8F98F0), // indigo
+    ]
 }
 
 extension UIColor {
