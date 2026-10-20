@@ -84,7 +84,7 @@ struct SessionRow: View {
                             RowAction(label: model.text("查看", "View"), plain: true) { model.openSession(record) }.accessibilityIdentifier("home-session-view-\(record.id)")
                             RowAction(label: model.text("允许", "Allow"), fill: Palette.warning) { approve(runtime) }.accessibilityIdentifier("home-session-approve-\(record.id)")
                         } else if idle && live {
-                            RowAction(label: model.text("追问", "Reply"), icon: "ic_reply") { replying.toggle(); draftFocused = replying }.accessibilityIdentifier("home-session-follow-up-\(record.id)")
+                            RowAction(label: model.text("追问", "Reply"), icon: "ic_reply", iconOnly: true) { replying.toggle(); draftFocused = replying }.accessibilityIdentifier("home-session-follow-up-\(record.id)")
                         }
                     }
                 }.frame(minHeight: 28).padding(.top, 8)
