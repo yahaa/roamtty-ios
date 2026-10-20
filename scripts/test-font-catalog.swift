@@ -1,4 +1,4 @@
-// macOS: swiftc App/Roamtty/Settings/CustomFontStore.swift scripts/test-font-catalog.swift -o /tmp/roamtty-font-checks
+// macOS: swiftc App/Roamtty/Features/Settings/Fonts/CustomFontStore.swift scripts/test-font-catalog.swift -o /tmp/roamtty-font-checks
 // /tmp/roamtty-font-checks App/Roamtty/Resources/Fonts/JetBrainsMono-Regular.ttf App/Roamtty/Resources/Fonts/FiraCode-Regular.ttf
 import Foundation
 import CoreGraphics

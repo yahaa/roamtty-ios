@@ -2,20 +2,11 @@ import Foundation
 import RoamttyCore
 import RoamttyTransport
 
-struct HostMonitorState {
-    var phase: ConnectionPhase
-    var reconnecting = false
-    var sampled = false
-    var detail: String?
-    /// The collectors ran but returned nothing usable: a permissions problem, not a lost login.
-    var samplingFailed = false
-}
-
 /// The host page's live metrics: sampled every few seconds over the host's shared connection while the page shows.
 extension AppModel {
     func startMonitor(_ host: Host, interactive: Bool = false) {
         guard foreground, monitorJobs[host.id] == nil else { return }
-        let hasSecret = connections[host.id]?.isConnected == true || host.auth != .password || (try? vault.read(hostID: host.id, purpose: "password")) != nil || credentialCache[host.id] != nil
+        let hasSecret = connections[host.id]?.isConnected == true || host.auth != .password || (try? vault.read(hostID: host.id, purpose: .password)) != nil || credentialCache[host.id] != nil
         guard interactive || hasSecret else { return }
         let token = UUID(), cancellation = TransferCancellation()
         monitorStates[host.id] = HostMonitorState(phase: .connecting)

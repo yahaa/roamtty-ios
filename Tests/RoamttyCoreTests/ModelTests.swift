@@ -8,6 +8,10 @@ final class ModelTests: XCTestCase {
         XCTAssertThrowsError(try Host(name: "test", address: "ssh://evil", username: "root").validated())
         XCTAssertThrowsError(try Host(name: "test", address: "a", port: 0, username: "root").validated())
     }
+    /// Saved credentials are found by these names: renaming a case would orphan every stored password and key.
+    func testSecretPurposesKeepTheirKeychainNames() {
+        XCTAssertEqual(SecretPurpose.allCases.map(\.rawValue), ["password", "key"])
+    }
     func testSessionLimitAndIndependentTmuxNames() throws {
         var journal = SessionJournal()
         let first = try journal.create(hostID: "one", mode: .tmux)

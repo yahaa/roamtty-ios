@@ -84,7 +84,7 @@ import RoamttyTransport
         guard ProcessInfo.processInfo.arguments.contains("--ui-testing"), let address = environment["ROAMTTY_TEST_HOST"],
               let username = environment["ROAMTTY_TEST_USERNAME"], let password = environment["ROAMTTY_TEST_PASSWORD"] else { return }
         let fixture = Host(id: "ui-live-host", name: "UI Live Host", address: address, port: Int(environment["ROAMTTY_TEST_PORT"] ?? "22") ?? 22, username: username, auth: .password, mode: .tmux, savePassword: true)
-        try store.saveHost(fixture); try vault.save(data: Data(password.utf8), hostID: fixture.id, purpose: "password"); hosts = try store.hosts()
+        try store.saveHost(fixture); try vault.save(data: Data(password.utf8), hostID: fixture.id, purpose: .password); hosts = try store.hosts()
     }
     #endif
 
@@ -138,16 +138,4 @@ import RoamttyTransport
         for runtime in runtimes.values { runtime.clearLoginCredentials() }
         prompts.removeAll().forEach { $0.answer(nil) }
     }
-}
-
-/// A task with the token its bookkeeping checks, so a finished task does not clear a newer one under the same key.
-struct TrackedTask {
-    let token: UUID
-    let task: Task<Void, Never>
-    var cancellation: TransferCancellation? = nil
-    func cancel() { cancellation?.cancel(); task.cancel() }
-}
-
-func performInBackground<T>(_ operation: @escaping () throws -> T) async throws -> T {
-    try await withCheckedThrowingContinuation { continuation in DispatchQueue.global(qos: .userInitiated).async { continuation.resume(with: Result { try operation() }) } }
 }
