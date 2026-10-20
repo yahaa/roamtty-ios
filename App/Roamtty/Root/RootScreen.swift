@@ -51,6 +51,7 @@ struct RootScreen: View {
                 case .editor(let host): HostEditorScreen(original: host)
                 case .newHost(let agent): HostEditorScreen(original: nil, forSession: .some(agent))
                 case .newSession: NewSessionSheet()
+                case .continueSession(let host): ContinueSessionScreen(host: host)
                 case .settings: SettingsScreen()
                 case .launch(let host, let agent, let directory, let picked, let newSession):
                     LaunchScreen(host: host, forAgent: agent, initialDirectory: directory, initialAgent: picked,
