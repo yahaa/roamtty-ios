@@ -12,6 +12,8 @@ public struct RemoteFolders: Equatable, Sendable {
         })
     }
 
+    // [[:cntrl:]] rather than a byte range: in UTF-8 locales bash (macOS /bin/sh) matches
+    // [\001-\037] by collation order, which skips newline and tab.
     public static func script(_ directory: String) throws -> String {
         guard StartDirectory.isSupported(directory) else { throw RoamError.invalid("Unsupported folder path") }
         let normalized = StartDirectory.normalize(directory)
@@ -21,9 +23,8 @@ public struct RemoteFolders: Equatable, Sendable {
         else { target = RemoteCommands.shellQuote(normalized) }
         return #"""
         cd -- \#(target) 2>/dev/null || exit 3
-        control_pattern=$(printf '*[\001-\037\177]*')
         safe_path() {
-          case "$1" in $control_pattern) return 1 ;; esac
+          case "$1" in *[[:cntrl:]]*) return 1 ;; esac
         }
         safe_path "$HOME" || exit 3
         path=$(pwd -P && printf '.') || exit 3
