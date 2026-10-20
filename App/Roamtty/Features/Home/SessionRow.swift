@@ -100,7 +100,8 @@ struct SessionRow: View {
             // Close ends everything it runs, without asking; a tmux session that was already on the server is only detached.
             Button(role: .destructive) { model.closeSession(record) } label: { Label { Text(record.external ? model.text("断开", "Detach") : model.text("关闭", "Close")) } icon: { Image("ic_delete") } }
                 .accessibilityIdentifier("home-session-close-\(record.id)")
-            // Closing a tmux session ends it on the server, which an offline or unanswering host never allows.
+            // Closing a tmux session waits for the server to end it, which an offline or unanswering host never allows;
+            // force delete removes the card first and ends the session if the host answers.
             if record.mode == .tmux && !record.external {
                 Button(role: .destructive) { forceDelete = true } label: { Label { Text(model.text("强制删除", "Force delete")) } icon: { Image("ic_delete") } }
                     .accessibilityIdentifier("home-session-forget-\(record.id)")
@@ -109,7 +110,7 @@ struct SessionRow: View {
         .alert(model.text("强制删除会话？", "Force delete this session?"), isPresented: $forceDelete) {
             Button(model.text("删除", "Delete"), role: .destructive) { model.forceDeleteSession(record) }.accessibilityIdentifier("home-session-forget-confirm-\(record.id)")
             Button(model.text("取消", "Cancel"), role: .cancel) { }
-        } message: { Text(model.text("只移除本机的会话卡片，不登录主机；远端 tmux 会话若仍在运行，会继续保留。", "Removes the card from this phone without logging in to the host; the remote tmux session keeps running if it still is.")) }
+        } message: { Text(model.text("立即移除会话卡片，并用已保存的登录结束远端 tmux 会话；主机无法连接时，远端会话会继续保留。", "Removes the card at once and ends the remote tmux session with the saved login; if the host can't be reached, the remote session keeps running.")) }
         .onChange(of: status?.state) { state in failure = nil; if state != .idle { replying = false } }
         .accessibilityElement(children: .contain).accessibilityIdentifier("home-session-\(record.id)")
     }

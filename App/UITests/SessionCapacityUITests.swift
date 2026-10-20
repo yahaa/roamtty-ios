@@ -7,7 +7,7 @@ final class SessionCapacityUITests: RoamttyLiveUITestCase {
         let token: String
     }
 
-    func testEightSessionsStayIsolatedAndForceDeletePreservesRemoteTmux() throws {
+    func testEightSessionsStayIsolatedAndForceDeleteEndsRemoteTmux() throws {
         try openHost()
         let runID = nonce()
         var sessions: [OwnedSession] = []
@@ -87,18 +87,16 @@ final class SessionCapacityUITests: RoamttyLiveUITestCase {
         waitFor(NSPredicate(format: "exists == false"), element: card)
         XCTAssertEqual(try homeSessionIDs(), eightIDs.subtracting([tmux.cardID]))
 
+        // The card goes first and the session ends over a login of its own, so give the server a moment.
         try openCard(sessions[1].cardID)
-        let preserved = "CAPACITY_TMUX_PRESERVED_" + nonce()
+        let removed = "CAPACITY_TMUX_REMOVED_" + nonce()
         let target = quote("=" + name)
-        let check = "tmux has-session -t " + target
-            + " && test \"$(tmux show-environment -t " + target + " ROAMTTY_UI_CAPACITY)\" = " + quote("ROAMTTY_UI_CAPACITY=" + tmux.token)
-            + " && " + emit(preserved)
+        let check = "for i in $(seq 1 40); do tmux has-session -t " + target + " 2>/dev/null || break; sleep 0.5; done; "
+            + "! tmux has-session -t " + target + " 2>/dev/null && " + emit(removed)
         let surface = try runCommand(check)
-        waitForOutput(preserved, surface: surface)
-        capture("Force-deleted card leaves its exact remote tmux session alive")
-        let cleaned = "CAPACITY_TMUX_REMOVED_" + nonce()
-        try runCommand("tmux kill-session -t " + target + " && ! tmux has-session -t " + target + " 2>/dev/null && " + emit(cleaned))
-        waitForOutput(cleaned, surface: surface)
+        waitForOutput(removed, surface: surface)
+        capture("Force-deleted card also ends its exact remote tmux session")
+        XCTAssertFalse(app.alerts.firstMatch.exists, "Ending the remote session must report no failure")
         leaveTerminal()
 
         // Close the SSH connections created by this case; closing asks nothing.

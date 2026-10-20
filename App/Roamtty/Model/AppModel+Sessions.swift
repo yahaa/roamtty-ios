@@ -187,17 +187,39 @@ extension AppModel {
         } else if let runtime, runtime.phase.active {
             cancelLaunch(record.id); runtime.close()
         } else {
-            forgetSession(record, terminateRemote: true)
+            terminateSession(record)
         }
     }
-    /// 强制删除: forgets a disconnected tmux session's card without logging in; the remote session keeps running.
-    func forceDeleteSession(_ record: SessionRecord) { forgetSession(record, terminateRemote: false) }
+    /// 强制删除: the card goes at once, whatever the host does. Its tmux session is then ended on the server over a
+    /// connection of its own, with the login the card already has and without asking anything; one the host could not
+    /// end keeps running, and the user is told.
+    func forceDeleteSession(_ record: SessionRecord) {
+        if path.last == .terminal(record.id) { leaveTerminal() }
+        // Taken before the card goes, which clears a session's own login.
+        let login = host(record.hostID).map { runtimes[record.id]?.loginSnapshot.reconnect(using: $0) ?? SessionLoginSnapshot(host: $0).reconnect(using: $0) }
+        cancelLaunch(record.id); removeSession(record)
+        guard record.mode == .tmux && !record.external, let login else { return }
+        Task {
+            do {
+                let creds = try await credentials(for: login.host, retained: login.retainedCredentials, useSavedCredentials: login.usesSavedCredentials, asking: false)
+                let ssh = try makeConnection(login.host, credentials: creds)
+                defer { disconnectSoon(ssh) }
+                let command = "/bin/sh -c " + RemoteCommands.shellQuote(RemoteCommands.killTmux(record.remoteName))
+                let result = try await performInBackground { try ssh.connect(); return try ssh.exec(command, timeout: 15) }
+                guard result.status == 0 else { throw RoamError.transport(String(decoding: result.output, as: UTF8.self)) }
+            } catch {
+                let reason = (error as? RoamError) == .cancelled ? text("没有已保存的登录信息", "no saved login") : error.localizedDescription
+                self.error = text("会话卡片已移除，但未能终止远端 tmux 会话：\(reason)", "The card is gone, but the remote tmux session could not be ended: \(reason)")
+            }
+        }
+    }
     /// A tmux session restarts its pane over the live connection; a plain shell gets a fresh one by reconnecting.
     func restartSession(_ record: SessionRecord) {
         guard record.mode == .tmux, let runtime = runtimes[record.id] else { reconnect(record); return }
         Task { if !(await runtime.restartPane()) { error = text("未能重启会话，请检查连接后重试", "Couldn't restart the session. Check the connection and try again.") } }
     }
-    func forgetSession(_ record: SessionRecord, terminateRemote: Bool) {
+    /// Logs in to end a disconnected tmux session on the server; its card goes once that worked.
+    func terminateSession(_ record: SessionRecord) {
         let runtime = runtimes[record.id]
         // Restored/disconnected cards can connect on request. A live card always owns
         // its existing connection; closing/replacing it while queued must not retarget.
@@ -216,17 +238,14 @@ extension AppModel {
         }
         Task {
             do {
-                if terminateRemote {
-                    try validateTerminationTarget()
-                    let ssh = try await connection(for: target)
-                    try validateTerminationTarget()
-                    let result = try await performInBackground { try ssh.exec("/bin/sh -c " + RemoteCommands.shellQuote(RemoteCommands.killTmux(record.remoteName))) }
-                    guard result.status == 0 else { throw RoamError.transport(String(decoding: result.output, as: UTF8.self)) }
-                }
+                try validateTerminationTarget()
+                let ssh = try await connection(for: target)
+                try validateTerminationTarget()
+                let result = try await performInBackground { try ssh.exec("/bin/sh -c " + RemoteCommands.shellQuote(RemoteCommands.killTmux(record.remoteName))) }
+                guard result.status == 0 else { throw RoamError.transport(String(decoding: result.output, as: UTF8.self)) }
                 guard runtimes[record.id] === runtime else { throw RoamError.cancelled }
                 runtimes[record.id]?.close(); removeSession(record)
             } catch {
-                guard terminateRemote else { self.error = error.localizedDescription; return }
                 self.error = text("未能终止远端会话：\(error.localizedDescription)。长按卡片可强制删除", "Could not end the remote session: \(error.localizedDescription). Long-press the card to force delete it")
             }
         }
