@@ -62,5 +62,19 @@ do {
     expect(text(t, dropped - 1), nil, "wrapped window start")
 }
 
+// The app keeps 2000 lines of history, as Android does, through a reset (ESC c) and a resize too.
+do {
+    let t = Terminal(delegate: delegate, options: TerminalOptions(cols: 20, rows: 5))
+    t.changeScrollback(2000)
+    var dropped = feed(t, 0..<2100, since: 0)
+    expect(dropped, 2100 - 4 - 2000, "2000 kept")
+    t.feed(text: "\u{1b}c")
+    dropped = feed(t, 0..<2100, since: 0)
+    expect(dropped, 2100 - 4 - 2000, "2000 kept after reset")
+    t.resize(cols: 30, rows: 8)
+    dropped = feed(t, 0..<50, since: dropped)
+    expect(text(t, dropped + 2000 + 8 - 1) != nil && text(t, dropped + 2000 + 8) == nil, true, "2000 kept after resize")
+}
+
 print("\(checks - failures)/\(checks) terminal scrollback checks passed")
 exit(failures == 0 ? 0 : 1)

@@ -64,7 +64,7 @@ struct NativeTerminal: UIViewRepresentable {
         let now = ProcessInfo.processInfo.systemUptime
         if let begins = TerminalSynchronizedOutput.lastChange(in: bytes) { frameBegan = begins ? now : nil }
         if !terminal.isCurrentBufferAlternate {
-            // A full scrollback (500 lines) drops its oldest lines as new ones arrive and the rest move up a row each.
+            // A full scrollback drops its oldest lines as new ones arrive and the rest move up a row each.
             let dropped = terminal.droppedScrollbackLines(since: droppedLines, fed: bytes.count)
             undrawnDrops += max(0, dropped - droppedLines); droppedLines = dropped
         }
