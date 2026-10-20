@@ -129,6 +129,8 @@ import RoamttyTransport
         terminalView.inputAccessoryView = nil
         // Android keeps xterm's fixed 256-colour cube and grey ramp instead of deriving them from the 16 ANSI colours.
         terminalView.getTerminal().options.ansi256PaletteStrategy = .xterm
+        // 2000 lines of history like Android (Termux's default) rather than SwiftTerm's 500.
+        terminalView.changeScrollback(2000)
         // iOS 26 frosts a scroll view's edges under the status bar and home indicator; the terminal stays clear to the edge.
         if #available(iOS 26.0, *) { terminalView.topEdgeEffect.isHidden = true; terminalView.bottomEdgeEffect.isHidden = true }
         // The page lays the terminal under the status bar itself; the scroll view must not add its own safe-area insets.
