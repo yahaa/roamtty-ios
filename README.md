@@ -32,6 +32,39 @@ xcodebuild -project Roamtty.xcodeproj -scheme Roamtty \
 
 Dependencies are version-pinned; native downloads are SHA-256 checked. Generated project files are checked in; regenerate when adding sources. Native build artifacts stay outside version control.
 
+## Project layout
+
+```
+Sources/
+  CNative/            C shims (sockets, crypto, local files) linking libssh2, OpenSSL and SQLite
+  RoamttyCore/        platform-independent logic, unit tested on macOS and Linux
+    Model/            hosts, settings, session journal
+    Persistence/      the SQLite store
+    Security/         Keychain vault, in-memory logins, host-key pins, private keys
+    Sessions/         reconnect rules, login and connection snapshots, generations
+    Remote/           shell commands run on hosts, metrics, plugins, agent status
+    Files/            remote listings, sorting, local download folders
+    Terminal/         shortcuts, URL finder, mouse tracking, output history
+    Text/             syntax highlighting, Markdown, code search
+  RoamttyTransport/   SSH/SFTP (SSH/) and mosh (Mosh/)
+App/
+  Roamtty/            the iOS app
+    Application/      entry point and launch splash
+    Navigation/       routes, sheets, the root stack and drawer
+    Model/            AppModel, the state screens observe, split by feature in extensions
+    Services/         diagnostics, reachability, the share inbox, per-session preferences
+    DesignSystem/     palette, shared components, button styles, formatting
+    Features/         Home, Hosts, Sessions, Terminal, Files, Settings, Authentication
+    Debug/            on-device validation (Debug builds only)
+    Resources/        fonts and the asset catalog
+  Shared/             code shared by the app and the share extension
+  ShareExtension/     the share extension
+  UITests/            XCTest UI suite against live SSH fixtures
+Tests/                RoamttyCore and RoamttyTransport unit and live tests
+```
+
+Views read state from `AppModel` and call its actions; logic that needs no UIKit lives in `RoamttyCore`, where it is unit tested. `scripts/generate-project.py` picks up every source file under these folders.
+
 ## Tests
 
 ```sh
@@ -82,7 +115,7 @@ These checks stop a real sudo command and a real apt download, verify the packag
 The custom font checks use real CoreText on macOS:
 
 ```sh
-swiftc App/Roamtty/Settings/CustomFontStore.swift scripts/test-font-catalog.swift -o /tmp/roamtty-font-checks
+swiftc App/Roamtty/Features/Settings/Fonts/CustomFontStore.swift scripts/test-font-catalog.swift -o /tmp/roamtty-font-checks
 /tmp/roamtty-font-checks
 ```
 

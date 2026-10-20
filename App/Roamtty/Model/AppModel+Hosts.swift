@@ -5,29 +5,29 @@ import RoamttyTransport
 /// Saved hosts: editing and deleting them, their stored secrets, and whether they can be reached.
 extension AppModel {
     func host(_ id: String) -> Host? { hosts.first { $0.id == id } }
-    func savedKey(_ hostID: String) -> Data? { try? vault.read(hostID: hostID, purpose: "key") }
+    func savedKey(_ hostID: String) -> Data? { try? vault.read(hostID: hostID, purpose: .key) }
     func loginPassword(for hostID: String) -> String? { credentialCache[hostID]?.password.flatMap { String(data: $0, encoding: .utf8) } }
 
     func saveHost(_ host: Host, password: String, key: Data?, passphrase: String) throws {
         guard let store else { throw RoamError.invalid(text("存储不可用", "Storage unavailable")) }
         let validated = try host.validated()
         let previousHost = self.host(host.id)
-        let previousPassword = try vault.read(hostID: host.id, purpose: "password")
-        let previousKey = try vault.read(hostID: host.id, purpose: "key")
+        let previousPassword = try vault.read(hostID: host.id, purpose: .password)
+        let previousKey = try vault.read(hostID: host.id, purpose: .key)
         let nextKey = key ?? previousKey
         if validated.auth == .key && nextKey == nil { throw RoamError.invalid(text("请选择 SSH 私钥", "Choose an SSH private key")) }
         let nextPassword = validated.savePassword ? (password.isEmpty ? previousPassword : Data(password.utf8)) : nil
         var passwordChanged = false, keyChanged = false
         do {
-            if nextPassword != previousPassword { try vault.save(data: nextPassword, hostID: host.id, purpose: "password"); passwordChanged = true }
-            if nextKey != previousKey { try vault.save(data: nextKey, hostID: host.id, purpose: "key"); keyChanged = true }
+            if nextPassword != previousPassword { try vault.save(data: nextPassword, hostID: host.id, purpose: .password); passwordChanged = true }
+            if nextKey != previousKey { try vault.save(data: nextKey, hostID: host.id, purpose: .key); keyChanged = true }
             // The database row is committed only after its credentials are available.
             try store.saveHost(validated)
         } catch {
             let original = error
             do {
-                if passwordChanged { try vault.save(data: previousPassword, hostID: host.id, purpose: "password") }
-                if keyChanged { try vault.save(data: previousKey, hostID: host.id, purpose: "key") }
+                if passwordChanged { try vault.save(data: previousPassword, hostID: host.id, purpose: .password) }
+                if keyChanged { try vault.save(data: previousKey, hostID: host.id, purpose: .key) }
             } catch {
                 throw RoamError.invalid(original.localizedDescription + text("；凭据恢复失败：", "; credential recovery failed: ") + error.localizedDescription)
             }
@@ -68,7 +68,7 @@ extension AppModel {
     func canLoginSilently(_ host: Host) -> Bool {
         if credentialCache[host.id] != nil { return true }
         switch host.auth {
-        case .password: return !credentialCache.savedPasswordRejected(host.id) && (try? vault.read(hostID: host.id, purpose: "password")) != nil
+        case .password: return !credentialCache.savedPasswordRejected(host.id) && (try? vault.read(hostID: host.id, purpose: .password)) != nil
         case .key: return savedKey(host.id).map { !PrivateKeys.needsPassphrase($0) } ?? false
         case .interactive: return false
         }
