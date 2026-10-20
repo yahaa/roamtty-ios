@@ -45,7 +45,7 @@ On Linux:
 ROAMTTY_SWIFT=/home/v/sdk/swift/usr/bin/swift ./scripts/test-linux.sh
 swiftc App/Shared/ShareInboxStore.swift scripts/test-share-inbox.swift -o /tmp/roamtty-share-check
 /tmp/roamtty-share-check
-swiftc App/Roamtty/Terminal/TerminalInteraction.swift scripts/test-terminal-interaction.swift -o /tmp/roamtty-terminal-check
+swiftc App/Roamtty/Features/Terminal/Input/TerminalInteraction.swift scripts/test-terminal-interaction.swift -o /tmp/roamtty-terminal-check
 /tmp/roamtty-terminal-check
 ```
 

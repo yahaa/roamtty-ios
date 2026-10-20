@@ -1,1 +1,1 @@
-../../../../Sources/RoamttyCore/TerminalUrl.swift
+../../../../Sources/RoamttyCore/Terminal/TerminalUrl.swift

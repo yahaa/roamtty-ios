@@ -2,22 +2,6 @@ import Foundation
 import RoamttyCore
 import RoamttyTransport
 
-/// Host tools follow the saved host. Session tools retain the exact runtime and SSH
-/// connection that opened them, including after that host's address or user is edited.
-enum RemoteConnectionTarget {
-    case host(String)
-    case session(String, SessionConnectionSnapshot<SessionRuntime, SSHConnection>)
-
-    @MainActor static func session(_ runtime: SessionRuntime) -> Self {
-        .session(runtime.record.id, SessionConnectionSnapshot(session: runtime, connection: runtime.ssh))
-    }
-
-    @MainActor var runtime: SessionRuntime? {
-        if case .session(_, let snapshot) = self { return snapshot.session }
-        return nil
-    }
-}
-
 /// Logins, the questions they ask the user, and the connections that a host's tools (files, plugins, metrics) share.
 extension AppModel {
     // MARK: Staleness
@@ -53,7 +37,7 @@ extension AppModel {
         guard foreground else { throw RoamError.cancelled }
         if useSavedCredentials, let existing = credentialCache[host.id] { return existing }
         var credentials = useSavedCredentials
-            ? Credentials(password: credentialCache.savedPasswordRejected(host.id) ? nil : try vault.read(hostID: host.id, purpose: "password"), privateKey: try vault.read(hostID: host.id, purpose: "key"), passphrase: nil)
+            ? Credentials(password: credentialCache.savedPasswordRejected(host.id) ? nil : try vault.read(hostID: host.id, purpose: .password), privateKey: try vault.read(hostID: host.id, purpose: .key), passphrase: nil)
             : retained ?? Credentials()
         let originalTarget = useSavedCredentials ? "" : "\(host.username)@\(host.address):\(host.port)\n"
         func stillWanted() -> Bool { foreground && !Task.isCancelled && isCurrent(hostID: host.id, generation: hostGeneration, owner: owner, ownerGeneration: ownerGeneration) }

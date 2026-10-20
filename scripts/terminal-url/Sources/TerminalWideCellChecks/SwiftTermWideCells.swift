@@ -1,1 +1,1 @@
-../../../../App/Roamtty/Terminal/SwiftTermWideCells.swift
+../../../../App/Roamtty/Features/Terminal/Rendering/SwiftTermWideCells.swift

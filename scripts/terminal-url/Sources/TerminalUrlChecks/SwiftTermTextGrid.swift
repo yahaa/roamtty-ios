@@ -1,1 +1,1 @@
-../../../../App/Roamtty/Terminal/SwiftTermTextGrid.swift
+../../../../App/Roamtty/Features/Terminal/Rendering/SwiftTermTextGrid.swift
