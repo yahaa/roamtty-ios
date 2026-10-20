@@ -488,6 +488,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "58D4AA42874F42E45272C0EF";
 		};
+		"389DDE38C8E45502D2229DF4" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyCore/Terminal/TerminalSynchronizedOutput.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"BD006930954989BCC27083B9" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "389DDE38C8E45502D2229DF4";
+		};
 		"A986020F5DF4C4B0EB053611" = {
 			"isa" = "PBXFileReference";
 			"path" = "Sources/RoamttyCore/Terminal/TerminalUrl.swift";
@@ -558,6 +568,7 @@
 				"164394B7320B127FF22F509E",
 				"6E7E1969A77D9CED3D57FF80",
 				"4A92B076A79578B5A06C82AB",
+				"BD006930954989BCC27083B9",
 				"C36B34D28C95AD0371A59F08",
 				"6CB83B8975132D16C8046F92",
 				"669116967C8FC1FDFE7F381D",
@@ -1457,6 +1468,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "CF36B2E8B5AEE4AB5CE8E80C";
 		};
+		"81502EBD6DFAB4639BE97DD3" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Features/Terminal/Rendering/SwiftTermScrollback.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"15EC1BD783AA420FEB4D2C17" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "81502EBD6DFAB4639BE97DD3";
+		};
 		"A6E1151EE72EE874BA069958" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/Roamtty/Features/Terminal/Rendering/SwiftTermTextGrid.swift";
@@ -1829,6 +1850,7 @@
 				"C58972A00ACF8E1E91EF7CE6",
 				"5A08E11F93C061E6E8A30699",
 				"95CBC4B3BA908B17930DDBF2",
+				"15EC1BD783AA420FEB4D2C17",
 				"313ECBE9F67E8DADF14782EA",
 				"7EEE72D12819CEBA5BDCD09D",
 				"4A91773807B7E0AFADE95F33",
@@ -2748,6 +2770,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "5C85A4D9D99DB89552952B5D";
 		};
+		"3007552F5558FE43AE6EB6B1" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/UITests/SessionHostChipUITests.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"7891A97F95F1C2566501C3B7" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "3007552F5558FE43AE6EB6B1";
+		};
 		"53A3BE6ED3921EE9F96B4F5F" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/UITests/TerminalGestureUITests.swift";
@@ -2788,6 +2820,7 @@
 				"0D797F1559BDDEB604C09281",
 				"36013B1C80EE8ED91E542170",
 				"C9C4CCC113ED143330172A0B",
+				"7891A97F95F1C2566501C3B7",
 				"564E8FB01B635C30E8767736",
 				"1505D11C5E5873A8800F80D2",
 			);
@@ -2989,6 +3022,7 @@
 				"B12148D47D4A403895ADAD9C",
 				"DEC4E88920BF88513B721B48",
 				"58D4AA42874F42E45272C0EF",
+				"389DDE38C8E45502D2229DF4",
 				"A986020F5DF4C4B0EB053611",
 				"57FEC7FE39114A38EBCC061B",
 				"91E23E61F928968365F02DAF",
@@ -3048,6 +3082,7 @@
 				"F54B1190BF7A1A558907F83A",
 				"D7BDD82F29C03C86EA902D4D",
 				"CF36B2E8B5AEE4AB5CE8E80C",
+				"81502EBD6DFAB4639BE97DD3",
 				"A6E1151EE72EE874BA069958",
 				"67BC99ED81EBE184E0FDC319",
 				"EC3F3D2734191003A108AD1E",
@@ -3124,6 +3159,7 @@
 				"B07ADD9C13005F91213B615A",
 				"7333C069394814259D42C753",
 				"5C85A4D9D99DB89552952B5D",
+				"3007552F5558FE43AE6EB6B1",
 				"53A3BE6ED3921EE9F96B4F5F",
 				"E3B676570A0896087DEDF330",
 				"0A3E27B8CA818264D75C8D81",

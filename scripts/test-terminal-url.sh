@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the terminal URL and wide cell checks against SwiftTerm 1.13.0, the version the app pins.
+# Runs the terminal URL, wide cell and scrollback checks against SwiftTerm 1.13.0, the version the app pins.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HARNESS="$ROOT/scripts/terminal-url"
@@ -12,3 +12,4 @@ fi
 cd "$HARNESS"
 GITHUB_ACTIONS=true "$SWIFT" run -c release TerminalUrlChecks
 GITHUB_ACTIONS=true "$SWIFT" run -c release TerminalWideCellChecks
+GITHUB_ACTIONS=true "$SWIFT" run -c release TerminalScrollbackChecks

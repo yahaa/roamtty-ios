@@ -56,19 +56,31 @@ struct NativeTerminal: UIViewRepresentable {
     func feedKeepingPlace(_ bytes: ArraySlice<UInt8>) {
         let terminal = getTerminal(), screen = CGFloat(max(1, terminal.rows))
         let rowHeight = getOptimalFrameSize().height / screen
-        // SwiftTerm sizes the content to its buffer, one row per line, and snaps to its last screenful.
-        func lines() -> Int { rowHeight > 0 ? Int((contentSize.height / rowHeight).rounded()) : 0 }
         let reading = rowHeight > 0 && !terminal.isCurrentBufferAlternate
             && (isTracking || isDecelerating || contentOffset.y < contentSize.height - (screen + 0.5) * rowHeight)
-        let place = contentOffset.y, before = lines(), top = terminal.getTopVisibleRow()
+        let place = contentOffset.y
         feed(byteArray: bytes); spokenTextStale = true
         if terminal.blankSplitWideCharacters() { terminal.updateFullScreen() }
-        guard reading, !terminal.isCurrentBufferAlternate else { return }
-        // A full scrollback drops its oldest lines as new ones arrive; move up with the text being read.
-        let dropped = max(0, (terminal.getTopVisibleRow() - top) - (lines() - before))
-        let target = min(max(0, contentSize.height - bounds.height), max(0, place - CGFloat(dropped) * rowHeight))
+        let now = ProcessInfo.processInfo.systemUptime
+        if let begins = TerminalSynchronizedOutput.lastChange(in: bytes) { frameBegan = begins ? now : nil }
+        if !terminal.isCurrentBufferAlternate {
+            // A full scrollback (500 lines) drops its oldest lines as new ones arrive and the rest move up a row each.
+            let dropped = terminal.droppedScrollbackLines(since: droppedLines, fed: bytes.count)
+            undrawnDrops += max(0, dropped - droppedLines); droppedLines = dropped
+        }
+        guard reading, !terminal.isCurrentBufferAlternate else { undrawnDrops = 0; return }
+        // Move up with the text being read, once it is on screen: mid frame, SwiftTerm still shows the old copy.
+        var shift = 0
+        if frameBegan.map({ now - $0 >= TerminalSynchronizedOutput.timeout }) ?? true { shift = undrawnDrops; undrawnDrops = 0 }
+        var target = place - CGFloat(shift) * rowHeight
+        // A finger pulling past either end, or the bounce after it, is left to the scroll view.
+        if !isTracking && !isDecelerating { target = min(max(0, contentSize.height - bounds.height), max(0, target)) }
         if contentOffset.y != target { contentOffset.y = target }
     }
+    /// Scrollback lines SwiftTerm has dropped so far, and those the view has not yet moved up for.
+    private var droppedLines = 0, undrawnDrops = 0
+    /// When the host's synchronized frame began, while one is open.
+    private var frameBegan: TimeInterval?
     override func selectionChanged(source: Terminal) { super.selectionChanged(source: source); viewportChanged?() }
     /// The host hid the cursor (DECTCEM), as Claude Code's and Codex's panels do; it is then parked anywhere.
     private(set) var hostHidCursor = false
