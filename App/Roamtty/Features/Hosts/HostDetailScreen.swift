@@ -23,6 +23,10 @@ struct HostDetailScreen: View {
                             Button { model.sheet = .launch(host, true) } label: { actionLabel("AI Agent", "ic_agent") }.buttonStyle(RoamButtonStyle(filled: true)).accessibilityIdentifier("host-detail-agent")
                             Button { model.sheet = .launch(host, false) } label: { actionLabel(model.text("终端", "Terminal"), "ic_sessions") }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-terminal")
                             Button { model.path.append(.files(hostID)) } label: { actionLabel(model.text("文件", "Files"), "ic_folder") }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-files")
+                            if model.settings.desktopEnabled && model.desktopSupported(host) {
+                                Button { model.openDesktop(host) } label: { actionLabel(model.text("桌面", "Desktop"), "ic_desktop") }
+                                    .buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-desktop")
+                            }
                         }
                         monitorStatus(host)
                         if let metrics = model.metrics[hostID] { MetricsPanel(metrics: metrics, series: model.metricSeries[hostID] ?? HostMetricSeries()) }
@@ -53,7 +57,7 @@ struct HostDetailScreen: View {
                             } label: { AppIcon("ic_more", size: 24) }.accessibilityLabel(model.text("更多", "More")).accessibilityIdentifier("host-detail-menu")
                         }
                     }
-                    .onAppear { model.startMonitor(host) }
+                    .onAppear { model.startMonitor(host); Task { await model.refreshDesktopProbe(host) } }
                     .task(id: host.address + ":" + String(host.port)) { while !Task.isCancelled { await model.probeHosts([host]); do { try await Task.sleep(nanoseconds: 15_000_000_000) } catch { break } } }
                     .onDisappear { model.stopMonitor(hostID) }
                     .confirmationDialog(model.text("删除 \(host.name)？", "Delete \(host.name)?"), isPresented: $deleteConfirm, titleVisibility: .visible) {

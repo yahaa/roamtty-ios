@@ -1,5 +1,6 @@
 import SwiftUI
 import RoamttyCore
+import RoamttyDesktopCore
 
 /// One session: its tile beside its name, the chip of the host it runs on and the last prompt ("你: …", or "等待输入中…"
 /// while an idle agent has had none), then, across the whole row, what the agent answered or runs and a status line with
@@ -80,6 +81,7 @@ struct SessionRow: View {
                         if promptLine && !location.isEmpty { Text(location).font(.system(size: 12, design: .monospaced)).foregroundStyle(Palette.secondary.opacity(0.8)).lineLimit(1).truncationMode(.head)
                             .accessibilityIdentifier("home-session-location-\(record.id)") }
                         ForEach(sessionTransportTags(mode: record.mode, mosh: connected && runtime?.transportName == "mosh"), id: \.self) { MetaTag(text: $0) }
+                        desktopButton(host: host, connected: connected)
                         if waiting && live {
                             RowAction(label: model.text("查看", "View"), plain: true) { model.openSession(record) }.accessibilityIdentifier("home-session-view-\(record.id)")
                             RowAction(label: model.text("允许", "Allow"), fill: Palette.warning) { approve(runtime) }.accessibilityIdentifier("home-session-approve-\(record.id)")
@@ -145,6 +147,52 @@ struct SessionRow: View {
             Text("· " + (status.state == .idle ? agoText(seconds, english: model.english) : shortDuration(seconds)))
                 .font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.secondary.opacity(0.8)).lineLimit(1).fixedSize()
         }.accessibilityIdentifier("home-session-time-\(record.id)")
+    }
+
+
+    @ViewBuilder private func desktopButton(host: Host?, connected: Bool) -> some View {
+        if let host {
+            let button = model.desktopButton(for: host, sessionConnected: connected)
+            if case .hidden = button {
+                EmptyView()
+            } else {
+                Button { model.openDesktop(host) } label: {
+                    ZStack(alignment: .topTrailing) {
+                        AppIcon("ic_desktop", size: 18)
+                            .foregroundStyle(desktopTint(button))
+                            .frame(width: 34, height: 30)
+                            .background(desktopBackground(button), in: RoundedRectangle(cornerRadius: 8))
+                        if let dot = desktopDot(button) {
+                            Circle().fill(dot).frame(width: 7, height: 7).offset(x: 3, y: -3)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(model.text("打开桌面", "Open desktop"))
+                .accessibilityIdentifier("home-session-desktop-\(record.id)")
+            }
+        }
+    }
+    private func desktopTint(_ b: DesktopButton) -> Color {
+        switch b {
+        case .connected, .poor, .recovering: return .white
+        default: return Palette.secondary
+        }
+    }
+    private func desktopBackground(_ b: DesktopButton) -> Color {
+        switch b {
+        case .connected, .poor, .recovering: return Palette.accent
+        case .connecting: return Palette.accent.opacity(0.35)
+        default: return Palette.raised
+        }
+    }
+    private func desktopDot(_ b: DesktopButton) -> Color? {
+        switch b {
+        case .connected: return Palette.success
+        case .poor, .needsAction: return Palette.warning
+        case .recovering, .connecting: return Palette.accent
+        default: return nil
+        }
     }
 
     private func approve(_ runtime: SessionRuntime?) {

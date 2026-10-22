@@ -302,6 +302,11 @@ struct TerminalScreen: View {
                 model.settings.toolboxPinned = false; model.saveSettings()
             }
             Button(model.text("粘贴", "Paste")) { pasteIntoEditor(); collapseIfFloating() }.accessibilityIdentifier("menu-paste")
+            if model.settings.desktopEnabled, let host = model.host(runtime.record.hostID), model.desktopSupported(host) {
+                Button(model.text("打开桌面", "Open desktop")) {
+                    model.openDesktop(host); collapseIfFloating()
+                }.accessibilityIdentifier("menu-open-desktop")
+            }
             Divider()
             Button(model.text("增大字号 · \(size) pt", "Larger text · \(size) pt")) { setFontSize(model.settings.fontSize + 1) }
             Button(model.text("减小字号 · \(size) pt", "Smaller text · \(size) pt")) { setFontSize(model.settings.fontSize - 1) }
