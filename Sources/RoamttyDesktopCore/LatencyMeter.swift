@@ -12,6 +12,10 @@ public final class LatencyMeter: @unchecked Sendable {
         public let captureMs: Double?, convertMs: Double?, encodeMs: Double?, networkMs: Double?
         public let decodeMs: Double?, renderMs: Double?, totalMs: Double?
         public let encoder: String
+        public init(captureMs: Double? = nil, convertMs: Double? = nil, encodeMs: Double? = nil, networkMs: Double? = nil, decodeMs: Double? = nil, renderMs: Double? = nil, totalMs: Double? = nil, encoder: String = "") {
+            self.captureMs = captureMs; self.convertMs = convertMs; self.encodeMs = encodeMs; self.networkMs = networkMs
+            self.decodeMs = decodeMs; self.renderMs = renderMs; self.totalMs = totalMs; self.encoder = encoder
+        }
     }
 
     private final class Times {

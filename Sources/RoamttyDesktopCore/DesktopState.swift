@@ -26,7 +26,7 @@ public enum DesktopPhase: Equatable, Sendable {
 }
 
 /// The desktop button on a session card.
-public enum DesktopButton: Sendable {
+public enum DesktopButton: Equatable, Sendable {
     case hidden, openable, connecting, needsAction, connected, poor, recovering
 
     /// §4.3 of the plan. `osSupported`: the pinned plugin has a build for the host's system.
