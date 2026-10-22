@@ -94,7 +94,7 @@ public final class SSHConnection {
             try networkWait()
         }
     }
-    private func error(_ code: Int32) -> RoamError {
+    func error(_ code: Int32) -> RoamError {
         if code == LIBSSH2_ERROR_AUTHENTICATION_FAILED { return .authentication }
         switch code {
         case LIBSSH2_ERROR_SOCKET_SEND, LIBSSH2_ERROR_SOCKET_RECV,
@@ -199,7 +199,7 @@ public final class SSHConnection {
         creationCondition.lock(); creationCondition.broadcast(); creationCondition.unlock()
         if notify { onPhase?(.disconnected) }
     }
-    private func openChannel(cancelled: () -> Bool = { false }, start: (OpaquePointer) throws -> Void) throws -> OpaquePointer {
+    func openChannel(cancelled: () -> Bool = { false }, start: (OpaquePointer) throws -> Void) throws -> OpaquePointer {
         try withChannelCreation(cancelled: cancelled) {
             let channel = try pointer { libssh2_channel_open_ex(session, "session", 7, 2 * 1024 * 1024, 32768, nil, 0) }
             do { try start(channel); return channel }

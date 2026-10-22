@@ -34,10 +34,10 @@ let package = Package(
             .linkedLibrary("ssh2"), .linkedLibrary("crypto"), .linkedLibrary("z"), .linkedLibrary("sqlite3")
         ]),
         .target(name: "RoamttyCore", dependencies: ["CNative"], resources: [.process("Resources")], swiftSettings: nativeSwift),
-        .target(name: "RoamttyTransport", dependencies: ["RoamttyCore", "CNative"], swiftSettings: nativeSwift),
+        .target(name: "RoamttyTransport", dependencies: ["RoamttyCore", "CNative", "RoamttyDesktopCore"], swiftSettings: nativeSwift),
         .target(name: "RoamttyDesktopCore", dependencies: desktopCrypto, resources: [.copy("Resources/desktop-plugin.json")]),
         .testTarget(name: "RoamttyCoreTests", dependencies: ["RoamttyCore"], swiftSettings: nativeSwift),
-        .testTarget(name: "RoamttyTransportTests", dependencies: ["RoamttyTransport"], swiftSettings: nativeSwift),
+        .testTarget(name: "RoamttyTransportTests", dependencies: ["RoamttyTransport", "RoamttyDesktopCore"], swiftSettings: nativeSwift),
         .testTarget(name: "RoamttyDesktopCoreTests", dependencies: ["RoamttyDesktopCore"], resources: [.copy("Resources/desktop-proto")]),
     ],
     swiftLanguageModes: [.v5]
