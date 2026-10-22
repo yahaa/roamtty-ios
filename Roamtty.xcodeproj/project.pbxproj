@@ -1054,6 +1054,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "9F678F1890FA8F8D8BC2CE4E";
 		};
+		"C308B9079A549ACAFE14007B" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/DesktopPageModel.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"E49242D5611CDF69D504DF56" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "C308B9079A549ACAFE14007B";
+		};
 		"3BD9B0D18C05A7BCEF52DF8C" = {
 			"isa" = "PBXFileReference";
 			"path" = "Sources/RoamttyDesktopCore/DesktopPluginInstaller.swift";
@@ -1094,6 +1104,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "CAB18B1E7042A707B60AC358";
 		};
+		"0DE2980E73070D8E0734BE8D" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/DesktopStatsText.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"0066DC03235B3C8A518732FD" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "0DE2980E73070D8E0734BE8D";
+		};
 		"DD3FBBB87454B55ACE58AC6F" = {
 			"isa" = "PBXFileReference";
 			"path" = "Sources/RoamttyDesktopCore/DesktopText.swift";
@@ -1103,6 +1123,16 @@
 		"F6805C5A49ABEAA1EB2F09DC" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "DD3FBBB87454B55ACE58AC6F";
+		};
+		"38910070A7182C2D1E88396A" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/DesktopVideoDecoder.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"32EAC6B151B8A50373405B86" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "38910070A7182C2D1E88396A";
 		};
 		"BD474F7CCE67011ACAB14F43" = {
 			"isa" = "PBXFileReference";
@@ -1123,6 +1153,16 @@
 		"8AF10F8B75756AEBB9B81B34" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "A5A9162E9BF9AE61C3EF96EF";
+		};
+		"F7DFA4B871C63F0936775C7A" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/H264.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"E5E51579EA44F6A035059739" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "F7DFA4B871C63F0936775C7A";
 		};
 		"49EA6B4325FB139A90B6D6D6" = {
 			"isa" = "PBXFileReference";
@@ -1191,13 +1231,17 @@
 				"5B56FC2FE5D5553DBE39C361",
 				"1960C8CA70758188DCE9ABE7",
 				"60E57B7F4EA83B7D1D658A7E",
+				"E49242D5611CDF69D504DF56",
 				"758F5AAD9C18F6AF53CA0022",
 				"D26F2BF62D1C7D298BF9465C",
 				"FBF8E68E4A9AE31D86BAECBD",
 				"A1146D9AF1EF7FB3DB85367C",
+				"0066DC03235B3C8A518732FD",
 				"F6805C5A49ABEAA1EB2F09DC",
+				"32EAC6B151B8A50373405B86",
 				"58A15D234884F45CD23BE3E4",
 				"8AF10F8B75756AEBB9B81B34",
+				"E5E51579EA44F6A035059739",
 				"0CAAF1F71ADDE5162583E2C8",
 				"EB4DEC948846FE29B01C7FAE",
 				"1EFF663F82683B86DE60547F",
@@ -1483,6 +1527,26 @@
 		"C30972585B0E368F1789B3FC" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "7672C1D1E26CB56E4D1FA8A3";
+		};
+		"E141EFA8404E93DBC6F842A6" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Features/Desktop/DesktopPage.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"D5E10AFFB2A511263FEF5585" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "E141EFA8404E93DBC6F842A6";
+		};
+		"12E6B62471A619BBA53C6A1E" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Features/Desktop/VideoToolboxDisplay.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"760C7417749DC948376206DF" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "12E6B62471A619BBA53C6A1E";
 		};
 		"12DB3B6F296F1EB501DF00A2" = {
 			"isa" = "PBXFileReference";
@@ -1964,6 +2028,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "8D0D86AAD40EC80D68CBB5F2";
 		};
+		"7D5228076E00B068894DFD80" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Model/AppModel+Desktop.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"99698B244948659734AD9930" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "7D5228076E00B068894DFD80";
+		};
 		"B46B7B3A820F0BA4AF92ADD8" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/Roamtty/Model/AppModel+Hosts.swift";
@@ -2172,6 +2246,8 @@
 				"C6EA69FAF18B124E496A541E",
 				"8B46ECD41A1E511E040ABE89",
 				"C30972585B0E368F1789B3FC",
+				"D5E10AFFB2A511263FEF5585",
+				"760C7417749DC948376206DF",
 				"C2380531D47BE2DCA43010BF",
 				"3382BF10933A5569D49CD02E",
 				"60F3BCFA90F9D214839000F7",
@@ -2220,6 +2296,7 @@
 				"C5FC51E6EA8BCD5FEBB6FEFA",
 				"6AC846F53773FDFBF0FA574E",
 				"72BF447BBEE0540CF4121741",
+				"99698B244948659734AD9930",
 				"00653FBA72F928F3E239D70D",
 				"A64F621FA42A5B8EC8577189",
 				"EE918D000B610A88A8CB35EF",
@@ -3424,13 +3501,17 @@
 				"7143C377557812A60016CDCE",
 				"9024D0B1E705D9201188720F",
 				"9F678F1890FA8F8D8BC2CE4E",
+				"C308B9079A549ACAFE14007B",
 				"3BD9B0D18C05A7BCEF52DF8C",
 				"C98ABC51B61EF1EC84EED5A2",
 				"CE9BA8BA2A37F5CCF917E751",
 				"CAB18B1E7042A707B60AC358",
+				"0DE2980E73070D8E0734BE8D",
 				"DD3FBBB87454B55ACE58AC6F",
+				"38910070A7182C2D1E88396A",
 				"BD474F7CCE67011ACAB14F43",
 				"A5A9162E9BF9AE61C3EF96EF",
+				"F7DFA4B871C63F0936775C7A",
 				"49EA6B4325FB139A90B6D6D6",
 				"92ECD6A0F533B5871C577065",
 				"F2672ED5BBF58576E44F8C0E",
@@ -3451,6 +3532,8 @@
 				"AF11A6F1A8B8F9621BB73A4E",
 				"B0A8A779DAD9D6D35AD13587",
 				"7672C1D1E26CB56E4D1FA8A3",
+				"E141EFA8404E93DBC6F842A6",
+				"12E6B62471A619BBA53C6A1E",
 				"12DB3B6F296F1EB501DF00A2",
 				"8F958728F8123D720A6D9DCE",
 				"3BE3A7F9849142C8474BB817",
@@ -3499,6 +3582,7 @@
 				"14FEB80F67F8624B0AE8276C",
 				"2D014E603245B00F01AED3E8",
 				"8D0D86AAD40EC80D68CBB5F2",
+				"7D5228076E00B068894DFD80",
 				"B46B7B3A820F0BA4AF92ADD8",
 				"65C83CC15CB01798303FB913",
 				"0446A1EE9ACBC696C2D24E48",

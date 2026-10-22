@@ -151,7 +151,8 @@ struct SessionRow: View {
 
 
     @ViewBuilder private func desktopButton(host: Host?, connected: Bool) -> some View {
-        if let host {
+        // Experimental flag off (default): render nothing and do not touch PluginManifest / DesktopCore.
+        if model.settings.desktopEnabled, let host {
             let button = model.desktopButton(for: host, sessionConnected: connected)
             if case .hidden = button {
                 EmptyView()

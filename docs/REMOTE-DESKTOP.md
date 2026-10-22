@@ -81,6 +81,12 @@ Xcode / a device; **todo** = not implemented yet; **n/a** = Android-only, iOS eq
 | Android notification row | Live Activity optional | n/a |
 | Back gesture excluded over the picture | Edge swipe still enabled (system back); 操作 › 退出 keeps the link | done with deviation (no edge exclusion zone yet) |
 
+## Launch crash fix (post phases 3–5)
+
+Cold launch no longer constructs `DesktopStore` or starts `NWPathMonitor` unless 设置 › 实验功能 › 远程桌面 is on.
+`AppSettings` desktop keys decode best-effort so a corrupt value cannot fail the whole settings blob.
+Session cards skip desktop work entirely while the flag is off. Regenerated `Roamtty.xcodeproj` includes the new App/DesktopCore sources.
+
 ## Phase 3–5 notes and deviations
 
 - VideoToolbox lives only under `App/Roamtty/Features/Desktop/` behind `#if canImport(UIKit) && canImport(VideoToolbox) && canImport(CoreMedia)`. `RoamttyDesktopCore` stays Linux-clean: NAL/AVCC, decoder queue, stats text, page model.

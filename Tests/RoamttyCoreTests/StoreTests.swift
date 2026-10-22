@@ -84,4 +84,40 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(AppSettings.self, from: Data(#"{"codeFontSize":3}"#.utf8)).codeFontSize, 9)
         XCTAssertEqual(try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8)), AppSettings())
     }
+
+    /// Launch regression: pre-desktop settings blobs must decode, and desktop stays off by default.
+    func testDesktopSettingsDefaultOffAndSurviveLegacyJSON() throws {
+        let empty = try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8))
+        XCTAssertFalse(empty.desktopEnabled)
+        XCTAssertEqual(empty.desktopKeepAliveMinutes, 10)
+        XCTAssertFalse(empty.desktopShowStats)
+        XCTAssertTrue(empty.desktopHosts.isEmpty)
+        XCTAssertEqual(empty.desktopPluginBaseUrl, "")
+
+        // Legacy blob without any desktop keys (what existing installs have on disk).
+        let legacy = Data(#"{"theme":"dark","language":"zh-Hans","font":"JetBrainsMono-Regular","fontSize":13}"#.utf8)
+        let fromLegacy = try JSONDecoder().decode(AppSettings.self, from: legacy)
+        XCTAssertFalse(fromLegacy.desktopEnabled)
+        XCTAssertEqual(fromLegacy.desktopKeepAliveMinutes, 10)
+
+        // Corrupt desktop fields must not fail the whole decode (would surface as a launch error).
+        let corrupt = Data(#"{"theme":"light","desktopEnabled":"yes","desktopKeepAliveMinutes":"forever","desktopHosts":[]}"#.utf8)
+        let recovered = try JSONDecoder().decode(AppSettings.self, from: corrupt)
+        XCTAssertEqual(recovered.theme, .light)
+        XCTAssertFalse(recovered.desktopEnabled)
+        XCTAssertEqual(recovered.desktopKeepAliveMinutes, 10)
+        XCTAssertTrue(recovered.desktopHosts.isEmpty)
+
+        // Round-trip with desktop on.
+        var on = AppSettings()
+        on.desktopEnabled = true
+        on.desktopKeepAliveMinutes = 30
+        on.desktopShowStats = true
+        var hostPrefs = DesktopHostSettings()
+        hostPrefs.pointerMode = "mouse"; hostPrefs.quality = "clear"; hostPrefs.fps = 90; hostPrefs.lockOnClose = true
+        on.desktopHosts["h1"] = hostPrefs
+        let data = try JSONEncoder().encode(on)
+        let back = try JSONDecoder().decode(AppSettings.self, from: data)
+        XCTAssertEqual(back, on)
+    }
 }

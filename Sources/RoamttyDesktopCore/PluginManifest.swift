@@ -49,17 +49,19 @@ public struct PluginManifest: Equatable, Sendable {
                               protoMax: JSONValue.int(proto?["max"]) ?? 1, openh264: JSONValue.string(json["openh264"]), targets: out)
     }
 
-    /// The manifest shipped with the app.
+    /// The manifest shipped with the app (app bundle root, or the SwiftPM module bundle in tests).
     public static func bundled() throws -> PluginManifest {
+        var candidates: [Bundle] = [.main]
         #if SWIFT_PACKAGE
-        let bundle = Bundle.module
-        #else
-        let bundle = Bundle.main
+        candidates.insert(Bundle.module, at: 0)
         #endif
-        guard let url = bundle.url(forResource: "desktop-plugin", withExtension: "json") else {
-            throw ParseError.invalid("desktop-plugin.json is missing from the app resources")
+        for bundle in candidates {
+            if let url = bundle.url(forResource: "desktop-plugin", withExtension: "json")
+                ?? bundle.url(forResource: "desktop-plugin", withExtension: "json", subdirectory: "Resources") {
+                return try parse(String(contentsOf: url, encoding: .utf8))
+            }
         }
-        return try parse(String(contentsOf: url, encoding: .utf8))
+        throw ParseError.invalid("desktop-plugin.json is missing from the app resources")
     }
 
     /// Whether `data` (the unpacked binary) is the pinned build for `target`.

@@ -136,8 +136,11 @@ import RoamttyTransport
         // reconnect then; it does now.
         if case .terminal(let id)? = path.last, let record = records.first(where: { $0.id == id }) { Task { await reconnectOnOpen(record) } }
         restartVisibleMonitor()
-        desktops.live.forEach { $0.resume() }
-        startDesktopPathMonitor()
+        // Desktop is experimental and off by default: never create the store or NWPathMonitor on cold launch.
+        if settings.desktopEnabled {
+            desktopStore?.live.forEach { $0.resume() }
+            startDesktopPathMonitor()
+        }
         let existing = Set(incomingFiles + files.pendingUploadURLs).union(files.activeUploadURLs)
         incomingFiles.append(contentsOf: SharedInbox.consume().filter { !existing.contains($0) })
     }
@@ -148,7 +151,7 @@ import RoamttyTransport
         for id in Array(monitorJobs.keys) { stopMonitor(id) }
         credentialCache.forgetAll()
         for runtime in runtimes.values { runtime.clearLoginCredentials() }
-        desktops.live.forEach { $0.pause() }
+        desktopStore?.live.forEach { $0.pause() }
         prompts.removeAll().forEach { $0.answer(nil) }
     }
 }

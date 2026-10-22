@@ -114,6 +114,8 @@ import RoamttyDesktopCore
 extension AppModel {
     /// The button state for a host's session / host card (Android `DesktopButton.derive`).
     func desktopButton(for host: Host, sessionConnected: Bool) -> DesktopButton {
+        // Cold path (session list): do not touch the plugin resource while the flag is off.
+        guard settings.desktopEnabled else { return .hidden }
         guard let manifest = try? PluginManifest.bundled() else { return .hidden }
         let phase = desktops[host.id]?.phase ?? .idle
         let offline: Bool = {
@@ -133,13 +135,18 @@ extension AppModel {
     }
 
     func desktopSupported(_ host: Host) -> Bool {
-        (try? PluginManifest.bundled()).map { DesktopSupport.osSupported(host.system, manifest: $0) } ?? false
+        guard settings.desktopEnabled else { return false }
+        return (try? PluginManifest.bundled()).map { DesktopSupport.osSupported(host.system, manifest: $0) } ?? false
     }
 
     /// Opens the host's desktop page, starting the connection if needed.
     func openDesktop(_ host: Host) { Task { await openDesktopAsync(host) } }
 
     func openDesktopAsync(_ host: Host) async {
+        guard settings.desktopEnabled else {
+            self.error = text("请先在设置 › 实验功能中开启远程桌面", "Enable remote desktop under Settings › Experimental first")
+            return
+        }
         if let existing = desktops[host.id],
            existing.host.address == host.address, existing.host.port == host.port, existing.host.username == host.username {
             if !existing.active { existing.start() }
@@ -177,6 +184,7 @@ extension AppModel {
                 })
             desktops.put(controller)
             controller.start()
+            startDesktopPathMonitor()
             path.append(.desktop(host.id))
             objectWillChange.send()
         } catch {
@@ -250,11 +258,17 @@ extension AppModel {
     }
 
     func startDesktopPathMonitor() {
-        desktopPathMonitor?.cancel()
+        guard settings.desktopEnabled else {
+            desktopPathMonitor?.cancel()
+            desktopPathMonitor = nil
+            return
+        }
+        // Already running.
+        if desktopPathMonitor != nil { return }
         let monitor = NWPathMonitor()
         desktopPathMonitor = monitor
         monitor.pathUpdateHandler = { [weak self] _ in
-            DispatchQueue.main.async { self?.desktops.networkChanged() }
+            DispatchQueue.main.async { self?.desktopStore?.networkChanged() }
         }
         monitor.start(queue: DispatchQueue.global(qos: .utility))
     }

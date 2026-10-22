@@ -188,12 +188,33 @@ public struct AppSettings: Codable, Equatable {
         fileSortDescending = try values.decodeIfPresent(Bool.self, forKey: .fileSortDescending) ?? false
         codeWrap = try values.decodeIfPresent(Bool.self, forKey: .codeWrap) ?? false
         codeFontSize = min(22, max(9, try values.decodeIfPresent(Double.self, forKey: .codeFontSize) ?? 13))
-        desktopEnabled = try values.decodeIfPresent(Bool.self, forKey: .desktopEnabled) ?? false
-        let keep = try values.decodeIfPresent(Int.self, forKey: .desktopKeepAliveMinutes) ?? 10
+        // Desktop keys are best-effort: a bad value must not fail the whole settings blob (launch path).
+        desktopEnabled = (try? values.decodeIfPresent(Bool.self, forKey: .desktopEnabled)) ?? false
+        let keep = (try? values.decodeIfPresent(Int.self, forKey: .desktopKeepAliveMinutes)) ?? 10
         desktopKeepAliveMinutes = [5, 10, 30].contains(keep) ? keep : 10
-        desktopShowStats = try values.decodeIfPresent(Bool.self, forKey: .desktopShowStats) ?? false
-        desktopHosts = try values.decodeIfPresent([String: DesktopHostSettings].self, forKey: .desktopHosts) ?? [:]
-        desktopPluginBaseUrl = try values.decodeIfPresent(String.self, forKey: .desktopPluginBaseUrl) ?? ""
+        desktopShowStats = (try? values.decodeIfPresent(Bool.self, forKey: .desktopShowStats)) ?? false
+        desktopHosts = (try? values.decodeIfPresent([String: DesktopHostSettings].self, forKey: .desktopHosts)) ?? [:]
+        desktopPluginBaseUrl = (try? values.decodeIfPresent(String.self, forKey: .desktopPluginBaseUrl)) ?? ""
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(theme, forKey: .theme)
+        try values.encode(language, forKey: .language)
+        try values.encode(font, forKey: .font)
+        try values.encode(fontSize, forKey: .fontSize)
+        try values.encode(showHiddenFiles, forKey: .showHiddenFiles)
+        try values.encode(toolboxPinned, forKey: .toolboxPinned)
+        try values.encodeIfPresent(downloadBookmark, forKey: .downloadBookmark)
+        try values.encode(fileSort, forKey: .fileSort)
+        try values.encode(fileSortDescending, forKey: .fileSortDescending)
+        try values.encode(codeWrap, forKey: .codeWrap)
+        try values.encode(codeFontSize, forKey: .codeFontSize)
+        try values.encode(desktopEnabled, forKey: .desktopEnabled)
+        try values.encode(desktopKeepAliveMinutes, forKey: .desktopKeepAliveMinutes)
+        try values.encode(desktopShowStats, forKey: .desktopShowStats)
+        try values.encode(desktopHosts, forKey: .desktopHosts)
+        try values.encode(desktopPluginBaseUrl, forKey: .desktopPluginBaseUrl)
     }
 }
 
