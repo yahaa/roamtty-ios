@@ -73,9 +73,11 @@ Xcode / a device; **todo** = not implemented yet; **n/a** = Android-only, iOS eq
 | Leaving pauses and keeps the link 5/10/30 min | `DesktopSession.pause` keep-alive + Settings picker; page `onDisappear` → pause | done (unverified on device) |
 | Drop → 30 s token resume; network change → rebind | session (phase 2) + `NWPathMonitor` / scene resume | done (unverified on device) |
 | Second device take-over | `DesktopSession` → failed 已在另一台设备上打开 | done (logic); UI card phase 4 |
-| Session card desktop button | `SessionRow` + `DesktopButton.derive` | done (unverified) |
+| Session card desktop button (IconTag / rightmost after 追问) | `DesktopCardButton` + `SessionRow` + `DesktopButton.derive` | done (unverified) |
+| Host list desktop IconTag (`sessionConnected: true`) | `HostCard` + `DesktopCardButton` | done (unverified) |
 | Host page 「桌面」 | `HostDetailScreen` | done (unverified) |
-| Terminal menu 「打开桌面」 | `TerminalScreen` settings menu | done (unverified) |
+| Terminal dock 「打开桌面」 (before files; sticky clear + hide keyboard; menu item removed) | `TerminalScreen` dock `terminal-desktop` | done (unverified) |
+| Floating dock 5 s auto-hide + collapse countdown ring | `TerminalToolboxState.dockHideSeconds` + collapse ring | done (unverified) |
 | 设置 › 实验功能 › 远程桌面, **off by default** | `SettingsScreen` + `AppSettings.desktopEnabled` default `false` | done |
 | Per-host prefs (mode/quality/fps/lock); global showStats | `DesktopHostSettings` in `AppSettings.desktopHosts` | done |
 | Android notification row | Live Activity optional | n/a |
@@ -114,7 +116,7 @@ Not verified (needs Xcode on a Mac, a simulator/device, or real hosts):
 - Keep-alive timer actually tearing down after 5/10/30 minutes in the background.
 
 Suggested check on a Mac: `python3 scripts/generate-project.py && xcodebuild -scheme Roamtty -destination 'generic/platform=iOS Simulator' build`,
-then enable 设置 › 实验功能 › 远程桌面 and open a desktop from a session card / host page / terminal menu.
+then enable 设置 › 实验功能 › 远程桌面 and open a desktop from a session card / host list / host page / terminal dock.
 
 ## Remaining gaps vs #218 (source-complete with caveats)
 

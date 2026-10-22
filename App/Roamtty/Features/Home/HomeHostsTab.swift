@@ -1,5 +1,6 @@
 import SwiftUI
 import RoamttyCore
+import RoamttyDesktopCore
 
 struct HomeHostsTab: View {
     @EnvironmentObject var model: AppModel
@@ -19,7 +20,8 @@ struct HomeHostsTab: View {
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 12)], spacing: 12) {
                         ForEach(filtered) { host in
-                            NavigationLink(value: AppRoute.host(host.id)) { HostCard(host: host) }.buttonStyle(.plain).accessibilityIdentifier("host-\(host.name)")
+                            HostCard(host: host)
+                                .accessibilityIdentifier("host-\(host.name)")
                         }
                     }.padding(.horizontal, 16).padding(.bottom, 16)
                 }.accessibilityIdentifier("host-grid")
@@ -28,7 +30,8 @@ struct HomeHostsTab: View {
     }
 }
 
-/// Android `HostCard`: system tile, name and endpoint, a ··· menu, then reachability and the host's tags.
+/// Android `HostCard`: system tile, name and endpoint, a ··· menu, then reachability and the host's tags;
+/// its desktop is the icon tag at the end of the status line (Android `DesktopCardButton`, sessionConnected: true).
 struct HostCard: View {
     @EnvironmentObject var model: AppModel
     let host: Host
@@ -36,12 +39,18 @@ struct HostCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 0) {
-                HostSystemMark(system: host.system).frame(width: 44, height: 44)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(host.name).font(.system(size: 16, weight: .semibold)).lineLimit(1)
-                    Text("\(host.username)@\(host.address):" + String(host.port)).font(.system(size: 13)).foregroundStyle(Palette.secondary).lineLimit(1)
-                }.padding(.leading, 12).padding(.trailing, 8)
-                Spacer(minLength: 0)
+                // Tap the identity opens host detail; the ··· menu and desktop stay outside the link
+                // so they do not navigate (Android HostCard: openDetail on the card, desktop as its own tag).
+                NavigationLink(value: AppRoute.host(host.id)) {
+                    HStack(spacing: 0) {
+                        HostSystemMark(system: host.system).frame(width: 44, height: 44)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(host.name).font(.system(size: 16, weight: .semibold)).lineLimit(1)
+                            Text("\(host.username)@\(host.address):" + String(host.port)).font(.system(size: 13)).foregroundStyle(Palette.secondary).lineLimit(1)
+                        }.padding(.leading, 12).padding(.trailing, 8)
+                        Spacer(minLength: 0)
+                    }.contentShape(Rectangle())
+                }.buttonStyle(.plain)
                 Menu {
                     Button { model.sheet = .launch(host, false) } label: { Label { Text(model.text("打开终端", "Open terminal")) } icon: { Image("ic_sessions") } }
                     Button { model.sheet = .launch(host, true) } label: { Label { Text("AI Agent") } icon: { Image("ic_agent") } }
@@ -61,6 +70,9 @@ struct HostCard: View {
                 else { Badge(text: host.mode == .tmux ? "tmux" : model.text("普通 SSH", "Plain SSH")) }
                 Badge(text: host.auth == .key ? model.text("私钥", "Key") : host.auth == .interactive ? model.text("交互式认证", "Interactive") : model.text("密码", "Password"))
                 if host.system.uppercased() == "UNKNOWN" { Badge(text: model.text("待检测系统", "System pending")) }
+                Spacer(minLength: 0)
+                // A host needs no open session for its desktop: the desktop logs in on its own.
+                desktopEntry
             }.padding(.top, 12)
         }.padding(.leading, 16).padding(.top, 14).padding(.trailing, 4).padding(.bottom, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -68,5 +80,15 @@ struct HostCard: View {
             .confirmationDialog(model.text("删除 \(host.name)？", "Delete \(host.name)?"), isPresented: $deleteConfirm, titleVisibility: .visible) {
                 Button(model.text("删除主机", "Delete host"), role: .destructive) { model.deleteHost(host) }
             }
+    }
+
+    @ViewBuilder private var desktopEntry: some View {
+        if model.settings.desktopEnabled {
+            let button = model.desktopButton(for: host, sessionConnected: true)
+            DesktopCardButton(state: button, accessibilityID: "host-desktop-\(host.id)") {
+                model.openDesktop(host)
+            }
+            .accessibilityLabel(model.text("打开桌面", "Open desktop"))
+        }
     }
 }

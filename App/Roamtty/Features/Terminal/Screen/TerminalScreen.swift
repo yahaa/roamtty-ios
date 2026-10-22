@@ -1,4 +1,5 @@
 import SwiftUI
+import RoamttyDesktopCore
 import UIKit
 import PhotosUI
 import RoamttyCore
@@ -226,7 +227,7 @@ struct TerminalScreen: View {
     }
     private func collapseIfFloating() { if !toolbox.pinned { toolbox.collapseDock(at: now) } }
     private func dock(in viewport: CGSize, twoColumns: Bool, reserved: Bool) -> some View {
-        let rows = twoColumns ? 1 + (Self.dockControlCount + 1) / 2 : 2 + Self.dockControlCount
+        let rows = twoColumns ? 1 + (dockControlCount + 1) / 2 : 2 + dockControlCount
         let width: CGFloat = twoColumns ? 96 : 48, height = CGFloat(rows) * 48
         let frame = TerminalDockGeometry.frame(viewport: viewport, content: CGSize(width: width, height: height + 12), endInset: reserved ? 0 : 8, avoiding: reserved ? nil : cursorFrame())
         return ScrollView(.vertical, showsIndicators: false) {
@@ -245,23 +246,55 @@ struct TerminalScreen: View {
             .position(x: frame.midX, y: frame.midY).accessibilityIdentifier("terminal-dock")
     }
     /// The keys below the dock's collapse and session keys; `dockControlCount` sizes the dock for them.
+    /// Android `TerminalPane` primaryControls: desktop (when probe YES) before files, then commands and settings.
     @ViewBuilder private var dockControls: some View {
+        if showDesktopDock {
+            dockButton("ic_desktop", model.text("打开桌面", "Open desktop"), id: "terminal-desktop") {
+                // Android: sticky.clear(); hideKeyboard(); onDesktop()
+                runtime.controlArmed = false
+                runtime.shiftArmed = false
+                hideKeyboard()
+                runtime.terminalView.resignFirstResponder()
+                if let host = model.host(runtime.record.hostID) { model.openDesktop(host) }
+            }
+        }
         dockButton("ic_cloud_upload", model.text("上传文件", "Upload files"), id: "upload-file", enabled: connected) { fileAction = .upload }
         dockButton("ic_cloud_download", model.text("下载文件", "Download files"), id: "download-file", enabled: connected) { fileAction = .download }
         dockButton("ic_image", model.text("插入图片", "Insert image"), id: "select-image", enabled: connected) { photoPicker = true }
         dockButton("ic_commands", model.text("常用命令", "Common commands"), id: "common-commands", enabled: connected) { runtime.terminalView.resignFirstResponder(); commandSheet = true }
         settingsMenu
     }
-    private static let dockControlCount = 5
+    private var dockControlCount: Int { 5 + (showDesktopDock ? 1 : 0) }
+    /// Android: only when desktopEnabled && desktopSupported && probe == YES.
+    private var showDesktopDock: Bool {
+        guard model.settings.desktopEnabled, let host = model.host(runtime.record.hostID), model.desktopSupported(host) else { return false }
+        return DesktopProbe.decode(host.desktop) == .yes
+    }
     private var collapseButton: some View {
         Button {
             runtime.controlArmed = false; runtime.shiftArmed = false
             toolbox.collapseDock(at: now); model.settings.toolboxPinned = false; model.saveSettings()
-        } label: { AppIcon("ic_close", size: 20).frame(width: 48, height: 48).contentShape(Rectangle()) }
-            .buttonStyle(.plain).accessibilityLabel(model.text("收起操作栏", "Hide toolbar")).accessibilityIdentifier("collapse-dock")
+        } label: {
+            // Android: countdown ring on ✕ while a floating dock's quiet spell runs.
+            ZStack {
+                if toolbox.floatingDock, TerminalToolboxState.dockHideSeconds > 0 {
+                    TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { _ in
+                        let p = toolbox.dockHideProgress(at: ProcessInfo.processInfo.systemUptime)
+                        ZStack {
+                            Circle().stroke(Palette.foreground.opacity(0.12), lineWidth: 2)
+                            Circle().trim(from: 0, to: p)
+                                .stroke(Palette.accent, style: StrokeStyle(lineWidth: 2, lineCap: .butt))
+                                .rotationEffect(.degrees(-90))
+                        }.frame(width: 32, height: 32)
+                    }
+                }
+                AppIcon("ic_close", size: 20)
+            }.frame(width: 48, height: 48).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).accessibilityLabel(model.text("收起操作栏", "Hide toolbar")).accessibilityIdentifier("collapse-dock")
     }
     private func dockButton(_ icon: String, _ label: String, id: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
-        Button { action(); collapseIfFloating() } label: { AppIcon(icon).frame(width: 48, height: 48).contentShape(Rectangle()) }
+        Button { toolbox.touchDock(at: now); action(); collapseIfFloating() } label: { AppIcon(icon).frame(width: 48, height: 48).contentShape(Rectangle()) }
             .buttonStyle(.plain).foregroundStyle(Palette.foreground.opacity(enabled ? 1 : 0.38)).disabled(!enabled)
             .accessibilityLabel(label).accessibilityIdentifier(id)
     }
@@ -286,7 +319,7 @@ struct TerminalScreen: View {
                 AppIcon("ic_sessions")
                 Circle().fill(connected ? Palette.accent : Palette.danger).frame(width: 8, height: 8).offset(x: 3, y: -3)
             }.foregroundStyle(Palette.accent).frame(width: 48, height: 48).contentShape(Rectangle())
-        }.onTapGesture { runtime.terminalView.resignFirstResponder() }
+        }.onTapGesture { runtime.terminalView.resignFirstResponder(); toolbox.touchDock(at: now) }
             .accessibilityLabel(model.text("切换会话：", "Switch session: ") + model.sessionTitle(runtime.record)).accessibilityIdentifier("session-switcher")
     }
     private var settingsMenu: some View {
@@ -302,15 +335,11 @@ struct TerminalScreen: View {
                 model.settings.toolboxPinned = false; model.saveSettings()
             }
             Button(model.text("粘贴", "Paste")) { pasteIntoEditor(); collapseIfFloating() }.accessibilityIdentifier("menu-paste")
-            if model.settings.desktopEnabled, let host = model.host(runtime.record.hostID), model.desktopSupported(host) {
-                Button(model.text("打开桌面", "Open desktop")) {
-                    model.openDesktop(host); collapseIfFloating()
-                }.accessibilityIdentifier("menu-open-desktop")
-            }
             Divider()
             Button(model.text("增大字号 · \(size) pt", "Larger text · \(size) pt")) { setFontSize(model.settings.fontSize + 1) }
             Button(model.text("减小字号 · \(size) pt", "Smaller text · \(size) pt")) { setFontSize(model.settings.fontSize - 1) }
         } label: { AppIcon("ic_settings").frame(width: 48, height: 48).contentShape(Rectangle()) }
+            .onTapGesture { toolbox.touchDock(at: now) }
             .accessibilityLabel(model.text("终端设置", "Terminal settings")).accessibilityIdentifier("terminal-menu")
     }
     private func setFontSize(_ size: Double) {

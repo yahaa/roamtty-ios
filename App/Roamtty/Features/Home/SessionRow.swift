@@ -81,13 +81,14 @@ struct SessionRow: View {
                         if promptLine && !location.isEmpty { Text(location).font(.system(size: 12, design: .monospaced)).foregroundStyle(Palette.secondary.opacity(0.8)).lineLimit(1).truncationMode(.head)
                             .accessibilityIdentifier("home-session-location-\(record.id)") }
                         ForEach(sessionTransportTags(mode: record.mode, mosh: connected && runtime?.transportName == "mosh"), id: \.self) { MetaTag(text: $0) }
-                        desktopButton(host: host, connected: connected)
                         if waiting && live {
                             RowAction(label: model.text("查看", "View"), plain: true) { model.openSession(record) }.accessibilityIdentifier("home-session-view-\(record.id)")
                             RowAction(label: model.text("允许", "Allow"), fill: Palette.warning) { approve(runtime) }.accessibilityIdentifier("home-session-approve-\(record.id)")
                         } else if idle && live {
                             RowAction(label: model.text("追问", "Reply"), icon: "ic_reply", iconOnly: true) { replying.toggle(); draftFocused = replying }.accessibilityIdentifier("home-session-follow-up-\(record.id)")
                         }
+                        // Rightmost, after 追问 (Android DesktopCardButton / IconTag).
+                        desktopButton(host: host, connected: connected)
                     }
                 }.frame(minHeight: 28).padding(.top, 8)
                 if replying { followUpField(kind: kind, runtime: runtime) }
@@ -151,48 +152,12 @@ struct SessionRow: View {
 
 
     @ViewBuilder private func desktopButton(host: Host?, connected: Bool) -> some View {
-        // Experimental flag off (default): render nothing and do not touch PluginManifest / DesktopCore.
         if model.settings.desktopEnabled, let host {
             let button = model.desktopButton(for: host, sessionConnected: connected)
-            if case .hidden = button {
-                EmptyView()
-            } else {
-                Button { model.openDesktop(host) } label: {
-                    ZStack(alignment: .topTrailing) {
-                        AppIcon("ic_desktop", size: 18)
-                            .foregroundStyle(desktopTint(button))
-                            .frame(width: 34, height: 30)
-                            .background(desktopBackground(button), in: RoundedRectangle(cornerRadius: 8))
-                        if let dot = desktopDot(button) {
-                            Circle().fill(dot).frame(width: 7, height: 7).offset(x: 3, y: -3)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(model.text("打开桌面", "Open desktop"))
-                .accessibilityIdentifier("home-session-desktop-\(record.id)")
+            DesktopCardButton(state: button, accessibilityID: "home-session-desktop-\(record.id)") {
+                model.openDesktop(host)
             }
-        }
-    }
-    private func desktopTint(_ b: DesktopButton) -> Color {
-        switch b {
-        case .connected, .poor, .recovering: return .white
-        default: return Palette.secondary
-        }
-    }
-    private func desktopBackground(_ b: DesktopButton) -> Color {
-        switch b {
-        case .connected, .poor, .recovering: return Palette.accent
-        case .connecting: return Palette.accent.opacity(0.35)
-        default: return Palette.raised
-        }
-    }
-    private func desktopDot(_ b: DesktopButton) -> Color? {
-        switch b {
-        case .connected: return Palette.success
-        case .poor, .needsAction: return Palette.warning
-        case .recovering, .connecting: return Palette.accent
-        default: return nil
+            .accessibilityLabel(model.text("打开桌面", "Open desktop"))
         }
     }
 
