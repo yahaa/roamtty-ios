@@ -26,6 +26,13 @@
 			"sourceTree" = "BUILT_PRODUCTS_DIR";
 			"includeInIndex" = "0";
 		};
+		"1698D31B32D16A3C5C4BD473" = {
+			"isa" = "PBXFileReference";
+			"explicitFileType" = "archive.ar";
+			"path" = "libRoamttyDesktopCore.a";
+			"sourceTree" = "BUILT_PRODUCTS_DIR";
+			"includeInIndex" = "0";
+		};
 		"B30607D2B16313D9BC09B393" = {
 			"isa" = "PBXFileReference";
 			"explicitFileType" = "wrapper.application";
@@ -988,6 +995,271 @@
 			"productReference" = "963E5982DADA5BA041DD36E5";
 			"productType" = "com.apple.product-type.library.static";
 		};
+		"7143C377557812A60016CDCE" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/Bytes.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"5B56FC2FE5D5553DBE39C361" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "7143C377557812A60016CDCE";
+		};
+		"9024D0B1E705D9201188720F" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/DesktopGestures.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"1960C8CA70758188DCE9ABE7" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "9024D0B1E705D9201188720F";
+		};
+		"C98ABC51B61EF1EC84EED5A2" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/DesktopProtocol.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"D26F2BF62D1C7D298BF9465C" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "C98ABC51B61EF1EC84EED5A2";
+		};
+		"CAB18B1E7042A707B60AC358" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/DesktopState.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"A1146D9AF1EF7FB3DB85367C" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "CAB18B1E7042A707B60AC358";
+		};
+		"BD474F7CCE67011ACAB14F43" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/Fec.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"58A15D234884F45CD23BE3E4" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "BD474F7CCE67011ACAB14F43";
+		};
+		"49EA6B4325FB139A90B6D6D6" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/HidUsage.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"0CAAF1F71ADDE5162583E2C8" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "49EA6B4325FB139A90B6D6D6";
+		};
+		"92ECD6A0F533B5871C577065" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/LatencyMeter.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"EB4DEC948846FE29B01C7FAE" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "92ECD6A0F533B5871C577065";
+		};
+		"F2672ED5BBF58576E44F8C0E" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/PluginManifest.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"1EFF663F82683B86DE60547F" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "F2672ED5BBF58576E44F8C0E";
+		};
+		"06553FE0040153E107D34809" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/UdpLink.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"1E3F7B7CB8FDF532AC3BCFA8" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "06553FE0040153E107D34809";
+		};
+		"2920228034DC1736EC9D27A2" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/UdpSocketTransport.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"D699A753B79EABE070C27E1A" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "2920228034DC1736EC9D27A2";
+		};
+		"94A275D205A0E28ED2D2601E" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/UdpWire.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"5033FC126D0FE363C417B6C0" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "94A275D205A0E28ED2D2601E";
+		};
+		"7721621C46A1D0D416C5EE10" = {
+			"isa" = "PBXSourcesBuildPhase";
+			"buildActionMask" = "2147483647";
+			"files" = (
+				"5B56FC2FE5D5553DBE39C361",
+				"1960C8CA70758188DCE9ABE7",
+				"D26F2BF62D1C7D298BF9465C",
+				"A1146D9AF1EF7FB3DB85367C",
+				"58A15D234884F45CD23BE3E4",
+				"0CAAF1F71ADDE5162583E2C8",
+				"EB4DEC948846FE29B01C7FAE",
+				"1EFF663F82683B86DE60547F",
+				"1E3F7B7CB8FDF532AC3BCFA8",
+				"D699A753B79EABE070C27E1A",
+				"5033FC126D0FE363C417B6C0",
+			);
+			"runOnlyForDeploymentPostprocessing" = "0";
+		};
+		"D70A59B87B1F16165E843B48" = {
+			"isa" = "PBXFrameworksBuildPhase";
+			"buildActionMask" = "2147483647";
+			"files" = (
+			);
+			"runOnlyForDeploymentPostprocessing" = "0";
+		};
+		"16A3E14EF6ADBF56D3827904" = {
+			"isa" = "XCBuildConfiguration";
+			"buildSettings" = {
+				"SDKROOT" = "iphoneos";
+				"IPHONEOS_DEPLOYMENT_TARGET" = "16.0";
+				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
+				"SWIFT_VERSION" = "5.0";
+				"SWIFT_STRICT_CONCURRENCY" = "minimal";
+				"CLANG_ENABLE_MODULES" = "YES";
+				"CLANG_ENABLE_OBJC_ARC" = "YES";
+				"GCC_C_LANGUAGE_STANDARD" = "gnu11";
+				"CLANG_CXX_LANGUAGE_STANDARD" = "c++17";
+				"TARGETED_DEVICE_FAMILY" = "1,2";
+				"CODE_SIGN_STYLE" = "Automatic";
+				"DEVELOPMENT_TEAM" = "";
+				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
+				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
+				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
+				"SWIFT_ACTIVE_COMPILATION_CONDITIONS" = "$(inherited) DEBUG";
+				"HEADER_SEARCH_PATHS" = (
+					"$(inherited)",
+					"$(SRCROOT)/Sources/CNative/include",
+					"$(SRCROOT)/Vendor/$(PLATFORM_NAME)/include",
+				);
+				"LIBRARY_SEARCH_PATHS" = (
+					"$(inherited)",
+					"$(SRCROOT)/Vendor/$(PLATFORM_NAME)/lib",
+				);
+				"SWIFT_INCLUDE_PATHS" = (
+					"$(inherited)",
+					"$(SRCROOT)/Sources/CNative/include",
+					"$(BUILT_PRODUCTS_DIR)",
+				);
+				"OTHER_LDFLAGS" = (
+					"$(inherited)",
+					"-lssh2",
+					"-lcrypto",
+					"-lz",
+					"-lsqlite3",
+				);
+				"SKIP_INSTALL" = "YES";
+				"DEFINES_MODULE" = "YES";
+				"SWIFT_INSTALL_OBJC_HEADER" = "NO";
+				"PRODUCT_NAME" = "$(TARGET_NAME)";
+				"MACH_O_TYPE" = "staticlib";
+				"CODE_SIGNING_ALLOWED" = "NO";
+				"SWIFT_OPTIMIZATION_LEVEL" = "-Onone";
+				"GCC_OPTIMIZATION_LEVEL" = "0";
+				"DEBUG_INFORMATION_FORMAT" = "dwarf";
+				"ONLY_ACTIVE_ARCH" = "YES";
+			};
+			"name" = "Debug";
+		};
+		"B65EB0E800D9A3E88AE3E658" = {
+			"isa" = "XCBuildConfiguration";
+			"buildSettings" = {
+				"SDKROOT" = "iphoneos";
+				"IPHONEOS_DEPLOYMENT_TARGET" = "16.0";
+				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
+				"SWIFT_VERSION" = "5.0";
+				"SWIFT_STRICT_CONCURRENCY" = "minimal";
+				"CLANG_ENABLE_MODULES" = "YES";
+				"CLANG_ENABLE_OBJC_ARC" = "YES";
+				"GCC_C_LANGUAGE_STANDARD" = "gnu11";
+				"CLANG_CXX_LANGUAGE_STANDARD" = "c++17";
+				"TARGETED_DEVICE_FAMILY" = "1,2";
+				"CODE_SIGN_STYLE" = "Automatic";
+				"DEVELOPMENT_TEAM" = "";
+				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
+				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
+				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
+				"SWIFT_ACTIVE_COMPILATION_CONDITIONS" = "$(inherited)";
+				"HEADER_SEARCH_PATHS" = (
+					"$(inherited)",
+					"$(SRCROOT)/Sources/CNative/include",
+					"$(SRCROOT)/Vendor/$(PLATFORM_NAME)/include",
+				);
+				"LIBRARY_SEARCH_PATHS" = (
+					"$(inherited)",
+					"$(SRCROOT)/Vendor/$(PLATFORM_NAME)/lib",
+				);
+				"SWIFT_INCLUDE_PATHS" = (
+					"$(inherited)",
+					"$(SRCROOT)/Sources/CNative/include",
+					"$(BUILT_PRODUCTS_DIR)",
+				);
+				"OTHER_LDFLAGS" = (
+					"$(inherited)",
+					"-lssh2",
+					"-lcrypto",
+					"-lz",
+					"-lsqlite3",
+				);
+				"SKIP_INSTALL" = "YES";
+				"DEFINES_MODULE" = "YES";
+				"SWIFT_INSTALL_OBJC_HEADER" = "NO";
+				"PRODUCT_NAME" = "$(TARGET_NAME)";
+				"MACH_O_TYPE" = "staticlib";
+				"CODE_SIGNING_ALLOWED" = "NO";
+				"SWIFT_OPTIMIZATION_LEVEL" = "-O";
+				"DEBUG_INFORMATION_FORMAT" = "dwarf-with-dsym";
+				"SWIFT_COMPILATION_MODE" = "wholemodule";
+			};
+			"name" = "Release";
+		};
+		"674CBB01F6EFAFE7FEDC8EB0" = {
+			"isa" = "XCConfigurationList";
+			"buildConfigurations" = (
+				"16A3E14EF6ADBF56D3827904",
+				"B65EB0E800D9A3E88AE3E658",
+			);
+			"defaultConfigurationIsVisible" = "0";
+			"defaultConfigurationName" = "Release";
+		};
+		"67921D83F12005AC57BD7887" = {
+			"isa" = "PBXNativeTarget";
+			"buildConfigurationList" = "674CBB01F6EFAFE7FEDC8EB0";
+			"buildPhases" = (
+				"7721621C46A1D0D416C5EE10",
+				"D70A59B87B1F16165E843B48",
+			);
+			"buildRules" = (
+			);
+			"dependencies" = (
+			);
+			"name" = "RoamttyDesktopCore";
+			"productName" = "RoamttyDesktopCore";
+			"productReference" = "1698D31B32D16A3C5C4BD473";
+			"productType" = "com.apple.product-type.library.static";
+		};
 		"E253649D0644962204A856CE" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/Roamtty/Application/RoamttyApp.swift";
@@ -1894,6 +2166,10 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "963E5982DADA5BA041DD36E5";
 		};
+		"110DE8FB9D67BF92536AF4D8" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "1698D31B32D16A3C5C4BD473";
+		};
 		"4EAD3D241F396F70AC7DBEE5" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "669A012A12A1F2A99AD17919";
@@ -1908,6 +2184,7 @@
 			"files" = (
 				"C1BB24065E672D4B864A03EE",
 				"61815B9EC3F36CF88F495FFC",
+				"110DE8FB9D67BF92536AF4D8",
 				"4EAD3D241F396F70AC7DBEE5",
 				"6031433C25551076EFED899E",
 			);
@@ -2012,6 +2289,16 @@
 		"6C030784C5668F518B03D3F7" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "18CFF1F20FB0F2CE0C0B7A12";
+		};
+		"DCA9917135F7CB713AE492FF" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/Resources/desktop-plugin.json";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "text";
+		};
+		"F125F1B87BC23E71921F45C5" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "DCA9917135F7CB713AE492FF";
 		};
 		"3580A070E66438306C51F220" = {
 			"isa" = "PBXFileReference";
@@ -2187,6 +2474,7 @@
 				"4C3888C23A0B1F34F3EA522E",
 				"ECDD147B1AD5313C6730D18C",
 				"6C030784C5668F518B03D3F7",
+				"F125F1B87BC23E71921F45C5",
 				"4593A9B213627677574CC66C",
 				"67EA76B9084BC01A67ABB282",
 				"8B63838ECF0A07E370BCC6B4",
@@ -2376,6 +2664,18 @@
 			"target" = "C4625DCC4D38B106280750A0";
 			"targetProxy" = "B51ADBFF1000AE33FAE41077";
 		};
+		"550DFAFE2899FA24ACABB942" = {
+			"isa" = "PBXContainerItemProxy";
+			"containerPortal" = "244210E48437B6556980A702";
+			"proxyType" = "1";
+			"remoteGlobalIDString" = "67921D83F12005AC57BD7887";
+			"remoteInfo" = "RoamttyDesktopCore";
+		};
+		"248F395F23D267CA1AA16DE0" = {
+			"isa" = "PBXTargetDependency";
+			"target" = "67921D83F12005AC57BD7887";
+			"targetProxy" = "550DFAFE2899FA24ACABB942";
+		};
 		"2BDE746DE2B44115BE48278B" = {
 			"isa" = "PBXContainerItemProxy";
 			"containerPortal" = "244210E48437B6556980A702";
@@ -2414,6 +2714,7 @@
 			"dependencies" = (
 				"1686E824DF04A08025BA194F",
 				"29D8B3F98A351D3A9CC1F69B",
+				"248F395F23D267CA1AA16DE0",
 				"1969344C90C360A79B130F05",
 				"4B5E60146D9CFCD70936267A",
 			);
@@ -2983,6 +3284,7 @@
 				"669A012A12A1F2A99AD17919",
 				"9D137293EAD0820387268946",
 				"963E5982DADA5BA041DD36E5",
+				"1698D31B32D16A3C5C4BD473",
 				"B30607D2B16313D9BC09B393",
 				"20ADB0BBEA9CF4248B4BEF65",
 				"14B9BC29A74E489722D4C0B8",
@@ -3034,6 +3336,17 @@
 				"024B9FECFDDD6BB5F3A73CAC",
 				"D8BDC8BC630C1BAF30F87DB0",
 				"F4B54B0336DEDE94FFC7328E",
+				"7143C377557812A60016CDCE",
+				"9024D0B1E705D9201188720F",
+				"C98ABC51B61EF1EC84EED5A2",
+				"CAB18B1E7042A707B60AC358",
+				"BD474F7CCE67011ACAB14F43",
+				"49EA6B4325FB139A90B6D6D6",
+				"92ECD6A0F533B5871C577065",
+				"F2672ED5BBF58576E44F8C0E",
+				"06553FE0040153E107D34809",
+				"2920228034DC1736EC9D27A2",
+				"94A275D205A0E28ED2D2601E",
 				"E253649D0644962204A856CE",
 				"8AADF96DA52A4385487B76A0",
 				"5840B97A1E2E2F0D654FAFB9",
@@ -3125,6 +3438,7 @@
 				"57289BC00C9897D5B981E000",
 				"FA7BF63F58869C15C4A4F034",
 				"18CFF1F20FB0F2CE0C0B7A12",
+				"DCA9917135F7CB713AE492FF",
 				"3580A070E66438306C51F220",
 				"8B6F34C637A85A6E6E87B18E",
 				"4DF8E45C8AA72EA2D3B3549A",
@@ -3296,6 +3610,7 @@
 				"17CB739106A4D48F677BA476",
 				"F63A8345997D082BD812A2ED",
 				"C4625DCC4D38B106280750A0",
+				"67921D83F12005AC57BD7887",
 				"A15A88FB27D92A5206DAB6BF",
 				"1F04E46F1B79E987897278F5",
 				"0E87BF95EAF0F4D5AB5B25FC",
