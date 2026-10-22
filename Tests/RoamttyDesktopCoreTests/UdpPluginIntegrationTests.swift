@@ -162,15 +162,39 @@ final class UdpPluginIntegrationTests: XCTestCase {
         XCTAssertFalse(s.stream.isClosed, "serve keeps running on UDP")
     }
 
+    /// Prefer real xterm (Android CI); fall back to xfce4-terminal / x-terminal-emulator on this Linux box.
     private func typingTarget(_ f: Fixture) throws -> Process? {
-        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/xterm") else { return nil }
-        let xterm = Process()
-        xterm.executableURL = URL(fileURLWithPath: "/usr/bin/xterm")
-        xterm.arguments = ["-geometry", "100x30+0+0", "-e", "cat"]
-        var env = ProcessInfo.processInfo.environment; env["DISPLAY"] = f.display; xterm.environment = env
-        try xterm.run()
+        let candidates: [(String, [String])] = [
+            ("/usr/bin/xterm", ["-geometry", "100x30+0+0", "-e", "cat"]),
+            ("/usr/bin/xfce4-terminal", ["--disable-server", "--geometry=100x30+0+0", "-x", "cat"]),
+            ("/usr/bin/x-terminal-emulator", ["--disable-server", "--geometry=100x30+0+0", "-x", "cat"]),
+        ]
+        guard let (path, args) = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.0) }) else { return nil }
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: path)
+        proc.arguments = args
+        var env = ProcessInfo.processInfo.environment; env["DISPLAY"] = f.display; proc.environment = env
+        try proc.run()
         Thread.sleep(forTimeInterval: 0.7)
-        return xterm
+        return proc
+    }
+
+
+    private func busyTypingTarget(_ f: Fixture) throws -> Process? {
+        let script = "while :; do head -c 4000 /dev/urandom | base64; done"
+        let candidates: [(String, [String])] = [
+            ("/usr/bin/xterm", ["-geometry", "160x50+0+0", "-e", "sh", "-c", script]),
+            ("/usr/bin/xfce4-terminal", ["--disable-server", "--geometry=160x50+0+0", "-x", "sh", "-c", script]),
+            ("/usr/bin/x-terminal-emulator", ["--disable-server", "--geometry=160x50+0+0", "-x", "sh", "-c", script]),
+        ]
+        guard let (path, args) = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.0) }) else { return nil }
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: path)
+        proc.arguments = args
+        var env = ProcessInfo.processInfo.environment; env["DISPLAY"] = f.display; proc.environment = env
+        try proc.run()
+        Thread.sleep(forTimeInterval: 0.5)
+        return proc
     }
 
     private func pointer(_ display: String) -> (Int, Int)? {
@@ -208,13 +232,8 @@ final class UdpPluginIntegrationTests: XCTestCase {
     /// No loss on the way: the phone asks for nothing again, whatever the pacing and the frame sizes.
     func testNoNacksWithoutLoss() throws {
         let f = try Self.fixture()
-        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/xterm") else { throw XCTSkip("no xterm") }
         // A busy screen: big frames, split into many shards and paced out.
-        let xterm = Process()
-        xterm.executableURL = URL(fileURLWithPath: "/usr/bin/xterm")
-        xterm.arguments = ["-geometry", "160x50+0+0", "-e", "sh", "-c", "while :; do head -c 4000 /dev/urandom | base64; done"]
-        var env = ProcessInfo.processInfo.environment; env["DISPLAY"] = f.display; xterm.environment = env
-        try xterm.run()
+        guard let xterm = try busyTypingTarget(f) else { throw XCTSkip("no terminal emulator") }
         defer { xterm.terminate() }
         Thread.sleep(forTimeInterval: 0.5)
         let s = try Serve(f)

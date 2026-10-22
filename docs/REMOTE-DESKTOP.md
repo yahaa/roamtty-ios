@@ -127,3 +127,46 @@ Nothing large remains to claim **complete in source** for the #218 surface area,
 3. Live Activity / persistent notification is explicitly n/a.
 4. Real macOS permission polling UI and Windows service “复制命令” affordances rely on `DesktopText` / needs card; polish may differ from Android screenshots until device QA.
 5. Do **not** claim device testing until someone runs the Mac/simulator checklist above.
+
+## Linux desktop host fixture (this box)
+
+Script: [`scripts/desktop-host-fixture.sh`](../scripts/desktop-host-fixture.sh).
+
+| Item | Value |
+|---|---|
+| Plugin pin | **roamtty-desktop 0.8.0** (`desktop-plugin.json`; binary sha256 matches `linux-x86_64`) |
+| Binary / archive | `/workspace/desktop-plugin/roamtty-desktop`, `linux-x86_64.gz` |
+| Plugin HOME (OpenH264 2.6.0) | `/workspace/desktop-plugin/home` (`$HOME/.roamtty/…`) |
+| LocalLoopback display | **`:91`** (Xvfb, started by the script; typing target via xfce4-terminal) |
+| SSH desktop display | **`:92`** owned by `itermux_test` (`start-ssh-display`) so probe `[ -O socket ]` succeeds |
+| SSH reachability | `itermux_test@127.0.0.1:22228` (password in `/workspace/roamtty/.private/test-password`; SFTP on) |
+| Optional plugin HTTP | `http://127.0.0.1:8797/linux-x86_64.gz` |
+
+```bash
+./scripts/desktop-host-fixture.sh start          # :91 + pin check + typing target
+./scripts/desktop-host-fixture.sh start-ssh-display   # :92 as itermux_test
+eval "$(./scripts/desktop-host-fixture.sh env)"
+# LocalShell / UDP (set HOME only for the test process):
+ROAMTTY_DESKTOP_HOME=… DISPLAY=:91 swift test --filter 'UdpPluginIntegrationTests|DesktopSessionPluginTests'
+# Over SSH (sshd must SetEnv DISPLAY=:92):
+ROAMTTY_TEST_PORT=22228 ROAMTTY_TEST_DESKTOP_SSH=1 swift test --filter SSHDesktopHostTests
+./scripts/desktop-host-fixture.sh stop
+```
+
+Smoke: `env HOME=$ROAMTTY_DESKTOP_HOME DISPLAY=:91 $ROAMTTY_DESKTOP_BIN serve --proto 1 --client 640x360@160` prints a Hello JSON with `ver":"0.8.0"` and a UDP port.
+
+### Alignment run (2026-10-23 Asia/Shanghai)
+
+**iOS core against this host** (no UIKit / no device):
+
+| Check | Result |
+|---|---|
+| `DesktopSessionPluginTests.testRealPluginEndToEnd` | **pass** — UDP upgrade; SSH fallback ~2773 ms; resume `--resume`/`--token` keeps session id |
+| `UdpPluginIntegrationTests` video+loss+fallback+roam | **pass** — loss frames≥30, fallback ~2795 ms, roam ≤1 s |
+| `UdpPluginIntegrationTests` pointer / no-NACK | **pass** (xfce4-terminal fallback when xterm absent) |
+| `SSHDesktopHostTests` scripts / SFTP phone-install / streams | **pass** |
+| `SSHDesktopHostTests.testDesktopEndToEndOverSSH` | **pass** on `:92` owned by `itermux_test` |
+
+**Android #218 desktop-core on the same box** (`./gradlew :desktop-core:test` filtered): 32/33 — `videoOverUdpWithLossFallbackAndRoaming` + `pointerMovesOverUdp` **pass**; `noNacksWithoutLoss` **fail** only because Android still hard-requires `/usr/bin/xterm` (not installed). No AVD → **E2eDesktopTest / UI entry points / keyboard page / 操作 panel not run on emulator**.
+
+**Still UI-only / unverified on iOS device:** DesktopPage rail/panels, VideoToolbox picture, Settings toggles, session/host/terminal entry chrome (source aligned in `3cc8e5e`; not exercised under UIKit here).
