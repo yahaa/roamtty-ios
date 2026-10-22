@@ -1,6 +1,6 @@
 import RoamttyCore
 
-enum AppRoute: Hashable { case host(String), terminal(String), files(String, sessionID: String? = nil, directory: String = ".") }
+enum AppRoute: Hashable { case host(String), terminal(String), files(String, sessionID: String? = nil, directory: String = "."), desktop(String) }
 enum HomeTab: Hashable { case sessions, hosts }
 enum AppSheet: Identifiable {
     case editor(Host?)

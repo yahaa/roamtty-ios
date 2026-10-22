@@ -34,12 +34,18 @@ public struct Host: Codable, Identifiable, Equatable, Sendable {
     public var plugins: [String]?
     public var keyLabel: String?
     public var savePassword: Bool
+    /// Read-only desktop probe: `yes` / `no` / `nologin` (Android `Host.desktop`).
+    public var desktop: String?
+    /// When the probe was stored, milliseconds since epoch; older than `DesktopProbe.cacheMs` is stale.
+    public var desktopProbedAt: Int64?
     public init(id: String = UUID().uuidString, name: String = "", address: String = "", port: Int = 22,
                 username: String = "", auth: AuthMethod = .password, mode: SessionMode = .tmux,
-                system: String = "UNKNOWN", plugins: [String]? = nil, keyLabel: String? = nil, savePassword: Bool = false) {
+                system: String = "UNKNOWN", plugins: [String]? = nil, keyLabel: String? = nil, savePassword: Bool = false,
+                desktop: String? = nil, desktopProbedAt: Int64? = nil) {
         self.id = id; self.name = name; self.address = address; self.port = port; self.username = username
         self.auth = auth; self.mode = mode; self.system = system; self.plugins = plugins
         self.keyLabel = keyLabel; self.savePassword = savePassword
+        self.desktop = desktop; self.desktopProbedAt = desktopProbedAt
     }
     public var hostname: String {
         address.hasPrefix("[") && address.hasSuffix("]") ? String(address.dropFirst().dropLast()) : address
@@ -152,11 +158,22 @@ public struct AppSettings: Codable, Equatable {
     public var fileSortDescending = false
     public var codeWrap = false
     public var codeFontSize = 13.0
+    /// Experimental remote desktop (Android `desktop.enabled`); **off by default**.
+    public var desktopEnabled = false
+    /// How long a left desktop stays connected: 5, 10 or 30 minutes.
+    public var desktopKeepAliveMinutes = 10
+    /// Show the network stats overlay (also toggled in 操作).
+    public var desktopShowStats = false
+    /// Per-host desktop prefs, keyed by host id (mode/quality/fps/lock).
+    public var desktopHosts: [String: DesktopHostSettings] = [:]
+    /// Debug: replace the pinned plugin base URL.
+    public var desktopPluginBaseUrl = ""
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
         case theme, language, font, fontSize, showHiddenFiles, toolboxPinned, downloadBookmark
         case fileSort, fileSortDescending, codeWrap, codeFontSize
+        case desktopEnabled, desktopKeepAliveMinutes, desktopShowStats, desktopHosts, desktopPluginBaseUrl
     }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -171,5 +188,20 @@ public struct AppSettings: Codable, Equatable {
         fileSortDescending = try values.decodeIfPresent(Bool.self, forKey: .fileSortDescending) ?? false
         codeWrap = try values.decodeIfPresent(Bool.self, forKey: .codeWrap) ?? false
         codeFontSize = min(22, max(9, try values.decodeIfPresent(Double.self, forKey: .codeFontSize) ?? 13))
+        desktopEnabled = try values.decodeIfPresent(Bool.self, forKey: .desktopEnabled) ?? false
+        let keep = try values.decodeIfPresent(Int.self, forKey: .desktopKeepAliveMinutes) ?? 10
+        desktopKeepAliveMinutes = [5, 10, 30].contains(keep) ? keep : 10
+        desktopShowStats = try values.decodeIfPresent(Bool.self, forKey: .desktopShowStats) ?? false
+        desktopHosts = try values.decodeIfPresent([String: DesktopHostSettings].self, forKey: .desktopHosts) ?? [:]
+        desktopPluginBaseUrl = try values.decodeIfPresent(String.self, forKey: .desktopPluginBaseUrl) ?? ""
     }
+}
+
+/// Per-host desktop preferences stored in `AppSettings.desktopHosts`.
+public struct DesktopHostSettings: Codable, Equatable, Sendable {
+    public var pointerMode = "touch" // touch | mouse
+    public var quality = "auto"
+    public var fps = 60
+    public var lockOnClose = false
+    public init() {}
 }
