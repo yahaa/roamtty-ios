@@ -82,6 +82,19 @@ final class HostScreenCardUITests: XCTestCase {
                 app.navigationBars.buttons.element(boundBy: 0).tap()
                 XCTAssertTrue(headless.waitForExistence(timeout: 10))
             }
+            // The flat home header keeps search and tab navigation working.
+            app.buttons["search-hosts"].tap()
+            let search = app.textFields["host-search"]
+            XCTAssertTrue(search.waitForExistence(timeout: 3))
+            search.tap(); search.typeText("Ubuntu")
+            XCTAssertTrue(app.buttons["host-screen-headless"].exists)
+            XCTAssertFalse(app.buttons["host-screen-pictured"].exists)
+            app.buttons["host-search-close"].tap()
+            XCTAssertTrue(app.buttons["host-screen-pictured"].waitForExistence(timeout: 3))
+            app.buttons["home-tab-sessions"].tap()
+            XCTAssertTrue(app.buttons["home-tab-sessions"].isSelected)
+            app.buttons["home-tab-hosts"].tap()
+            XCTAssertTrue(headless.waitForExistence(timeout: 3))
             app.terminate()
         }
     }

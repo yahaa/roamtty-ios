@@ -18,18 +18,18 @@ struct HomeHostsTab: View {
                 HomeEmptyState(title: model.text("没有匹配的主机", "No matching hosts"), message: model.text("试试其他名称或地址", "Try another name or address")) { EmptyView() }
             } else {
                 ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 12)], spacing: 12) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 14)], spacing: 14) {
                         ForEach(filtered) { host in
                             HostCard(host: host, desktops: model.desktops, thumbnails: model.desktopThumbnails)
                         }
-                    }.padding(.horizontal, 16).padding(.bottom, 16)
+                    }.padding(.horizontal, 18).padding(.bottom, 18)
                 }.accessibilityIdentifier("host-grid")
             }
         }
     }
 }
 
-/// Android PR 218 screen card: image opens desktop, reachability and desktop state sit above the 62-point information strip.
+/// Android PR 218 screen card: image opens desktop, reachability and desktop state sit above the 70-point information strip.
 struct HostCard: View {
     @EnvironmentObject var model: AppModel
     let host: Host
@@ -42,7 +42,7 @@ struct HostCard: View {
     private var live: Bool { [.connected, .poor, .recovering, .connecting].contains(state) }
     private var green: Color { Color(uiColor: UIColor(hex: 0x7FD19B)) }
     private var warning: Color { Color(uiColor: UIColor(hex: 0xF2C46D)) }
-    private let stripHeight: CGFloat = 62
+    private let stripHeight: CGFloat = 70
     private var pillTint: Color { state == .connected ? green : state == .connecting ? .white.opacity(0.7) : warning }
     private var plugins: [String] {
         if let plugins = host.plugins { return ["tmux", "psmux", "mosh"].filter(plugins.contains) }
@@ -62,7 +62,7 @@ struct HostCard: View {
                 strip
                 VStack {
                     HStack(spacing: 6) {
-                        ReachabilityLabel(state: model.reachability[host.id] ?? .checking, onImage: hasDesktop)
+                        ReachabilityLabel(state: model.reachability[host.id] ?? .checking, onImage: hasDesktop, fontSize: 13)
                             .lineLimit(1)
                             .padding(.horizontal, 10).padding(.vertical, 4)
                             .background(hasDesktop ? Color(uiColor: UIColor(hex: 0x141416)).opacity(0.6) : Palette.foreground.opacity(0.07), in: Capsule())
@@ -75,8 +75,8 @@ struct HostCard: View {
                 }.padding(12).allowsHitTesting(false)
             }
             .background(Palette.panel)
-            .clipShape(RoundedRectangle(cornerRadius: 20))
-            .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(live ? (state == .connected ? green : warning) : .clear, lineWidth: 2).allowsHitTesting(false))
+            .clipShape(RoundedRectangle(cornerRadius: 22))
+            .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(live ? (state == .connected ? green : warning) : .clear, lineWidth: 2).allowsHitTesting(false))
             .contextMenu { actions }
         }
         .aspectRatio(16 / 9.6, contentMode: .fit)
@@ -105,9 +105,9 @@ struct HostCard: View {
             } else {
                 RadialGradient(colors: [Palette.foreground.opacity(0.05), .clear], center: .center, startRadius: 0, endRadius: 300)
                 VStack(spacing: 0) {
-                    AppIcon("ic_desktop_off", size: 40).foregroundStyle(Palette.secondary.opacity(0.55)).frame(height: 40)
-                    Text(model.text("没有图形桌面", "No graphical desktop")).font(.system(size: 14)).foregroundStyle(Palette.secondary).padding(.top, 6)
-                    Text(model.text("这台主机只能用终端", "This host only has a terminal")).font(.system(size: 11)).foregroundStyle(Palette.secondary.opacity(0.7))
+                    AppIcon("ic_desktop_off", size: 44).foregroundStyle(Palette.secondary.opacity(0.55)).frame(height: 44)
+                    Text(model.text("没有图形桌面", "No graphical desktop")).font(.system(size: 16)).foregroundStyle(Palette.secondary).padding(.top, 6)
+                    Text(model.text("这台主机只能用终端", "This host only has a terminal")).font(.system(size: 13)).foregroundStyle(Palette.secondary.opacity(0.7))
                 }.frame(width: size.width, height: max(0, size.height - stripHeight)).padding(.bottom, stripHeight)
                 Palette.foreground.opacity(0.035).frame(height: stripHeight)
                 Palette.foreground.opacity(0.07).frame(height: 1).padding(.bottom, stripHeight)
@@ -119,19 +119,19 @@ struct HostCard: View {
             Button { model.path.append(.host(host.id)) } label: {
                 HStack(spacing: 10) {
                     HostSystemLogo(system: host.system).frame(width: 20, height: 20)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(host.name).font(.system(size: 16, weight: .semibold)).lineLimit(1)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(host.name).font(.system(size: 18, weight: .regular)).lineLimit(1)
                             .foregroundStyle(hasDesktop ? .white.opacity(offline ? 0.6 : 1) : Palette.foreground)
                         Text("\(host.username)@\(host.address):\(host.port)")
-                            .font(.system(size: 11, design: .monospaced)).lineLimit(1).truncationMode(.tail)
+                            .font(.system(size: 13, weight: .medium, design: .monospaced)).lineLimit(1).truncationMode(.tail)
                             .foregroundStyle(hasDesktop ? .white.opacity(0.62) : Palette.secondary.opacity(0.75))
                             .accessibilityIdentifier("host-login-\(host.id)")
-                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(.trailing, 6)
                     HStack(spacing: 6) {
                         ForEach(plugins, id: \.self) { plugin in
-                            Text(plugin).font(.system(size: 11)).padding(.horizontal, 6).padding(.vertical, 2)
+                            Text(plugin).font(.system(size: 13, weight: .medium)).padding(.horizontal, 7).padding(.vertical, 3)
                                 .foregroundStyle(hasDesktop ? .white.opacity(0.85) : Palette.secondary)
-                                .background((hasDesktop ? Color.white : Palette.foreground).opacity(hasDesktop ? 0.14 : 0.06), in: RoundedRectangle(cornerRadius: 5))
+                                .background((hasDesktop ? Color.white : Palette.foreground).opacity(hasDesktop ? 0.14 : 0.06), in: RoundedRectangle(cornerRadius: 6))
                         }
                     }.fixedSize()
                 }.padding(.leading, 14).frame(maxHeight: .infinity).contentShape(Rectangle())
