@@ -9,11 +9,18 @@ import RoamttyDesktopCore
 /// At most one desktop per host (Android `DesktopRegistry`), held by the app model so it outlives the page.
 @MainActor final class DesktopStore: ObservableObject {
     @Published private(set) var controllers: [String: DesktopController] = [:]
+    private var subscriptions: [String: AnyCancellable] = [:]
     subscript(_ hostID: String) -> DesktopController? { controllers[hostID] }
-    func put(_ c: DesktopController) { controllers[c.host.id] = c; objectWillChange.send() }
+    func put(_ c: DesktopController) {
+        controllers[c.host.id] = c
+        subscriptions[c.host.id] = c.$phase.removeDuplicates().sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+    }
     func remove(_ hostID: String) {
         controllers[hostID]?.close()
         controllers[hostID] = nil
+        subscriptions[hostID] = nil
         objectWillChange.send()
     }
     var live: [DesktopController] {
@@ -113,7 +120,7 @@ import RoamttyDesktopCore
 
 extension AppModel {
     /// The button state for a host's session / host card (Android `DesktopButton.derive`).
-    func desktopButton(for host: Host, sessionConnected: Bool) -> DesktopButton {
+    func desktopButton(for host: Host, sessionConnected: Bool, preserveOffline: Bool = false) -> DesktopButton {
         // Cold path (session list): do not touch the plugin resource while the flag is off.
         guard settings.desktopEnabled else { return .hidden }
         guard let manifest = try? PluginManifest.bundled() else { return .hidden }
@@ -124,7 +131,7 @@ extension AppModel {
         }()
         return DesktopButton.derive(
             enabled: settings.desktopEnabled,
-            hostOnline: !offline,
+            hostOnline: preserveOffline || !offline,
             sessionConnected: sessionConnected,
             os: DesktopSupport.buttonOS(host.system),
             osSupported: DesktopSupport.osSupported(host.system, manifest: manifest),

@@ -45,6 +45,13 @@ struct DesktopPage: View {
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
+        .task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            while !Task.isCancelled {
+                saveThumbnail()
+                do { try await Task.sleep(nanoseconds: 10_000_000_000) } catch { break }
+            }
+        }
         .onAppear {
             controller.resume()
             showStats = model.settings.desktopShowStats
@@ -55,6 +62,7 @@ struct DesktopPage: View {
         }
         .onDisappear {
             // Leaving pauses and keeps the link for the keep-alive window (phase 5).
+            saveThumbnail()
             controller.pause()
         }
         .confirmationDialog(model.text("断开连接？", "Disconnect?"), isPresented: $showDisconnect, titleVisibility: .visible) {
@@ -465,6 +473,14 @@ struct DesktopPage: View {
 
     private func fetchClipboard() {
         controller.send(DesktopProtocol.req(DesktopProtocol.REQ_CLIP_GET))
+    }
+
+    private func saveThumbnail() {
+        let hostID = controller.host.id
+        controller.display.snapshot { image in
+            guard let image, model.host(hostID) != nil else { return }
+            model.desktopThumbnails.save(image, for: hostID)
+        }
     }
 
     private func dismissDesktopKeepingLink() {

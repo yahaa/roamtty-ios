@@ -58,6 +58,8 @@ extension AppModel {
             for record in records where record.hostID == host.id { cancelLaunch(record.id); dropRuntime(record.id) }
             credentialCache.forget(host.id)
             try vault.remove(hostID: host.id); try store?.deleteHost(id: host.id)
+            closeDesktop(host.id)
+            desktopThumbnails.remove(host.id)
             metrics.removeValue(forKey: host.id); metricSeries.removeValue(forKey: host.id); monitorStates.removeValue(forKey: host.id)
             journal.removeHost(host.id); persistJournal(); hosts.removeAll { $0.id == host.id }; path = []
         } catch { self.error = error.localizedDescription }

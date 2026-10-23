@@ -62,6 +62,7 @@ import RoamttyTransport
     /// Session id → when the list began waiting for its host to answer again.
     var waitingForHostSince: [String: Date] = [:]
     /// Remote desktops (phase 5); created on first use.
+    let desktopThumbnails = DesktopThumbnails()
     var desktopStore: DesktopStore? = nil
     var desktopPathMonitor: NWPathMonitor?
 
