@@ -30,7 +30,6 @@ struct DesktopPage: View {
 
     private var english: Bool { model.english }
     private var page: DesktopPageModel { controller.page }
-    private var landscapeRailWidth: CGFloat { showStats && controller.videoSize.0 > 0 ? 132 : 72 }
 
     var body: some View {
         GeometryReader { geo in
@@ -43,7 +42,7 @@ struct DesktopPage: View {
                 if landscape {
                     HStack(spacing: 0) {
                         desktopWorkspace(landscape: true, bottomInset: max(0, keyboardOverlap - geo.safeAreaInsets.bottom))
-                        controlRail(landscape: true, bottomInset: max(0, keyboardOverlap - geo.safeAreaInsets.bottom))
+                        controlRail(landscape: true)
                     }
                 } else {
                     VStack(spacing: 0) {
@@ -107,15 +106,11 @@ struct DesktopPage: View {
         } message: { Text(controller.notice ?? "") }
     }
 
-    /// Keep the video and its gesture viewport in the same unobscured rectangle;
-    /// network information gets separate layout space.
+    /// Keep the video and its gesture viewport in the same unobscured rectangle. Only this
+    /// column resizes for input; the landscape rail retains its full-height touch targets.
     private func desktopWorkspace(landscape: Bool, bottomInset: CGFloat) -> some View {
         VStack(spacing: 0) {
-            desktopPicture
-            if !landscape && !networkLines.isEmpty {
-                DesktopNetworkStatus(lines: networkLines, sidebar: false)
-                    .background(railColor)
-            }
+            desktopPicture(landscape: landscape)
             if panel == .keyboard {
                 keyboardPanel.fixedSize(horizontal: false, vertical: true)
             }
@@ -123,12 +118,13 @@ struct DesktopPage: View {
         .padding(.bottom, panel == .keyboard && keyboardPage == .ime ? bottomInset : 0)
     }
 
-    private var desktopPicture: some View {
+    private func desktopPicture(landscape: Bool) -> some View {
         GeometryReader { geo in
             ZStack {
                 DesktopVideoSurface(display: controller.display)
                 DesktopGestureOverlay(controller: controller, size: geo.size)
                 cursorOverlay
+                if landscape { statsOverlay } else { portraitStatsOverlay }
                 DesktopStatusOverlay(host: controller.host.name, phase: controller.phase,
                                      hasPicture: controller.videoSize.0 > 0, windowsHost: controller.windowsHost,
                                      log: controller.log.last ?? "", failure: controller.session.failure, english: english) {
@@ -142,29 +138,7 @@ struct DesktopPage: View {
 
     // MARK: Android desktop controls
 
-    @ViewBuilder private func controlRail(landscape: Bool, bottomInset: CGFloat = 0) -> some View {
-        if landscape {
-            ScrollView(.vertical) {
-                VStack(spacing: 0) {
-                    railButtons(landscape: true)
-                    if !networkLines.isEmpty {
-                        Divider().overlay(Color.white.opacity(0.12)).padding(.horizontal, 10)
-                        DesktopNetworkStatus(lines: networkLines, sidebar: true)
-                    }
-                }
-            }
-            .accessibilityIdentifier("desktop-control-rail")
-            .frame(width: landscapeRailWidth)
-            .padding(.bottom, panel == .keyboard && keyboardPage == .ime ? bottomInset : 0)
-            .background(railColor.ignoresSafeArea(edges: .trailing))
-        } else {
-            railButtons(landscape: false)
-                .padding(.vertical, 4)
-                .background(railColor.ignoresSafeArea(edges: .bottom))
-        }
-    }
-
-    private func railButtons(landscape: Bool) -> some View {
+    private func controlRail(landscape: Bool) -> some View {
         let layout = landscape ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
         return layout {
             railItem("ic_operations", model.text("操作", "Ops"), selected: panel == .operations, landscape: landscape) { togglePanel(.operations) }
@@ -178,18 +152,19 @@ struct DesktopPage: View {
                 controller.input(DesktopProtocol.action(DesktopProtocol.ACTION_ALL_WINDOWS))
             }
         }
+        .padding(.vertical, landscape ? 0 : 4)
+        .frame(width: landscape ? 72 : nil)
+        .background(railColor.ignoresSafeArea(edges: landscape ? .trailing : .bottom))
     }
 
     private func railItem(_ icon: String, _ title: String, selected: Bool, landscape: Bool, action: @escaping () -> Void) -> some View {
-        let horizontal = landscape && landscapeRailWidth > 72
-        let layout = horizontal ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 3))
-        return Button(action: action) {
-            layout {
+        Button(action: action) {
+            VStack(spacing: 3) {
                 AppIcon(icon, size: 22).foregroundStyle(selected ? accent : ink)
                 Text(title).font(.system(size: 11)).foregroundStyle(selected ? accent : inkDim).lineLimit(1)
             }
-            .padding(.horizontal, 6).padding(.vertical, horizontal ? 0 : 8)
-            .frame(maxWidth: .infinity, minHeight: 44)
+            .padding(.horizontal, 6).padding(.vertical, 8)
+            .frame(maxWidth: .infinity, maxHeight: landscape ? .infinity : nil)
             .contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityLabel(title)
     }
@@ -234,7 +209,7 @@ struct DesktopPage: View {
                         }
                         toggleRow(model.text("仅观看", "View only"), model.text("不向电脑发送任何操作", "Do not send input to the computer"), value: Binding(get: { controller.viewOnly }, set: { controller.setViewOnly($0) }))
                         toggleRow(model.text("虚拟鼠标", "Virtual mouse"), model.text("悬浮的左键、右键和滚轮", "Floating left, right buttons and scroll wheel"), value: Binding(get: { virtualMouse }, set: { virtualMouse = $0; page.virtualMouse = $0 }))
-                        toggleRow(model.text("显示网络状态", "Show network stats"), model.text("在侧栏或底部显示延迟、帧率和码率", "Latency, frame rate and bitrate beside or below the picture"), value: Binding(get: { showStats }, set: {
+                        toggleRow(model.text("显示网络状态", "Show network stats"), model.text("画面左上角显示延迟、帧率和码率", "Latency, frame rate and bitrate at top left"), value: Binding(get: { showStats }, set: {
                             showStats = $0; controller.setShowStats($0); model.settings.desktopShowStats = $0; model.saveSettings()
                         }))
                         section(model.text("帧率", "Frame rate")) {
@@ -273,10 +248,10 @@ struct DesktopPage: View {
                     }.padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 16)
                 }.accessibilityIdentifier("desktop-operations-scroll")
             }
-            .frame(width: landscape ? min(340, max(0, size.width - landscapeRailWidth - 8)) : size.width, height: size.height * (landscape ? 0.92 : 0.7))
+            .frame(width: landscape ? min(340, max(0, size.width - 80)) : size.width, height: size.height * (landscape ? 0.92 : 0.7))
             .background(panelColor, in: RoundedRectangle(cornerRadius: 18))
             .clipShape(RoundedRectangle(cornerRadius: 18))
-            .padding(.trailing, landscape ? landscapeRailWidth + 8 : 0)
+            .padding(.trailing, landscape ? 80 : 0)
 
         }
     }
@@ -435,18 +410,62 @@ struct DesktopPage: View {
         latchRevision += 1
     }
 
-    private var networkLines: [DesktopStatsText.Line] {
-        guard controller.videoSize.0 > 0 else { return [] }
-        let poor: Bool = { if case .connected(let p, _) = controller.phase { return p }; return false }()
-        let recovering: Bool = { if case .recovering = controller.phase { return true }; return false }()
-        if showStats {
-            return DesktopStatsText.lines(stats: controller.stats, poor: poor, recovering: recovering,
-                                          transport: .unknown, english: english)
+    // MARK: Overlays
+
+    /// Preserve the portrait presentation from before the separate statistics strip.
+    private var portraitStatsOverlay: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            let poor: Bool = { if case .connected(let p, _) = controller.phase { return p }; return false }()
+            let recovering: Bool = { if case .recovering = controller.phase { return true }; return false }()
+            if showStats {
+                ForEach(Array(DesktopStatsText.lines(stats: controller.stats, poor: poor, recovering: recovering,
+                                                     transport: .unknown, english: english).enumerated()), id: \.offset) { _, line in
+                    Text(line.text).font(.system(size: 11, design: .monospaced)).foregroundStyle(toneColor(line.tone))
+                }
+            } else if let warn = DesktopStatsText.warning(poor: poor, recovering: recovering, english: english) {
+                Text(warn.text).font(.system(size: 12, weight: .medium)).foregroundStyle(toneColor(warn.tone))
+                    .padding(6).background(Color.black.opacity(0.45), in: Capsule())
+            }
+            Spacer()
         }
-        return DesktopStatsText.warning(poor: poor, recovering: recovering, english: english).map { [$0] } ?? []
+        .padding(.top, 12).padding(.leading, 12)
+        .allowsHitTesting(false)
     }
 
-    // MARK: Overlays
+    private var statsOverlay: some View {
+        let poor: Bool = { if case .connected(let p, _) = controller.phase { return p }; return false }()
+        let recovering: Bool = { if case .recovering = controller.phase { return true }; return false }()
+        return Group {
+            if controller.videoSize.0 > 0 {
+                if showStats {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(DesktopStatsText.lines(stats: controller.stats, poor: poor, recovering: recovering,
+                                                             transport: .unknown, english: english).enumerated()), id: \.offset) { _, line in
+                            Text(line.text).font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(toneColor(line.tone, android: true)).lineLimit(1)
+                                .frame(height: 14, alignment: .leading)
+                        }
+                    }
+                    .padding(.horizontal, 7).padding(.vertical, 4)
+                    .background(Color.black.opacity(140/255), in: RoundedRectangle(cornerRadius: 6))
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("desktop-stats")
+                } else if let warn = DesktopStatsText.warning(poor: poor, recovering: recovering, english: english) {
+                    HStack(spacing: 5) {
+                        Circle().fill(toneColor(warn.tone, android: true)).frame(width: 6, height: 6)
+                        Text(warn.text).font(.system(size: 11)).foregroundStyle(ink)
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(Color.black.opacity(0.6), in: Capsule())
+                    .accessibilityIdentifier("desktop-network-warning")
+                }
+            }
+        }
+        // Android NetworkStats: 8-point outer inset, compact translucent panel at TopStart.
+        .padding(8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .allowsHitTesting(false)
+    }
 
     @ViewBuilder private var cursorOverlay: some View {
         if pointerMode == .mouse || virtualMouse, let cursor = controller.cursor, cursor.visible {
@@ -492,6 +511,15 @@ struct DesktopPage: View {
             if page.latch.state(hid) != .off { page.tapModifier(hid) }
         }
         latchRevision += 1
+    }
+
+    private func toneColor(_ tone: DesktopStatsText.Tone, android: Bool = false) -> Color {
+        switch tone {
+        case .ink: return android ? ink : .white
+        case .dim: return android ? inkDim : .white.opacity(0.65)
+        case .warn: return Palette.warning
+        case .bad: return Palette.danger
+        }
     }
 
     private func sendClipboard() {

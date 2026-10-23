@@ -1,22 +1,15 @@
-# Desktop network information layout
+# Desktop network statistics: Android parity
 
-**Goal:** Keep network information outside the desktop picture in portrait and landscape and use the empty space below landscape controls.
-**Spec:** User screenshot and request on 2026-10-24; this layout change supersedes Android's over-picture statistics placement.
-**Architecture:** Preserve `DesktopStatsText` formatting and session metrics. Move statistics into sibling layout space: a wrapping strip below the portrait viewport, and a compact, scrollable landscape sidebar below four controls. The video and input viewport continue to share the same rectangle.
-**Constraints:** Keep all existing measurements, show/hide preference and poor-network warning. Preserve keyboard operation and connection status cards. Dark desktop palette; 44-point minimum buttons; normal sidebar width 72, statistics sidebar 132. Operations panel must account for the wider sidebar.
+**Goal:** Apply the user's correction: keep the original portrait layout and display statistics at the top left in landscape, matching Android.
+**Reference:** Android PR 218, commit `e759b75380fd1a0a1bbd64cd7b130b9a0828722b`, `DesktopPage.kt` (`DesktopRail`, `DesktopStatusOverlay`, `NetworkStats`). This replaces the separate statistics strip/sidebar introduced in `0e7df0e`.
+**Layout:** Restore the portrait controls and statistics presentation exactly from `d01b26d`, plus the 72-point landscape rail. Only the landscape overlay adopts Android's top-left anchor with an 8-point outer inset, 11-point monospaced text, 14-point rows, 7/4-point inner padding, a 6-point corner radius and translucent black background. Its compact poor-network/recovering badge uses the same anchor.
+**Behavior:** Preserve measurements, show/hide preference, desktop viewport dimensions, keyboard behavior, input mapping and connection status cards. Landscape network information appears once a picture is available, as Android does; portrait behavior is unchanged.
 
-- [x] Prove current network text overlaps the video with a simulator regression.
-- [x] Move statistics and warnings outside the video; compact landscape controls and update settings description.
-- [x] Verify both languages, phone sizes, rotation, toggle and keyboard behavior; inspect screenshots and run core suite.
-- [x] Review the change and prepare the signed Release IPA.
+- [x] Inspect current Android PR 218 and the original iOS layout.
+- [x] Restore the original controls and top-left overlay; remove the separate statistics layout.
+- [x] Verify portrait/landscape, both languages, show/hide without viewport changes, keyboard and warning placement; inspect screenshots.
+- [x] Review and prepare the signed IPA.
 
-Delivery uses PR 47 and the existing dev OTA catalog on port 18780. Preserve historical builds and verify the HTTPS manifest and freshly downloaded IPA hash. Artifact metadata and delivery evidence live in `/tmp/roamtty-ota-2026102402/`.
+Validation: iPhone 17 Pro simulator passed the four layout/keyboard scenarios (`FinalStandard.xcresult` plus the corrected switch-selector rerun in `FinalStandardToggle.xcresult`). iPhone SE (3rd generation) passed all three network layout scenarios in `FinalCompactSerial.xcresult`; its simulator needed a restart to respond to orientation changes. The existing keyboard test passed without changing its assertions. Screenshots confirm the original portrait presentation and Android-style landscape overlay. Release build `2026102403` succeeded and passed strict code-signing verification. No physical-device validation is claimed.
 
-## Evidence
-
-- Baseline: clean PR 47 worktree at `d01b26d`; `statsOverlay` sits in the video ZStack, landscape buttons expand to infinite height.
-- The initial simulator regression failed because `UDP 15 ms` overlapped the video. Evidence: `/tmp/roamtty-desktop-network/Red.xcresult`.
-- Screenshot review exposed the landscape IME covering the sidebar. The sidebar now reserves the same keyboard inset as the workspace; the regression scrolls the encoder text into the visible area above the keyboard.
-- `swift test`: 347 tests, 45 skipped integration tests, zero failures. Existing keyboard/shortcut regression passed with the final production code.
-- Read-only review found no remaining blockers after the keyboard fix. Signed Release build `1.0.0 (2026102402)` and strict codesign verification passed.
-- Final iPhone 17 Pro and iPhone SE (3rd generation) simulator runs each passed all three network layout regressions, covering both languages, rotation, toggles, keyboard scrolling and warnings. Evidence: `/tmp/roamtty-desktop-network/VerifiedFresh.xcresult` and `CompactVerified.xcresult`; portrait and landscape screenshots inspected. The standard simulator required a reboot after its system stopped applying rotation commands; production code was unchanged by the test-environment recovery.
+Delivery uses PR 47 and the existing dev OTA catalog on port 18780. Preserve historical builds and verify the HTTPS manifest and freshly downloaded IPA hash. Validation evidence lives in `/tmp/roamtty-desktop-stats-parity/`.

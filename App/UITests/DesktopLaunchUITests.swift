@@ -3,7 +3,7 @@ import XCTest
 /// Opt-in regression against a saved desktop host and its existing credentials.
 /// Does not reset the user's store or create/edit hosts.
 final class DesktopLaunchUITests: XCTestCase {
-    func testDesktopNetworkStatsNeverOverlapPicture() throws {
+    func testDesktopNetworkStatsRestorePortraitAndMatchAndroidLandscape() throws {
         let app = XCUIApplication()
         defer { XCUIDevice.shared.orientation = .portrait; app.terminate() }
         for english in [false, true] {
@@ -18,26 +18,26 @@ final class DesktopLaunchUITests: XCTestCase {
                               english ? "Loss 0.0%" : "丢包 0.0%", "1920×1246 videotoolbox"] {
                     let value = app.staticTexts[label]
                     XCTAssertTrue(value.exists, "Keep every metric: \(label)")
-                    XCTAssertFalse(picture.intersects(value.frame), "\(label) must not cover the remote desktop")
+                    XCTAssertTrue(picture.contains(value.frame), "Keep \(label) inside the desktop overlay")
                     XCTAssertTrue(app.frame.insetBy(dx: -1, dy: -1).contains(value.frame))
                 }
-                let status = app.otherElements["desktop-network-status"].frame
+                // Android: 8 outer + 7 horizontal / 4 vertical panel padding.
+                XCTAssertEqual(rtt.frame.minY, picture.minY + 12, accuracy: 1)
+                let ops = app.buttons[english ? "Ops" : "操作"]
                 if landscape {
-                    XCTAssertGreaterThanOrEqual(status.minX, picture.maxX - 1)
-                    let windows = app.buttons[english ? "Windows" : "所有窗口"]
-                    XCTAssertTrue(windows.isHittable)
-                    XCTAssertLessThanOrEqual(windows.frame.maxY, status.minY)
-                    XCTAssertLessThanOrEqual(windows.frame.height, 60, "Controls must leave room for network information")
+                    XCTAssertEqual(rtt.frame.minX, picture.minX + 15, accuracy: 1)
+                    XCTAssertEqual(ops.frame.width, 72, accuracy: 1, "Restore the original narrow control rail")
+                    XCTAssertGreaterThanOrEqual(ops.frame.minX, picture.maxX - 1)
                 } else {
-                    XCTAssertGreaterThanOrEqual(status.minY, picture.maxY - 1)
-                    XCTAssertLessThanOrEqual(status.maxY, app.buttons[english ? "Ops" : "操作"].frame.minY + 1)
+                    XCTAssertGreaterThanOrEqual(ops.frame.minY, picture.maxY - 1)
+                    XCTAssertLessThanOrEqual(ops.frame.minY, picture.maxY + 5, "No new statistics strip above portrait controls")
                 }
-                capture(app, "Stats outside picture \(english ? "English" : "Chinese") \(landscape ? "landscape" : "portrait")")
+                capture(app, "Android stats overlay \(english ? "English" : "Chinese") \(landscape ? "landscape" : "portrait")")
             }
         }
     }
 
-    func testDesktopNetworkStatsToggleAndKeyboardKeepPictureClear() throws {
+    func testDesktopNetworkStatsTogglePreservesViewportAndKeyboard() throws {
         let app = XCUIApplication()
         defer { XCUIDevice.shared.orientation = .portrait; app.terminate() }
         launchStatusFixture(app, phase: "stats", showStats: true)
@@ -45,50 +45,48 @@ final class DesktopLaunchUITests: XCTestCase {
             rotate(app, landscape: landscape)
             let picture = app.otherElements["desktop-video-surface"]
             let withStats = picture.frame
-            app.buttons["操作"].tap()
-            let toggle = app.switches.matching(NSPredicate(format: "label BEGINSWITH '显示网络状态'")).firstMatch
-            for _ in 0..<5 where !toggle.isHittable { app.scrollViews["desktop-operations-scroll"].swipeUp() }
-            XCTAssertTrue(toggle.isHittable); toggle.tap()
-            app.buttons["desktop-op-close"].tap()
-            XCTAssertFalse(app.otherElements["desktop-network-status"].exists)
-            if landscape { XCTAssertGreaterThan(picture.frame.width, withStats.width) }
-            else { XCTAssertGreaterThan(picture.frame.height, withStats.height) }
-            app.buttons["操作"].tap()
-            for _ in 0..<5 where !toggle.isHittable { app.scrollViews["desktop-operations-scroll"].swipeUp() }
-            toggle.tap(); app.buttons["desktop-op-close"].tap()
-            XCTAssertTrue(app.otherElements["desktop-network-status"].waitForExistence(timeout: 5))
+            toggleNetworkStats(app)
+            XCTAssertFalse(app.staticTexts["UDP 15 ms"].exists)
+            XCTAssertEqual(picture.frame.width, withStats.width, accuracy: 1)
+            XCTAssertEqual(picture.frame.height, withStats.height, accuracy: 1)
+            toggleNetworkStats(app)
+            XCTAssertTrue(app.staticTexts["UDP 15 ms"].waitForExistence(timeout: 5))
+            XCTAssertEqual(picture.frame.width, withStats.width, accuracy: 1)
+            XCTAssertEqual(picture.frame.height, withStats.height, accuracy: 1)
             app.buttons["键盘"].tap()
             Thread.sleep(forTimeInterval: 1)
             if app.buttons["Continue"].waitForExistence(timeout: 1) { app.buttons["Continue"].tap() }
             let hideKeyboard = app.buttons["关闭键盘"]
             XCTAssertTrue(hideKeyboard.waitForExistence(timeout: 5))
             assertPictureAboveControls(app, controls: hideKeyboard)
-            let status = app.otherElements["desktop-network-status"].frame
-            XCTAssertFalse(picture.frame.intersects(status), "Statistics stay outside the keyboard's resized viewport")
-            if landscape {
-                let keyboard = app.keyboards.firstMatch
-                XCTAssertTrue(keyboard.exists)
-                let rail = app.scrollViews["desktop-control-rail"]
-                // SwiftUI's accessibility frame includes outer padding. Swipe only in
-                // the visibly available area, then check the actual text, not that frame.
-                let clearBottom = hideKeyboard.frame.maxY
-                let encoder = app.staticTexts["1920×1246 videotoolbox"]
-                let origin = rail.coordinate(withNormalizedOffset: .zero)
-                let start = origin.withOffset(CGVector(dx: rail.frame.width / 2, dy: clearBottom - rail.frame.minY - 8))
-                let end = origin.withOffset(CGVector(dx: rail.frame.width / 2, dy: 8))
-                for _ in 0..<6 where !encoder.isHittable || encoder.frame.maxY > clearBottom {
-                    start.press(forDuration: 0.05, thenDragTo: end)
-                }
-                XCTAssertTrue(encoder.isHittable, "All statistics remain reachable while typing")
-                XCTAssertLessThanOrEqual(encoder.frame.maxY, clearBottom)
-                XCTAssertLessThanOrEqual(clearBottom, keyboard.frame.minY)
-            }
-            capture(app, landscape ? "Landscape stats with keyboard" : "Portrait stats with keyboard")
+            let rtt = app.staticTexts["UDP 15 ms"]
+            if landscape { XCTAssertEqual(rtt.frame.minX, picture.frame.minX + 15, accuracy: 1) }
+            XCTAssertEqual(rtt.frame.minY, picture.frame.minY + 12, accuracy: 1)
+            XCTAssertTrue(picture.frame.contains(app.staticTexts["1920×1246 videotoolbox"].frame))
+            capture(app, landscape ? "Landscape overlay with keyboard" : "Portrait overlay with keyboard")
             hideKeyboard.tap()
         }
     }
 
-    func testDesktopPoorNetworkWarningStaysOutsidePictureWhenStatsAreOff() throws {
+    private func toggleNetworkStats(_ app: XCUIApplication) {
+        app.buttons["操作"].tap()
+        let scroll = app.scrollViews["desktop-operations-scroll"]
+        XCTAssertTrue(scroll.waitForExistence(timeout: 5))
+        let row = app.switches.matching(NSPredicate(format: "label BEGINSWITH '显示网络状态'")).firstMatch
+        // SwiftUI exposes both the labeled row and its UISwitch. Tap the actual
+        // control; querying the offscreen row's hit point can fail in XCTest.
+        let toggle = row.switches.firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        for _ in 0..<5 where !scroll.frame.contains(toggle.frame) {
+            if toggle.frame.minY < scroll.frame.minY { scroll.swipeDown() }
+            else { scroll.swipeUp() }
+        }
+        XCTAssertTrue(toggle.isHittable)
+        toggle.tap()
+        app.buttons["desktop-op-close"].tap()
+    }
+
+    func testDesktopPoorNetworkWarningMatchesAndroidTopLeft() throws {
         let app = XCUIApplication()
         defer { XCUIDevice.shared.orientation = .portrait; app.terminate() }
         launchStatusFixture(app, phase: "poor-network")
@@ -96,8 +94,12 @@ final class DesktopLaunchUITests: XCTestCase {
             rotate(app, landscape: landscape)
             let warning = app.staticTexts["网络较差"]
             XCTAssertTrue(warning.waitForExistence(timeout: 5))
-            XCTAssertFalse(warning.frame.intersects(app.otherElements["desktop-video-surface"].frame))
+            let picture = app.otherElements["desktop-video-surface"].frame
+            XCTAssertTrue(picture.contains(warning.frame))
+            if landscape { XCTAssertLessThan(warning.frame.minX, picture.minX + 40) }
+            XCTAssertLessThan(warning.frame.minY, picture.minY + 24)
             XCTAssertFalse(app.staticTexts["60 fps  2.4 Mbps"].exists)
+            capture(app, landscape ? "Landscape Android network warning" : "Portrait Android network warning")
         }
     }
 
