@@ -28,8 +28,9 @@ for y in range(360):
         rows.extend((40 + x * 100 // 640, 80 + y * 100 // 360, 150))
 png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 640, 360, 8, 2, 0, 0, 0))
 png += chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
-for theme in ("dark", "light"):
-    folder = container / "Library/Application Support" / ("HostCardParity-" + theme)
+for store_name, theme in (("HostCardParity-dark", "dark"), ("HostCardParity-light", "light"),
+                          ("HostCardRecency", "dark")):
+    folder = container / "Library/Application Support" / store_name
     folder.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(folder / "roamtty.sqlite") as db:
         db.executescript("CREATE TABLE IF NOT EXISTS hosts(id TEXT PRIMARY KEY, json BLOB NOT NULL);"
@@ -47,4 +48,4 @@ for theme in ("dark", "light"):
     thumbs.mkdir(exist_ok=True)
     # UIImage identifies the format from its bytes, independently of the cache's .jpg suffix.
     (thumbs / ("pictured".encode().hex() + ".jpg")).write_bytes(png)
-print("Seeded isolated dark/light host-card fixtures")
+print("Seeded isolated dark/light and recent-use host-card fixtures")

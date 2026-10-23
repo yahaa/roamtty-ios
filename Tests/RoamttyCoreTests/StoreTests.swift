@@ -3,6 +3,24 @@ import CNative
 @testable import RoamttyCore
 
 final class StoreTests: XCTestCase {
+    func testHostsKeepRecentUseOrderAfterReopeningStore() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("hosts.sqlite")
+        let store = try AppStore(url: url)
+        // Saved order deliberately differs from recent-use order. Missing timestamps model older installs.
+        for (id, usedAt) in [("unused-a", nil), ("older", 100.0), ("newest-a", 300.0),
+                             ("unused-b", nil), ("newest-b", 300.0), ("middle", 200.0)] as [(String, Double?)] {
+            let host = Host(id: id, name: id, address: "example.org", username: "test")
+            var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(host)) as? [String: Any])
+            json["lastUsedAt"] = usedAt
+            try store.saveHost(JSONDecoder().decode(Host.self, from: JSONSerialization.data(withJSONObject: json)))
+        }
+        let expected = ["newest-a", "newest-b", "middle", "older", "unused-a", "unused-b"]
+        XCTAssertEqual(try store.hosts().map(\.id), expected)
+        XCTAssertEqual(try AppStore(url: url).hosts().map(\.id), expected)
+    }
+
     func testDeletionRemovesJournalButRetainsIndependentTrust() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

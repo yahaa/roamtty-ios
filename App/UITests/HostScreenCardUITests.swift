@@ -2,6 +2,47 @@ import XCTest
 
 /// Opt-in end-to-end screen-card parity check using an existing saved host, without changing its data.
 final class HostScreenCardUITests: XCTestCase {
+    func testRecentlyOpenedHostMovesFirstAndSurvivesRelaunch() throws {
+        guard ProcessInfo.processInfo.environment["ROAMTTY_HOST_CARD_FIXTURE"] == "1" else {
+            throw XCTSkip("Requires isolated simulator host-card fixtures")
+        }
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchEnvironment["ROAMTTY_STORAGE_NAME"] = "HostCardRecency"
+        app.launch()
+        XCTAssertTrue(app.buttons["home-tab-hosts"].waitForExistence(timeout: 15))
+        app.buttons["home-tab-hosts"].tap()
+        let pictured = app.buttons["host-screen-pictured"]
+        let headless = app.buttons["host-screen-headless"]
+        XCTAssertTrue(headless.waitForExistence(timeout: 10))
+        XCTAssertLessThan(pictured.frame.minY, headless.frame.minY)
+
+        // Opening a host is a user action; even an offline host should become easy to find again.
+        headless.tap()
+        let back = app.navigationBars.buttons.element(boundBy: 0)
+        XCTAssertTrue(back.waitForExistence(timeout: 10))
+        let cancel = app.buttons["auth-cancel"]
+        if cancel.waitForExistence(timeout: 3) { cancel.tap() }
+        back.tap()
+        XCTAssertTrue(headless.waitForExistence(timeout: 10))
+        XCTAssertLessThan(headless.frame.minY, pictured.frame.minY)
+
+        app.terminate(); app.launch()
+        XCTAssertTrue(app.buttons["home-tab-hosts"].waitForExistence(timeout: 15))
+        app.buttons["home-tab-hosts"].tap()
+        XCTAssertTrue(pictured.waitForExistence(timeout: 10))
+        XCTAssertLessThan(headless.frame.minY, pictured.frame.minY)
+        // Search preserves the same order; background reachability never promotes another host.
+        app.buttons["search-hosts"].tap()
+        let search = app.textFields["host-search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 3))
+        search.tap(); search.typeText("fixture")
+        XCTAssertLessThan(headless.frame.minY, pictured.frame.minY)
+        app.buttons["host-search-close"].tap()
+        capture(app, "Recently used host first after relaunch")
+        app.terminate()
+    }
+
     func testLivePreviewPersistsAndStripOpensDetails() throws {
         guard let host = ProcessInfo.processInfo.environment["ROAMTTY_LIVE_DESKTOP_HOST"], !host.isEmpty else {
             throw XCTSkip("Set ROAMTTY_LIVE_DESKTOP_HOST to a saved desktop host")

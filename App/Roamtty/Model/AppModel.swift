@@ -15,7 +15,11 @@ import RoamttyTransport
     @Published var hosts: [Host] = []
     @Published var settings = AppSettings()
     @Published var records: [SessionRecord] = []
-    @Published var path: [AppRoute] = []
+    @Published var path: [AppRoute] = [] {
+        didSet {
+            if let route = path.last, route != oldValue.last { recordHostUse(for: route) }
+        }
+    }
     @Published var homeTab: HomeTab = .sessions
     @Published var sheet: AppSheet?
     @Published var drawer = false

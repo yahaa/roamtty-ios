@@ -34,6 +34,8 @@ public struct Host: Codable, Identifiable, Equatable, Sendable {
     public var plugins: [String]?
     public var keyLabel: String?
     public var savePassword: Bool
+    /// Last explicit visit to this host's details, terminal, files or desktop; absent on older installs.
+    public var lastUsedAt: Date?
     /// Read-only desktop probe: `yes` / `no` / `nologin` (Android `Host.desktop`).
     public var desktop: String?
     /// When the probe was stored, milliseconds since epoch; older than `DesktopProbe.cacheMs` is stale.
@@ -41,10 +43,11 @@ public struct Host: Codable, Identifiable, Equatable, Sendable {
     public init(id: String = UUID().uuidString, name: String = "", address: String = "", port: Int = 22,
                 username: String = "", auth: AuthMethod = .password, mode: SessionMode = .tmux,
                 system: String = "UNKNOWN", plugins: [String]? = nil, keyLabel: String? = nil, savePassword: Bool = false,
-                desktop: String? = nil, desktopProbedAt: Int64? = nil) {
+                desktop: String? = nil, desktopProbedAt: Int64? = nil, lastUsedAt: Date? = nil) {
         self.id = id; self.name = name; self.address = address; self.port = port; self.username = username
         self.auth = auth; self.mode = mode; self.system = system; self.plugins = plugins
         self.keyLabel = keyLabel; self.savePassword = savePassword
+        self.lastUsedAt = lastUsedAt
         self.desktop = desktop; self.desktopProbedAt = desktopProbedAt
     }
     public var hostname: String {
