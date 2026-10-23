@@ -27,7 +27,11 @@ final class DesktopProbeTests: XCTestCase {
         let host = LocalShellHost(home: home)
         XCTAssertEqual(host.run(DesktopProbeScript.script, timeout: 10) { lines.append($0) }, 0)
         let desktop = try XCTUnwrap(DesktopProbeScript.parse(lines.joined(separator: "\n")), lines.joined(separator: "\n"))
-        XCTAssertTrue(desktop.uname.hasPrefix("Linux"))
+        #if os(macOS)
+        XCTAssertTrue(desktop.uname.hasPrefix("Darwin"), desktop.uname)
+        #else
+        XCTAssertTrue(desktop.uname.hasPrefix("Linux"), desktop.uname)
+        #endif
         XCTAssertNil(desktop.pluginVersion, "nothing installed under this HOME")
         // Installed: the probe reads its version line.
         try FileManager.default.createDirectory(at: home.appendingPathComponent(".roamtty/bin"), withIntermediateDirectories: true)

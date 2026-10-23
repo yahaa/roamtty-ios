@@ -195,7 +195,12 @@ final class UdpWireTests: XCTestCase {
         addr.sin_port = 0
         var len = socklen_t(MemoryLayout<sockaddr_in>.size)
         withUnsafeMutablePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { p in
-            XCTAssertEqual(0, bind(server, p, len)); XCTAssertEqual(0, getsockname(server, p, &len))
+            #if canImport(Darwin)
+            XCTAssertEqual(0, Darwin.bind(server, p, len))
+            #else
+            XCTAssertEqual(0, Glibc.bind(server, p, len))
+            #endif
+            XCTAssertEqual(0, getsockname(server, p, &len))
         } }
         let port = Int(UInt16(bigEndian: addr.sin_port))
         var tv = timeval(tv_sec: 0, tv_usec: 200_000)

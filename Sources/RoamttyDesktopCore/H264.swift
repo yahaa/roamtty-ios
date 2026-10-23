@@ -45,7 +45,10 @@ public enum H264 {
         for nal in nalUnits(data, offset: offset) {
             let payload = Array(nal.payload)
             let n = UInt32(payload.count)
-            out += [UInt8(n >> 24), UInt8(n >> 16), UInt8(n >> 8), UInt8(n)]
+            // Each byte stores only its part of the 32-bit big-endian length.
+            // Checked UInt8 conversion traps for ordinary video NALs larger than 255 bytes.
+            out += [UInt8(truncatingIfNeeded: n >> 24), UInt8(truncatingIfNeeded: n >> 16),
+                    UInt8(truncatingIfNeeded: n >> 8), UInt8(truncatingIfNeeded: n)]
             out += payload
         }
         return out

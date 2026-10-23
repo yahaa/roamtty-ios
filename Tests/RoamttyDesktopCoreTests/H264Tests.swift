@@ -13,6 +13,21 @@ final class H264Tests: XCTestCase {
         XCTAssertEqual(units[2].bytes, idr)
     }
 
+    func testAvccPreservesLargeNALPayloadsAndBigEndianLengths() {
+        let cases: [(Int, [UInt8])] = [
+            (255, [0, 0, 0, 255]),
+            (256, [0, 0, 1, 0]),
+            (65_535, [0, 0, 255, 255]),
+            (65_536, [0, 1, 0, 0]),
+            (141_887, [0, 2, 42, 63]),
+        ]
+        for (size, prefix) in cases {
+            let payload = [UInt8(0x65)] + Array(repeating: UInt8(0xAB), count: size - 1)
+            let input: [UInt8] = [9, 9, 0, 0, 0, 1] + payload + [0, 0, 1, 0x68, 3]
+            XCTAssertEqual(H264.avcc(input, offset: 2), prefix + payload + [0, 0, 0, 2, 0x68, 3], "NAL size \(size)")
+        }
+    }
+
     func testAvccLengthPrefixes() {
         let au: [UInt8] = [0, 0, 0, 1, 0x67, 1, 2, 0, 0, 1, 0x68, 3]
         XCTAssertEqual(H264.avcc(au), [0, 0, 0, 3, 0x67, 1, 2, 0, 0, 0, 2, 0x68, 3])
