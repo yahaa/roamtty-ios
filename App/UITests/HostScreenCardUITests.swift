@@ -25,7 +25,7 @@ final class HostScreenCardUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 30)
         XCTAssertEqual(app.state, .runningForeground)
         ops.tap()
-        app.buttons.matching(NSPredicate(format: "label == '退出' OR label == 'Exit'")).firstMatch.tap()
+        app.buttons["desktop-op-exit"].tap()
         XCTAssertTrue(screen.waitForExistence(timeout: 10))
         let saved = NSPredicate(format: "value == '已保存桌面预览' OR value == 'Saved desktop preview'")
         expectation(for: saved, evaluatedWith: screen)

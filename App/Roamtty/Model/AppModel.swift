@@ -79,6 +79,7 @@ import RoamttyTransport
             if settings.font != restoredFont { settings.font = restoredFont; try store.saveSettings(settings) }
             #if DEBUG
             try installUITestFixture(store)
+            try installDesktopControlsFixture()
             #endif
         } catch { self.error = error.localizedDescription }
     }

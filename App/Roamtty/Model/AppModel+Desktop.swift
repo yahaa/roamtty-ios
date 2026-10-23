@@ -105,11 +105,11 @@ import RoamttyDesktopCore
     func input(_ bytes: [UInt8]) { session.input(bytes) }
     func send(_ bytes: [UInt8]) { session.send(bytes) }
 
-    func setViewOnly(_ on: Bool) { session.setViewOnly(on) }
-    func setQuality(_ q: String) { session.setQuality(q); prefs.quality = q; onPrefs(prefs) }
-    func setFps(_ f: Int) { session.setFps(f); prefs.fps = f; onPrefs(prefs) }
-    func setDisplay(_ i: Int) { session.setDisplay(i) }
-    func setLockOnClose(_ on: Bool) { session.setLockOnClose(on); prefs.lockOnClose = on; onPrefs(prefs) }
+    func setViewOnly(_ on: Bool) { objectWillChange.send(); session.setViewOnly(on) }
+    func setQuality(_ q: String) { objectWillChange.send(); session.setQuality(q); prefs.quality = q; onPrefs(prefs) }
+    func setFps(_ f: Int) { objectWillChange.send(); session.setFps(f); prefs.fps = f; onPrefs(prefs) }
+    func setDisplay(_ i: Int) { objectWillChange.send(); session.setDisplay(i) }
+    func setLockOnClose(_ on: Bool) { objectWillChange.send(); session.setLockOnClose(on); prefs.lockOnClose = on; onPrefs(prefs) }
     func setPointerMode(_ mode: PointerMode) {
         page.pointerMode = mode
         prefs.pointerMode = mode == .mouse ? "mouse" : "touch"
@@ -140,6 +140,22 @@ extension AppModel {
             now: Int64(Date().timeIntervalSince1970 * 1000),
             phase: phase)
     }
+
+    #if DEBUG
+    /// An isolated, offline UI fixture: no credentials, network connection or user-store changes.
+    func installDesktopControlsFixture() throws {
+        guard ProcessInfo.processInfo.arguments.contains("--desktop-controls-fixture"),
+              ProcessInfo.processInfo.environment["ROAMTTY_STORAGE_NAME"] == "DesktopControlsFixture" else { return }
+        let host = Host(id: "desktop-controls-fixture", name: "MacBook", address: "127.0.0.1", port: 9, username: "fixture")
+        let session = DesktopSession(config: .init(hostName: host.name, address: host.address, clientWidth: 1280, clientHeight: 720, clientDpi: 160),
+                                     manifest: try PluginManifest.bundled(),
+                                     login: { .failed(message: "Offline UI fixture", connecting: false) })
+        let controller = DesktopController(host: host, session: session, prefs: DesktopHostSettings(),
+                                           showStats: false, english: english, onPrefs: { _ in }, onEnded: { _ in })
+        desktops.put(controller)
+        path = [.desktop(host.id)]
+    }
+    #endif
 
     func desktopSupported(_ host: Host) -> Bool {
         guard settings.desktopEnabled else { return false }

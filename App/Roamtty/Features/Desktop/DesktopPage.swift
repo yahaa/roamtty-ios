@@ -11,37 +11,68 @@ struct DesktopPage: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var controller: DesktopController
     @State private var showDisconnect = false
-    @State private var imeText = ""
+    @State private var keyboardOverlap: CGFloat = 0
+    @State private var composingText = ""
+    @State private var shortcutBar = false
+    @State private var latchRevision = 0
     @State private var panel: DesktopPanel = .none
     @State private var keyboardPage: DesktopKeyboardPage = .ime
     @State private var virtualMouse = false
     @State private var showStats = false
     @State private var pointerMode: PointerMode = .touch
-    @FocusState private var imeFocused: Bool
+    @State private var imeFocused = false
+
+    private let panelColor = Color(red: 28/255, green: 28/255, blue: 30/255)
+    private let railColor = Color(red: 20/255, green: 20/255, blue: 22/255)
+    private let ink = Color(red: 242/255, green: 242/255, blue: 247/255)
+    private let inkDim = Color(red: 154/255, green: 154/255, blue: 161/255)
+    private let accent = Color(red: 1, green: 159/255, blue: 10/255)
 
     private var english: Bool { model.english }
     private var page: DesktopPageModel { controller.page }
 
     var body: some View {
         GeometryReader { geo in
-            let landscape = geo.size.width > geo.size.height
+            // Keyboard avoidance changes the proposed height, not the window's orientation.
+            let windowSize = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+                .first { $0.activationState == .foregroundActive }?.windows.first { $0.isKeyWindow }?.bounds.size ?? geo.size
+            let landscape = windowSize.width > windowSize.height
             ZStack {
                 Color.black.ignoresSafeArea()
-                DesktopVideoSurface(display: controller.display)
-                    .ignoresSafeArea()
-                DesktopGestureOverlay(controller: controller, size: geo.size)
-                    .ignoresSafeArea()
-                cursorOverlay
-                statsOverlay
-                statusCard
-                if panel == .operations { operationsPanel.transition(.move(edge: landscape ? .trailing : .bottom)) }
-                if panel == .keyboard { keyboardPanel.transition(.move(edge: landscape ? .trailing : .bottom)) }
-                if landscape { landscapeRail(safe: geo.safeAreaInsets) }
-                else { portraitTabBar }
-                if virtualMouse { virtualMouseOverlay }
+                if landscape {
+                    HStack(spacing: 0) {
+                        desktopPicture
+                        controlRail(landscape: true)
+                    }
+                } else {
+                    VStack(spacing: 0) {
+                        desktopPicture
+                        if panel != .keyboard { controlRail(landscape: false) }
+                    }
+                }
+                if panel == .operations {
+                    operationsPanel(size: geo.size, landscape: landscape)
+                        .transition(.move(edge: landscape ? .trailing : .bottom))
+                }
+                if panel == .keyboard {
+                    keyboardPanel.padding(.trailing, landscape ? 72 : 0)
+                        .padding(.bottom, keyboardPage == .ime ? max(0, keyboardOverlap - geo.safeAreaInsets.bottom) : 0)
+                        .transition(.move(edge: .bottom))
+                }
             }
             .animation(.easeOut(duration: 0.2), value: panel)
         }
+        // UIKit's hidden IME can include an input-assistant row that SwiftUI's automatic
+        // avoidance misses after rotation. Reserve the entire keyboard frame explicitly.
+        .ignoresSafeArea(.keyboard)
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
+                  let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
+                    .first(where: { $0.activationState == .foregroundActive })?.windows.first(where: { $0.isKeyWindow }) else { return }
+            let localFrame = window.convert(frame, from: nil)
+            keyboardOverlap = localFrame.intersects(window.bounds) ? max(0, window.bounds.maxY - localFrame.minY) : 0
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardOverlap = 0 }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
@@ -63,6 +94,7 @@ struct DesktopPage: View {
         .onDisappear {
             // Leaving pauses and keeps the link for the keep-alive window (phase 5).
             saveThumbnail()
+            resetKeyboardState()
             controller.pause()
         }
         .confirmationDialog(model.text("断开连接？", "Disconnect?"), isPresented: $showDisconnect, titleVisibility: .visible) {
@@ -78,267 +110,289 @@ struct DesktopPage: View {
         } message: { Text(controller.notice ?? "") }
     }
 
-    // MARK: Rail / tab bar
-
-    private func landscapeRail(safe: EdgeInsets) -> some View {
-        HStack {
-            Spacer()
-            VStack(spacing: 4) {
-                railItem("ic_operations", model.text("操作", "Ops"), selected: panel == .operations) {
-                    togglePanel(.operations)
-                }
-                railItem("ic_keyboard", model.text("键盘", "Keys"), selected: panel == .keyboard) {
-                    togglePanel(.keyboard); imeFocused = panel == .keyboard && keyboardPage == .ime
-                }
-                railItem("ic_show_desktop", model.text("显示桌面", "Desktop"), selected: false) {
-                    controller.input(DesktopProtocol.action(DesktopProtocol.ACTION_SHOW_DESKTOP))
-                }
-                railItem("ic_windows_all", model.text("所有窗口", "Windows"), selected: false) {
-                    controller.input(DesktopProtocol.action(DesktopProtocol.ACTION_ALL_WINDOWS))
-                }
+    private var desktopPicture: some View {
+        GeometryReader { geo in
+            ZStack {
+                DesktopVideoSurface(display: controller.display)
+                DesktopGestureOverlay(controller: controller, size: geo.size)
+                cursorOverlay
+                statsOverlay
+                statusCard
+                if virtualMouse { virtualMouseOverlay }
             }
-            .padding(.vertical, 8)
-            .padding(.horizontal, 4)
-            .background(Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 14))
-            .padding(.trailing, max(8, safe.trailing))
+            .clipped()
         }
     }
 
-    private var portraitTabBar: some View {
-        VStack {
-            Spacer()
-            HStack {
-                tabItem("ic_operations", model.text("操作", "Ops"), selected: panel == .operations) {
-                    togglePanel(.operations)
-                }
-                tabItem("ic_keyboard", model.text("键盘", "Keys"), selected: panel == .keyboard) {
-                    togglePanel(.keyboard); imeFocused = panel == .keyboard && keyboardPage == .ime
-                }
-                tabItem("ic_show_desktop", model.text("显示桌面", "Desktop"), selected: false) {
-                    controller.input(DesktopProtocol.action(DesktopProtocol.ACTION_SHOW_DESKTOP))
-                }
-                tabItem("ic_windows_all", model.text("所有窗口", "Windows"), selected: false) {
-                    controller.input(DesktopProtocol.action(DesktopProtocol.ACTION_ALL_WINDOWS))
-                }
+    // MARK: Android desktop controls
+
+    private func controlRail(landscape: Bool) -> some View {
+        let layout = landscape ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
+        return layout {
+            railItem("ic_operations", model.text("操作", "Ops"), selected: panel == .operations, landscape: landscape) { togglePanel(.operations) }
+            railItem("ic_keyboard", model.text("键盘", "Keys"), selected: panel == .keyboard, landscape: landscape) {
+                togglePanel(.keyboard); imeFocused = panel == .keyboard && keyboardPage == .ime
             }
-            .padding(.horizontal, 8).padding(.vertical, 6)
-            .background(Color.black.opacity(0.7).ignoresSafeArea(edges: .bottom))
+            railItem("ic_show_desktop", model.text("显示桌面", "Desktop"), selected: false, landscape: landscape) {
+                controller.input(DesktopProtocol.action(DesktopProtocol.ACTION_SHOW_DESKTOP))
+            }
+            railItem("ic_windows_all", model.text("所有窗口", "Windows"), selected: false, landscape: landscape) {
+                controller.input(DesktopProtocol.action(DesktopProtocol.ACTION_ALL_WINDOWS))
+            }
         }
+        .padding(.vertical, landscape ? 0 : 4)
+        .frame(width: landscape ? 72 : nil)
+        .background(railColor.ignoresSafeArea(edges: landscape ? .trailing : .bottom))
     }
 
-    private func railItem(_ icon: String, _ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+    private func railItem(_ icon: String, _ title: String, selected: Bool, landscape: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 4) {
-                AppIcon(icon, size: 22).foregroundStyle(selected ? Palette.accent : .white)
-                Text(title).font(.system(size: 10)).foregroundStyle(selected ? Palette.accent : .white.opacity(0.85))
+            VStack(spacing: 3) {
+                AppIcon(icon, size: 22).foregroundStyle(selected ? accent : ink)
+                Text(title).font(.system(size: 11)).foregroundStyle(selected ? accent : inkDim).lineLimit(1)
             }
-            .frame(width: 64, height: 56)
+            .padding(.horizontal, 6).padding(.vertical, 8)
+            .frame(maxWidth: .infinity, maxHeight: landscape ? .infinity : nil)
             .contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityLabel(title)
     }
 
-    private func tabItem(_ icon: String, _ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 2) {
-                AppIcon(icon, size: 22).foregroundStyle(selected ? Palette.accent : .white)
-                Text(title).font(.system(size: 11)).foregroundStyle(selected ? Palette.accent : .white.opacity(0.85))
-            }
-            .frame(maxWidth: .infinity).frame(height: 52).contentShape(Rectangle())
-        }.buttonStyle(.plain).accessibilityLabel(title)
-    }
-
-    // MARK: Operations panel
-
-    private var operationsPanel: some View {
-        ZStack(alignment: .trailing) {
-            Color.black.opacity(0.35).ignoresSafeArea().onTapGesture { dismissPanel() }
-            VStack(alignment: .leading, spacing: 0) {
+    private func operationsPanel(size: CGSize, landscape: Bool) -> some View {
+        ZStack(alignment: landscape ? .trailing : .bottom) {
+            Color.black.opacity(0.4).ignoresSafeArea().onTapGesture { dismissPanel() }
+            VStack(spacing: 0) {
                 HStack {
-                    Text(model.text("操作", "Operations")).font(.headline).foregroundStyle(.white)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(model.text("操作", "Operations")).font(.system(size: 16, weight: .semibold)).foregroundStyle(ink)
+                        Text(controller.host.name).font(.system(size: 12)).foregroundStyle(inkDim).lineLimit(1)
+                    }
                     Spacer()
-                    Button { dismissPanel() } label: { AppIcon("ic_close", size: 20).foregroundStyle(.white) }
-                }.padding(16)
+                    Button { dismissPanel() } label: {
+                        AppIcon("ic_close", size: 22).foregroundStyle(ink).frame(width: 48, height: 48)
+                    }.buttonStyle(.plain).accessibilityLabel(model.text("关闭", "Close"))
+                        .accessibilityIdentifier("desktop-op-close")
+                }.padding(.leading, 16).padding(.trailing, 4).padding(.top, 4)
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 14) {
                         HStack(spacing: 8) {
-                            opChip("ic_exit", model.text("退出", "Exit")) {
+                            panelButton("ic_exit", model.text("返回", "Back"), caption: model.text("连接保持", "Keep connected")) {
                                 dismissPanel(); dismissDesktopKeepingLink()
+                            }.accessibilityIdentifier("desktop-op-exit")
+                            panelButton("ic_folder", model.text("文件", "Files"), caption: model.text("上传和下载", "Upload and download")) {
+                                dismissPanel(); model.path.append(.files(controller.host.id))
                             }
-                            opChip("ic_folder", model.text("文件", "Files")) {
-                                dismissPanel()
-                                model.path.append(.files(controller.host.id))
+                        }
+                        section(model.text("剪贴板", "Clipboard")) {
+                            HStack(spacing: 8) {
+                                panelButton("ic_upload", model.text("发送手机剪贴板", "Send phone clipboard")) { sendClipboard() }
+                                panelButton("ic_download", model.text("获取远程剪贴板", "Get remote clipboard")) { fetchClipboard() }
                             }
-                            opChip("ic_copy", model.text("剪贴板", "Clipboard")) { sendClipboard() }
-                            Button { fetchClipboard() } label: {
-                                Text(model.text("获取远程", "Get remote")).font(.footnote).foregroundStyle(.white)
-                                    .padding(.horizontal, 10).padding(.vertical, 8)
-                                    .background(Color.white.opacity(0.12), in: Capsule())
-                            }.buttonStyle(.plain)
+                            if let note = controller.clipNote ?? page.clipNote { Text(note).font(.system(size: 12)).foregroundStyle(inkDim) }
                         }
-                        if let note = controller.clipNote ?? page.clipNote {
-                            Text(note).font(.caption).foregroundStyle(.white.opacity(0.7))
+                        section(model.text("操作方式", "Pointer mode")) {
+                            HStack(spacing: 8) {
+                                choice(model.text("屏幕触控", "Touch"), selected: pointerMode == .touch) { pointerMode = .touch; controller.setPointerMode(.touch) }
+                                choice(model.text("鼠标指针", "Trackpad"), selected: pointerMode == .mouse) { pointerMode = .mouse; controller.setPointerMode(.mouse) }
+                            }
                         }
-                        Toggle(isOn: Binding(
-                            get: { controller.viewOnly },
-                            set: { controller.setViewOnly($0) }
-                        )) { Text(model.text("仅观看", "View only")).foregroundStyle(.white) }
-                        .tint(Palette.accent)
-
-                        Text(model.text("操作方式", "Pointer mode")).font(.subheadline).foregroundStyle(.white.opacity(0.7))
-                        Picker("", selection: Binding(
-                            get: { pointerMode == .mouse ? 1 : 0 },
-                            set: { pointerMode = $0 == 1 ? .mouse : .touch; controller.setPointerMode(pointerMode) }
-                        )) {
-                            Text(model.text("屏幕触控", "Touch")).tag(0)
-                            Text(model.text("鼠标指针", "Trackpad")).tag(1)
-                        }.pickerStyle(.segmented)
-
-                        Toggle(isOn: Binding(
-                            get: { virtualMouse },
-                            set: { virtualMouse = $0; page.virtualMouse = $0 }
-                        )) { Label { Text(model.text("虚拟鼠标", "Virtual mouse")).foregroundStyle(.white) } icon: { AppIcon("ic_mouse", size: 18).foregroundStyle(.white) } }
-                        .tint(Palette.accent)
-
-                        Text(model.text("帧率", "Frame rate")).font(.subheadline).foregroundStyle(.white.opacity(0.7))
-                        Picker("", selection: Binding(get: { controller.fps }, set: { controller.setFps($0) })) {
-                            ForEach(DesktopPreferences.fpsOptions, id: \.self) { Text("\($0)").tag($0) }
-                        }.pickerStyle(.segmented)
-
-                        Text(model.text("画质", "Quality")).font(.subheadline).foregroundStyle(.white.opacity(0.7))
-                        Picker("", selection: Binding(get: { controller.quality }, set: { controller.setQuality($0) })) {
-                            ForEach(DesktopPreferences.qualities, id: \.self) { Text(page.qualityLabel($0)).tag($0) }
-                        }.pickerStyle(.segmented)
-                        if let estimate = DesktopStatsText.meteredEstimate(kbps: controller.stats.kbps, english: english) {
-                            Text(estimate).font(.caption).foregroundStyle(.white.opacity(0.6))
+                        toggleRow(model.text("仅观看", "View only"), model.text("不向电脑发送任何操作", "Do not send input to the computer"), value: Binding(get: { controller.viewOnly }, set: { controller.setViewOnly($0) }))
+                        toggleRow(model.text("虚拟鼠标", "Virtual mouse"), model.text("悬浮的左键、右键和滚轮", "Floating left, right buttons and scroll wheel"), value: Binding(get: { virtualMouse }, set: { virtualMouse = $0; page.virtualMouse = $0 }))
+                        toggleRow(model.text("显示网络状态", "Show network stats"), model.text("画面左上角显示延迟、帧率和码率", "Latency, frame rate and bitrate at top left"), value: Binding(get: { showStats }, set: {
+                            showStats = $0; controller.setShowStats($0); model.settings.desktopShowStats = $0; model.saveSettings()
+                        }))
+                        section(model.text("帧率", "Frame rate")) {
+                            HStack(spacing: 8) {
+                                ForEach(DesktopPreferences.fpsOptions.filter { $0 <= max(60, UIScreen.main.maximumFramesPerSecond) }, id: \.self) { fps in
+                                    choice("\(fps)", selected: controller.fps == fps) { controller.setFps(fps) }
+                                }
+                            }
                         }
-
+                        section(model.text("画质", "Quality")) {
+                            HStack(spacing: 8) {
+                                ForEach(DesktopPreferences.qualities, id: \.self) { quality in
+                                    choice(page.qualityLabel(quality), selected: controller.quality == quality) { controller.setQuality(quality) }
+                                }
+                            }
+                        }
                         if let displays = controller.hello?.displays, displays.count > 1 {
-                            Text(model.text("显示器", "Display")).font(.subheadline).foregroundStyle(.white.opacity(0.7))
-                            ForEach(displays, id: \.id) { d in
-                                Button {
-                                    controller.setDisplay(d.id)
-                                } label: {
-                                    HStack {
-                                        Text(d.name.isEmpty ? model.text("显示器 \(d.id)", "Display \(d.id)") : d.name)
-                                        Spacer()
-                                        if controller.displayIndex == d.id { AppIcon("ic_check", size: 18) }
-                                    }.foregroundStyle(.white).padding(.vertical, 6)
-                                }.buttonStyle(.plain)
+                            section(model.text("显示器", "Display")) {
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 8) {
+                                        ForEach(displays, id: \.id) { d in
+                                            choice(d.name.isEmpty ? model.text("显示器 \(d.id)", "Display \(d.id)") : d.name, selected: controller.displayIndex == d.id) { controller.setDisplay(d.id) }
+                                        }
+                                    }
+                                }
                             }
                         }
-
-                        Toggle(isOn: Binding(
-                            get: { controller.lockOnClose },
-                            set: { controller.setLockOnClose($0) }
-                        )) { Text(model.text("断开后锁定电脑", "Lock after disconnect")).foregroundStyle(.white) }
-                        .tint(Palette.accent)
-
-                        Toggle(isOn: Binding(
-                            get: { showStats },
-                            set: {
-                                showStats = $0
-                                controller.setShowStats($0)
-                                model.settings.desktopShowStats = $0
-                                model.saveSettings()
-                            }
-                        )) { Text(model.text("显示网络状态", "Show network stats")).foregroundStyle(.white) }
-                        .tint(Palette.accent)
-
+                        toggleRow(model.text("断开后锁定电脑", "Lock after disconnect"), model.text("断开连接时锁屏，返回不算", "Lock on disconnect, not when going back"), value: Binding(get: { controller.lockOnClose }, set: { controller.setLockOnClose($0) }))
                         Button(role: .destructive) { showDisconnect = true } label: {
-                            HStack {
+                            HStack(spacing: 8) {
                                 AppIcon("ic_power", size: 18)
-                                Text(model.text("断开连接", "Disconnect"))
-                            }
-                            .foregroundStyle(Palette.danger)
-                            .frame(maxWidth: .infinity).padding(12)
-                            .background(Palette.danger.opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
-                        }.buttonStyle(.plain).padding(.top, 8)
-                    }.padding(.horizontal, 16).padding(.bottom, 24)
+                                Text(model.text("断开连接", "Disconnect")).font(.system(size: 14))
+                            }.foregroundStyle(Palette.danger).frame(maxWidth: .infinity).padding(.vertical, 12)
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.danger.opacity(0.6), lineWidth: 1))
+                        }.buttonStyle(.plain)
+                    }.padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 16)
                 }
             }
-            .frame(maxWidth: 360)
-            .background(Color(white: 0.12).opacity(0.96))
-            .ignoresSafeArea(edges: .trailing)
+            .frame(width: landscape ? min(340, max(0, size.width - 80)) : size.width, height: size.height * (landscape ? 0.92 : 0.7))
+            .background(panelColor, in: RoundedRectangle(cornerRadius: 18))
+            .clipShape(RoundedRectangle(cornerRadius: 18))
+            .padding(.trailing, landscape ? 80 : 0)
+
         }
     }
 
-    private func opChip(_ icon: String, _ title: String, action: @escaping () -> Void) -> some View {
+    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.system(size: 12)).foregroundStyle(inkDim)
+            content()
+        }
+    }
+
+    private func panelButton(_ icon: String, _ title: String, caption: String? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 4) {
                 AppIcon(icon, size: 20)
-                Text(title).font(.caption2)
-            }
-            .foregroundStyle(.white)
-            .frame(width: 64, height: 52)
-            .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+                Text(title).font(.system(size: 12)).lineLimit(2)
+                if let caption { Text(caption).font(.system(size: 10)).foregroundStyle(inkDim).lineLimit(1) }
+            }.foregroundStyle(ink).multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity).padding(.horizontal, 6).padding(.vertical, 10)
+                .background(Color.white.opacity(20/255), in: RoundedRectangle(cornerRadius: 12))
         }.buttonStyle(.plain)
     }
 
-    // MARK: Keyboard
+    private func choice(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(.system(size: 13)).lineLimit(1).minimumScaleFactor(0.8)
+                .foregroundStyle(selected ? accent : ink).padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity)
+                .background(selected ? accent.opacity(0.22) : Color.white.opacity(20/255), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? accent : .clear, lineWidth: 1))
+        }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func toggleRow(_ title: String, _ subtitle: String, value: Binding<Bool>) -> some View {
+        Toggle(isOn: value) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 15)).foregroundStyle(ink)
+                Text(subtitle).font(.system(size: 12)).foregroundStyle(inkDim)
+            }
+        }.tint(accent)
+    }
+
+    // MARK: Keyboard shortcut bar and PC keys
 
     private var keyboardPanel: some View {
-        ZStack(alignment: .bottom) {
-            Color.black.opacity(0.25).ignoresSafeArea().onTapGesture { dismissPanel(); imeFocused = false }
-            VStack(spacing: 0) {
-                Picker("", selection: Binding(
-                    get: { keyboardPage },
-                    set: { keyboardPage = $0; page.keyboardPage = $0; imeFocused = $0 == .ime }
-                )) {
-                    Text(model.text("输入法", "IME")).tag(DesktopKeyboardPage.ime)
-                    Text(model.text("电脑键盘", "PC keys")).tag(DesktopKeyboardPage.more)
-                }.pickerStyle(.segmented).padding(12)
-                if keyboardPage == .ime { imePage } else { pcKeysPage }
+        VStack(spacing: 0) {
+            Color.clear.contentShape(Rectangle()).onTapGesture { dismissPanel() }
+            if !composingText.isEmpty && keyboardPage == .ime {
+                HStack {
+                    Text(composingText).font(.system(size: 14)).foregroundStyle(accent)
+                        .padding(.horizontal, 12).padding(.vertical, 4)
+                        .background(panelColor, in: Capsule())
+                        .overlay(Capsule().stroke(accent.opacity(0.5), lineWidth: 1))
+                    Spacer()
+                }.padding(.leading, 12).padding(.bottom, 6)
             }
-            .background(Color(white: 0.12).opacity(0.97))
+            if !shortcutBar && keyboardPage == .ime {
+                HStack {
+                    Spacer()
+                    Button { shortcutBar = true } label: {
+                        HStack(spacing: 6) {
+                            AppIcon("ic_keyboard", size: 16)
+                            Text(model.text("快捷键 ▴", "Shortcuts ▴")).font(.system(size: 12))
+                        }.foregroundStyle(ink).padding(.horizontal, 12).padding(.vertical, 6).background(panelColor, in: Capsule())
+                    }.buttonStyle(.plain).accessibilityIdentifier("desktop-kb-toggle")
+                }.padding(.trailing, 8).padding(.bottom, 6)
+            } else {
+                shortcutKeys
+            }
+            if keyboardPage == .more { pcKeysPage }
+            DesktopIMEInput(focused: imeFocused, onText: { text in
+                if case .frames(let frames) = page.commitIME(text, composing: false) { frames.forEach(controller.input) }
+                latchRevision += 1
+            }, onControl: { hid in sendKey(hid) }, onComposing: { composingText = $0 })
+                .frame(height: 1).opacity(0.01).accessibilityIdentifier("desktop-ime-field")
         }
     }
 
-    private var imePage: some View {
-        VStack(spacing: 8) {
-            TextField(model.text("输入后发送到远程…", "Type to send…"), text: $imeText)
-                .focused($imeFocused)
-                .textInputAutocapitalization(.never)
-                .disableAutocorrection(true)
-                .padding(12)
-                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-                .foregroundStyle(.white)
-                .onSubmit { commitIME() }
-                .onChange(of: imeText) { value in
-                    // Commit each completed character; composing is ignored by the model.
-                    if !value.isEmpty { commitIME() }
+    private var shortcutKeys: some View {
+        let _ = latchRevision
+        return HStack(spacing: 5) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 5) {
+                    barKey("Esc") { sendKey(HidUsage.ESCAPE) }
+                    barKey("Tab") { sendKey(HidUsage.TAB) }
+                    ForEach(DesktopPageModel.modifierKeys(os: controller.hello?.os ?? controller.host.system), id: \.hid) { key in
+                        barKey(key.label, state: page.latch.state(key.hid), hold: { page.holdModifier(key.hid); latchRevision += 1 }) {
+                            page.tapModifier(key.hid); latchRevision += 1
+                        }
+                    }
+                    ForEach(Array(zip(["←", "↑", "↓", "→"], [HidUsage.LEFT, HidUsage.UP, HidUsage.DOWN, HidUsage.RIGHT])), id: \.1) { label, hid in
+                        barKey(label, narrow: true) { sendKey(hid) }
+                    }
                 }
-            HStack {
-                Button(model.text("退格", "Backspace")) {
-                    page.imeControlKey(backspace: true).forEach(controller.input)
-                }.buttonStyle(RoamButtonStyle())
-                Button(model.text("回车", "Enter")) {
-                    page.imeControlKey(backspace: false).forEach(controller.input)
-                }.buttonStyle(RoamButtonStyle())
-            }.padding(.bottom, 12)
-        }.padding(.horizontal, 12)
+            }
+            barKey(keyboardPage == .more ? "ABC" : "⋯", state: keyboardPage == .more ? .locked : .off) {
+                keyboardPage = keyboardPage == .more ? .ime : .more
+                page.keyboardPage = keyboardPage; imeFocused = keyboardPage == .ime
+            }.accessibilityIdentifier("desktop-kb-more")
+            if keyboardPage == .ime {
+                barKey("▾", narrow: true) { shortcutBar = false }.accessibilityIdentifier("desktop-kb-hide-bar")
+            }
+            // iOS has no Android system Back key; keep a dedicated dismissal affordance.
+            barKey("×", narrow: true) { dismissPanel() }.accessibilityLabel(model.text("关闭键盘", "Close keyboard"))
+        }.frame(height: 36).padding(6).background(panelColor)
+    }
+
+    private func barKey(_ title: String, state: ModifierLatch.State = .off, narrow: Bool = false,
+                        hold: (() -> Void)? = nil, action: @escaping () -> Void) -> some View {
+        Text(title).font(.system(size: 13, weight: state == .locked ? .semibold : .regular))
+            .foregroundStyle(state == .locked ? panelColor : state == .once ? accent : ink)
+            .padding(.horizontal, 10).frame(minWidth: narrow ? 32 : 42).frame(height: 36)
+            .background(state == .locked ? accent : state == .once ? accent.opacity(0.25) : Color.white.opacity(26/255), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(state == .once ? accent : .clear, lineWidth: 1))
+            .contentShape(Rectangle())
+            .gesture(LongPressGesture(minimumDuration: 0.5).exclusively(before: TapGesture()).onEnded { value in
+                switch value {
+                case .first: hold?()
+                case .second: action()
+                }
+            })
+            .accessibilityAddTraits(.isButton).accessibilityAction { action() }
+            .accessibilityValue(state == .locked ? model.text("已锁定", "Locked") : state == .once ? model.text("单次生效", "Once") : "")
     }
 
     private var pcKeysPage: some View {
-        let os = controller.hello?.os ?? controller.host.system
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(model.text("修饰键", "Modifiers")).font(.caption).foregroundStyle(.white.opacity(0.6))
-                FlowKeys(keys: DesktopPageModel.modifierKeys(os: os).map { ($0.label, [$0.hid]) }) { keys in
-                    if keys.count == 1 { page.tapModifier(keys[0]) }
+        VStack(spacing: 6) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 6), spacing: 6) {
+                ForEach(DesktopPageModel.moreKeys(), id: \.hid) { key in
+                    Button {
+                        if key.hid == HidUsage.LEFT_SHIFT { page.tapModifier(key.hid); latchRevision += 1 } else { sendKey(key.hid) }
+                    } label: {
+                        Text(key.label).font(.system(size: 13)).lineLimit(1).minimumScaleFactor(0.7).foregroundStyle(ink)
+                            .frame(maxWidth: .infinity).frame(height: 42)
+                            .background(key.hid == HidUsage.LEFT_SHIFT && page.latch.state(key.hid) != .off ? accent.opacity(0.4) : Color.white.opacity(31/255), in: RoundedRectangle(cornerRadius: 8))
+                    }.buttonStyle(.plain)
                 }
-                Text(model.text("组合键", "Combos")).font(.caption).foregroundStyle(.white.opacity(0.6))
-                FlowKeys(keys: DesktopPageModel.comboKeys(os: os).map { ($0.label, $0.keys) }) { keys in
-                    page.combo(keys).forEach { controller.input(DesktopProtocol.key($0.hid, down: $0.down)) }
+            }
+            HStack(spacing: 6) {
+                ForEach(DesktopPageModel.comboKeys(os: controller.hello?.os ?? controller.host.system), id: \.label) { key in
+                    Button {
+                        page.combo(key.keys).forEach { controller.input(DesktopProtocol.key($0.hid, down: $0.down)) }; latchRevision += 1
+                    } label: {
+                        Text(key.label).font(.system(size: 13)).lineLimit(1).minimumScaleFactor(0.7).foregroundStyle(ink)
+                            .frame(maxWidth: .infinity).frame(height: 42).background(Color.white.opacity(41/255), in: RoundedRectangle(cornerRadius: 8))
+                    }.buttonStyle(.plain)
                 }
-                Text(model.text("更多", "More")).font(.caption).foregroundStyle(.white.opacity(0.6))
-                FlowKeys(keys: DesktopPageModel.moreKeys().map { ($0.label, [$0.hid]) }) { keys in
-                    page.pressKey(keys[0]).forEach { controller.input(DesktopProtocol.key($0.hid, down: $0.down)) }
-                }
-                Button(model.text("Esc", "Esc")) {
-                    page.pressKey(HidUsage.ESCAPE).forEach { controller.input(DesktopProtocol.key($0.hid, down: $0.down)) }
-                }.buttonStyle(RoamButtonStyle()).padding(.bottom, 16)
-            }.padding(12)
-        }.frame(maxHeight: 320)
+            }
+        }.padding(.horizontal, 8).padding(.bottom, 10).background(panelColor)
+    }
+
+    private func sendKey(_ hid: Int) {
+        page.pressKey(hid).forEach { controller.input(DesktopProtocol.key($0.hid, down: $0.down)) }
+        latchRevision += 1
     }
 
     // MARK: Overlays
@@ -434,9 +488,21 @@ struct DesktopPage: View {
     private func togglePanel(_ p: DesktopPanel) {
         panel = panel == p ? .none : p
         page.panel = panel
-        if panel != .keyboard { imeFocused = false }
+        if panel != .keyboard { resetKeyboardState() }
     }
-    private func dismissPanel() { panel = .none; page.dismissPanel(); imeFocused = false }
+    private func dismissPanel() { panel = .none; page.dismissPanel(); resetKeyboardState() }
+
+    private func resetKeyboardState() {
+        imeFocused = false
+        composingText = ""
+        shortcutBar = false
+        keyboardPage = .ime
+        page.keyboardPage = .ime
+        for hid in [HidUsage.LEFT_CTRL, HidUsage.LEFT_ALT, HidUsage.LEFT_GUI, HidUsage.LEFT_SHIFT] {
+            if page.latch.state(hid) != .off { page.tapModifier(hid) }
+        }
+        latchRevision += 1
+    }
 
     private func toneColor(_ tone: DesktopStatsText.Tone) -> Color {
         switch tone {
@@ -453,15 +519,6 @@ struct DesktopPage: View {
         case .install: return model.text("安装桌面插件…", "Installing desktop plugin…")
         case .start: return model.text("启动插件…", "Starting plugin…")
         case .firstFrame: return model.text("等待首帧…", "Waiting for first frame…")
-        }
-    }
-
-    private func commitIME() {
-        let text = imeText
-        imeText = ""
-        switch page.commitIME(text, composing: false) {
-        case .frames(let frames): frames.forEach(controller.input)
-        case .composingIgnored: break
         }
     }
 
@@ -637,19 +694,63 @@ final class DesktopGestureView: UIView {
 
 // MARK: - Small helpers
 
-private struct FlowKeys: View {
-    let keys: [(String, [Int])]
-    let action: ([Int]) -> Void
-    var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 6)], spacing: 6) {
-            ForEach(Array(keys.enumerated()), id: \.offset) { _, item in
-                Button(item.0) { action(item.1) }
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 10).padding(.vertical, 8)
-                    .background(Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+/// A native IME client keeps marked text local until composition commits, just like Android's
+/// hidden BasicTextField. Empty-field Delete and Return still emit remote key events.
+private struct DesktopIMEInput: UIViewRepresentable {
+    var focused: Bool
+    var onText: (String) -> Void
+    var onControl: (Int) -> Void
+    var onComposing: (String) -> Void
+
+    func makeUIView(context: Context) -> DesktopIMETextView {
+        let view = DesktopIMETextView()
+        view.backgroundColor = .clear
+        view.textColor = .clear
+        view.tintColor = .clear
+        view.autocorrectionType = .no
+        view.autocapitalizationType = .none
+        view.smartQuotesType = .no
+        view.smartDashesType = .no
+        view.keyboardAppearance = .dark
+        view.delegate = context.coordinator
+        view.onControl = onControl
+        return view
+    }
+
+    func updateUIView(_ view: DesktopIMETextView, context: Context) {
+        context.coordinator.parent = self
+        view.onControl = onControl
+        if focused && !view.isFirstResponder {
+            DispatchQueue.main.async { [weak view] in
+                guard context.coordinator.parent.focused else { return }
+                view?.becomeFirstResponder()
             }
+        } else if !focused && view.isFirstResponder { view.resignFirstResponder() }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var parent: DesktopIMEInput
+        init(_ parent: DesktopIMEInput) { self.parent = parent }
+        func textViewDidChange(_ textView: UITextView) {
+            if textView.markedTextRange != nil {
+                parent.onComposing(textView.text ?? "")
+                return
+            }
+            parent.onComposing("")
+            guard !textView.text.isEmpty else { return }
+            let text = textView.text ?? ""
+            textView.text = ""
+            parent.onText(text)
         }
+    }
+}
+
+private final class DesktopIMETextView: UITextView {
+    var onControl: ((Int) -> Void)?
+    override func deleteBackward() {
+        if text.isEmpty && markedTextRange == nil { onControl?(HidUsage.BACKSPACE) }
+        else { super.deleteBackward() }
     }
 }
 
