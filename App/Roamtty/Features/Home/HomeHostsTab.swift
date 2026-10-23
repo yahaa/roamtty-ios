@@ -65,15 +65,15 @@ struct HostCard: View {
             }
             HStack(spacing: 6) {
                 ReachabilityLabel(state: model.reachability[host.id] ?? .checking).padding(.trailing, 2)
+                Spacer(minLength: 8)
                 // Once probed, the card lists only the plugins the host actually has.
                 if let plugins = host.plugins { ForEach(["tmux", "mosh"].filter(plugins.contains), id: \.self) { Badge(text: $0) } }
                 else { Badge(text: host.mode == .tmux ? "tmux" : model.text("普通 SSH", "Plain SSH")) }
                 Badge(text: host.auth == .key ? model.text("私钥", "Key") : host.auth == .interactive ? model.text("交互式认证", "Interactive") : model.text("密码", "Password"))
                 if host.system.uppercased() == "UNKNOWN" { Badge(text: model.text("待检测系统", "System pending")) }
-                Spacer(minLength: 0)
                 // A host needs no open session for its desktop: the desktop logs in on its own.
                 desktopEntry
-            }.padding(.top, 12)
+            }.padding(.top, 12).padding(.trailing, 12)
         }.padding(.leading, 16).padding(.top, 14).padding(.trailing, 4).padding(.bottom, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Palette.panel, in: RoundedRectangle(cornerRadius: 16)).foregroundStyle(Palette.foreground)

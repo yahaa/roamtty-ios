@@ -16,10 +16,7 @@ struct DesktopCardButton: View {
         } else {
             Button(action: action) {
                 ZStack(alignment: .topTrailing) {
-                    AppIcon("ic_desktop", size: 13)
-                        .foregroundStyle(tint)
-                        .frame(width: 28, height: 20)
-                        .background(wash, in: RoundedRectangle(cornerRadius: 6))
+                    CardActionIcon(icon: "ic_desktop", tint: tint, wash: wash)
                     if let badge {
                         Circle().fill(badge)
                             .frame(width: 7, height: 7)

@@ -204,7 +204,7 @@ struct RowAction: View {
     var icon: String? = nil
     var fill: Color? = nil
     var plain = false
-    /// Draws only the icon, in a round button; the label stays for VoiceOver.
+    /// Uses the same compact icon tag as host-card actions; the label stays for VoiceOver.
     var iconOnly = false
     let action: () -> Void
     var body: some View {
@@ -212,8 +212,9 @@ struct RowAction: View {
         let background = fill ?? (plain ? Color.clear : Palette.foreground.opacity(0.07))
         Button(action: action) {
             if let icon, iconOnly {
-                AppIcon(icon, size: 14).foregroundStyle(content).frame(width: 28, height: 28)
-                    .background(background, in: Circle()).contentShape(Circle())
+                CardActionIcon(icon: icon)
+                    .frame(width: 40, height: 36, alignment: .trailing)
+                    .contentShape(Rectangle())
             } else {
                 HStack(spacing: 4) {
                     if let icon { AppIcon(icon, size: 13) }
