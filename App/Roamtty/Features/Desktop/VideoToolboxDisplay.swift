@@ -25,6 +25,40 @@ final class VideoToolboxDisplay: NSObject, DesktopVideoDisplay {
         layer.backgroundColor = UIColor.black.cgColor
     }
 
+    #if DEBUG
+    func showLayoutFixture() {
+        var pixel: CVPixelBuffer?
+        guard CVPixelBufferCreate(kCFAllocatorDefault, 1280, 720, kCVPixelFormatType_32BGRA,
+                                  [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &pixel) == kCVReturnSuccess,
+              let pixel else { return }
+        CVPixelBufferLockBaseAddress(pixel, [])
+        let context = CGContext(data: CVPixelBufferGetBaseAddress(pixel), width: 1280, height: 720,
+                                bitsPerComponent: 8, bytesPerRow: CVPixelBufferGetBytesPerRow(pixel),
+                                space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue)!
+        let colors: [UIColor] = [.systemRed, .systemGreen, .systemBlue, .systemYellow]
+        for i in 0..<4 {
+            context.setFillColor(colors[i].cgColor)
+            context.fill(CGRect(x: (i % 2) * 640, y: (i / 2) * 360, width: 640, height: 360))
+        }
+        context.setStrokeColor(UIColor.white.cgColor); context.setLineWidth(16)
+        context.stroke(CGRect(x: 8, y: 8, width: 1264, height: 704))
+        CVPixelBufferUnlockBaseAddress(pixel, [])
+        var format: CMVideoFormatDescription?
+        CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: pixel, formatDescriptionOut: &format)
+        guard let format else { return }
+        var timing = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: .zero, decodeTimeStamp: .invalid)
+        var sample: CMSampleBuffer?
+        CMSampleBufferCreateReadyWithImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: pixel,
+                                                formatDescription: format, sampleTiming: &timing, sampleBufferOut: &sample)
+        guard let sample else { return }
+        if let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: true) as? [NSMutableDictionary] {
+            attachments.first?[kCMSampleAttachmentKey_DisplayImmediately] = true
+        }
+        layer.enqueue(sample)
+    }
+    #endif
+
     func present(frame: Int64, keyframe: Bool, width: Int, height: Int, annexB: [UInt8], offset: Int, avcc: [UInt8]) {
         if keyframe {
             let (s, p) = H264.spsPps(annexB, offset: offset)
@@ -175,6 +209,9 @@ final class DesktopVideoHostView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .black
+        isAccessibilityElement = true
+        accessibilityIdentifier = "desktop-video-surface"
+        accessibilityLabel = "Remote desktop picture"
         isMultipleTouchEnabled = true
     }
     required init?(coder: NSCoder) { fatalError("init(coder:)") }

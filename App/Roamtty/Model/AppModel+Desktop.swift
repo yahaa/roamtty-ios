@@ -101,7 +101,20 @@ import RoamttyDesktopCore
     func start() { session.start() }
     func close() { session.close() }
     func pause() { session.pause() }
-    func resume() { session.resume() }
+    #if DEBUG
+    private var layoutFixture = false
+    func configureLayoutFixture() {
+        layoutFixture = true
+        videoSize = (1280, 720)
+        phase = .connected()
+    }
+    #endif
+    func resume() {
+        #if DEBUG
+        if layoutFixture { display.showLayoutFixture(); return }
+        #endif
+        session.resume()
+    }
     func input(_ bytes: [UInt8]) { session.input(bytes) }
     func send(_ bytes: [UInt8]) { session.send(bytes) }
 
@@ -152,6 +165,7 @@ extension AppModel {
                                      login: { .failed(message: "Offline UI fixture", connecting: false) })
         let controller = DesktopController(host: host, session: session, prefs: DesktopHostSettings(),
                                            showStats: false, english: english, onPrefs: { _ in }, onEnded: { _ in })
+        controller.configureLayoutFixture()
         desktops.put(controller)
         path = [.desktop(host.id)]
     }

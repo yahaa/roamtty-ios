@@ -25,17 +25,21 @@ final class DesktopLaunchUITests: XCTestCase {
             XCTAssertTrue(mode.exists); mode.tap(); XCTAssertTrue(mode.isSelected)
             capture(app, landscape ? "Landscape operations" : "Portrait operations")
             app.buttons["desktop-op-close"].tap()
+            let fullPictureHeight = app.otherElements["desktop-video-surface"].frame.height
             app.buttons.matching(NSPredicate(format: "label == '键盘' OR label == 'Keys'")).firstMatch.tap()
             Thread.sleep(forTimeInterval: 1)
             let keyboardContinue = app.buttons["Continue"]
             if keyboardContinue.waitForExistence(timeout: 2) { keyboardContinue.tap() }
             let toggle = app.buttons["desktop-kb-toggle"]
             if toggle.waitForExistence(timeout: 3) {
+                assertPictureAboveControls(app, controls: toggle)
                 if landscape { capture(app, "Landscape before shortcut toggle") }
                 toggle.tap()
             }
             XCTAssertTrue(app.buttons["desktop-kb-more"].waitForExistence(timeout: 5))
             if !landscape { XCTAssertFalse(ops.exists, "Portrait rail is replaced by the keyboard") }
+            assertPictureAboveControls(app, controls: app.buttons["desktop-kb-more"])
+
             let modifier = app.buttons.matching(NSPredicate(format: "label == 'Ctrl' OR label == '⌃'")).firstMatch
             XCTAssertTrue(modifier.exists)
             modifier.press(forDuration: 0.7)
@@ -50,6 +54,7 @@ final class DesktopLaunchUITests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.5)
             let f12 = app.buttons["F12"]
             XCTAssertTrue(f12.waitForExistence(timeout: 5)); XCTAssertTrue(f12.isHittable)
+            assertPictureAboveControls(app, controls: app.buttons["desktop-kb-more"])
             f12.tap()
             let shift = app.buttons["Shift"]
             XCTAssertTrue(shift.isHittable); shift.tap()
@@ -61,11 +66,20 @@ final class DesktopLaunchUITests: XCTestCase {
             modifier.press(forDuration: 0.7)
             app.buttons.matching(NSPredicate(format: "label == '关闭键盘' OR label == 'Close keyboard'")).firstMatch.tap()
             XCTAssertTrue(ops.waitForExistence(timeout: 5))
+            XCTAssertEqual(app.otherElements["desktop-video-surface"].frame.height, fullPictureHeight, accuracy: 1)
             app.buttons.matching(NSPredicate(format: "label == '键盘' OR label == 'Keys'")).firstMatch.tap()
             XCTAssertTrue(toggle.waitForExistence(timeout: 5)); toggle.tap()
             XCTAssertEqual(modifier.value as? String ?? "", "", "Closing the keyboard must clear locked modifiers")
             app.buttons.matching(NSPredicate(format: "label == '关闭键盘' OR label == 'Close keyboard'")).firstMatch.tap()
         }
+    }
+
+    private func assertPictureAboveControls(_ app: XCUIApplication, controls: XCUIElement) {
+        let picture = app.otherElements["desktop-video-surface"]
+        XCTAssertTrue(picture.exists)
+        XCTAssertGreaterThan(picture.frame.height, 20)
+        XCTAssertLessThanOrEqual(picture.frame.maxY, controls.frame.minY + 1,
+                                 "The complete remote picture must fit above the keyboard and shortcuts")
     }
 
     private func capture(_ app: XCUIApplication, _ name: String) {

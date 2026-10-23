@@ -41,12 +41,12 @@ struct DesktopPage: View {
                 Color.black.ignoresSafeArea()
                 if landscape {
                     HStack(spacing: 0) {
-                        desktopPicture
+                        desktopWorkspace(bottomInset: max(0, keyboardOverlap - geo.safeAreaInsets.bottom))
                         controlRail(landscape: true)
                     }
                 } else {
                     VStack(spacing: 0) {
-                        desktopPicture
+                        desktopWorkspace(bottomInset: max(0, keyboardOverlap - geo.safeAreaInsets.bottom))
                         if panel != .keyboard { controlRail(landscape: false) }
                     }
                 }
@@ -54,11 +54,7 @@ struct DesktopPage: View {
                     operationsPanel(size: geo.size, landscape: landscape)
                         .transition(.move(edge: landscape ? .trailing : .bottom))
                 }
-                if panel == .keyboard {
-                    keyboardPanel.padding(.trailing, landscape ? 72 : 0)
-                        .padding(.bottom, keyboardPage == .ime ? max(0, keyboardOverlap - geo.safeAreaInsets.bottom) : 0)
-                        .transition(.move(edge: .bottom))
-                }
+
             }
             .animation(.easeOut(duration: 0.2), value: panel)
         }
@@ -108,6 +104,18 @@ struct DesktopPage: View {
             set: { if !$0 { controller.notice = nil } })) {
             Button(model.text("好", "OK"), role: .cancel) { controller.notice = nil }
         } message: { Text(controller.notice ?? "") }
+    }
+
+    /// Keep the video and its gesture viewport in the same unobscured rectangle. Only this
+    /// column resizes for input; the landscape rail retains its full-height touch targets.
+    private func desktopWorkspace(bottomInset: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            desktopPicture
+            if panel == .keyboard {
+                keyboardPanel.fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.bottom, panel == .keyboard && keyboardPage == .ime ? bottomInset : 0)
     }
 
     private var desktopPicture: some View {
@@ -285,7 +293,6 @@ struct DesktopPage: View {
 
     private var keyboardPanel: some View {
         VStack(spacing: 0) {
-            Color.clear.contentShape(Rectangle()).onTapGesture { dismissPanel() }
             if !composingText.isEmpty && keyboardPage == .ime {
                 HStack {
                     Text(composingText).font(.system(size: 14)).foregroundStyle(accent)
@@ -304,6 +311,10 @@ struct DesktopPage: View {
                             Text(model.text("快捷键 ▴", "Shortcuts ▴")).font(.system(size: 12))
                         }.foregroundStyle(ink).padding(.horizontal, 12).padding(.vertical, 6).background(panelColor, in: Capsule())
                     }.buttonStyle(.plain).accessibilityIdentifier("desktop-kb-toggle")
+                    Button { dismissPanel() } label: {
+                        AppIcon("ic_close", size: 16).foregroundStyle(ink).frame(width: 36, height: 32)
+                            .background(panelColor, in: Capsule())
+                    }.buttonStyle(.plain).accessibilityLabel(model.text("关闭键盘", "Close keyboard"))
                 }.padding(.trailing, 8).padding(.bottom, 6)
             } else {
                 shortcutKeys
