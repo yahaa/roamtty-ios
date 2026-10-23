@@ -125,9 +125,16 @@ import RoamttyDesktopCore
             phase = .needsAction(needs: ["not-logged-in"])
         case "failed": phase = .failed(message: DesktopText.noDesktop.text(english: english))
         case "recovering": phase = .recovering(sinceMs: Int64(Date().timeIntervalSince1970 * 1000) - 3_000)
+        case "poor-network": phase = .connected(poor: true)
         default: phase = .connected()
         }
-        if status == nil || status == "connected" || status == "recovering" || fixtureRecoverySequence { videoSize = (1280, 720) }
+        if status == nil || status == "connected" || status == "recovering" || status == "stats" || status == "poor-network" || fixtureRecoverySequence { videoSize = (1280, 720) }
+        if status == "stats" || status == "poor-network" {
+            stats.link = "UDP"; stats.rttMs = 15; stats.fps = 60; stats.kbps = 2400
+            stats.width = 1920; stats.height = 1246; stats.encoder = "videotoolbox"
+            stats.lossPercent = 0; stats.latency = .init(captureMs: 2, convertMs: 1, encodeMs: 3,
+                                                      networkMs: 15, decodeMs: 1, renderMs: 0, totalMs: 22)
+        }
         log = [DesktopText.step(.hostDownload).text(english: english),
                DesktopText.installing(version: "0.8.0", target: "linux-x86_64").text(english: english)]
     }
@@ -200,6 +207,7 @@ extension AppModel {
               ProcessInfo.processInfo.environment["ROAMTTY_STORAGE_NAME"] == "DesktopControlsFixture" else { return }
         let environment = ProcessInfo.processInfo.environment
         if let language = environment["ROAMTTY_DESKTOP_FIXTURE_LANGUAGE"] { settings.language = language }
+        if let stats = environment["ROAMTTY_DESKTOP_STATS_FIXTURE"] { settings.desktopShowStats = stats == "1" }
         let host = Host(id: "desktop-controls-fixture", name: "MacBook", address: "127.0.0.1", port: 9, username: "fixture")
         let session = DesktopSession(config: .init(hostName: host.name, address: host.address, clientWidth: 1280, clientHeight: 720, clientDpi: 160),
                                      manifest: try PluginManifest.bundled(),
