@@ -62,12 +62,23 @@ final class HostScreenCardUITests: XCTestCase {
             // The fixture points to a closed loopback port. Wait for the real reachability probe.
             let offline = app.staticTexts["离线"].firstMatch
             XCTAssertTrue(offline.waitForExistence(timeout: 15))
+            for id in ["pictured", "headless"] {
+                let login = app.staticTexts["host-login-" + id]
+                let status = app.descendants(matching: .any)["host-status-" + id].firstMatch
+                XCTAssertTrue(login.exists)
+                XCTAssertEqual(login.label, "fixture@127.0.0.1:9")
+                XCTAssertTrue(status.exists)
+                XCTAssertLessThan(status.frame.maxY, login.frame.minY, "Reachability belongs above the information strip")
+            }
             Thread.sleep(forTimeInterval: 2)
             capture(app, "Offline preview and headless cards - " + theme)
             for id in ["pictured", "headless"] {
                 app.buttons["host-screen-" + id].tap()
                 XCTAssertTrue(app.navigationBars.buttons.element(boundBy: 0).waitForExistence(timeout: 10))
                 XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label == '操作' OR label == 'Ops'")).firstMatch.exists)
+                // The detail screen may ask for credentials to load its host monitor.
+                let cancel = app.buttons["auth-cancel"]
+                if cancel.waitForExistence(timeout: 3) { cancel.tap() }
                 app.navigationBars.buttons.element(boundBy: 0).tap()
                 XCTAssertTrue(headless.waitForExistence(timeout: 10))
             }

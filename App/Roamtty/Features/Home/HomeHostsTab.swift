@@ -29,7 +29,7 @@ struct HomeHostsTab: View {
     }
 }
 
-/// Android PR 218 screen card: image opens desktop, the 58-point information strip opens details.
+/// Android PR 218 screen card: image opens desktop, reachability and desktop state sit above the 62-point information strip.
 struct HostCard: View {
     @EnvironmentObject var model: AppModel
     let host: Host
@@ -42,6 +42,8 @@ struct HostCard: View {
     private var live: Bool { [.connected, .poor, .recovering, .connecting].contains(state) }
     private var green: Color { Color(uiColor: UIColor(hex: 0x7FD19B)) }
     private var warning: Color { Color(uiColor: UIColor(hex: 0xF2C46D)) }
+    private let stripHeight: CGFloat = 62
+    private var pillTint: Color { state == .connected ? green : state == .connecting ? .white.opacity(0.7) : warning }
     private var plugins: [String] {
         if let plugins = host.plugins { return ["tmux", "psmux", "mosh"].filter(plugins.contains) }
         return host.mode == .tmux ? ["tmux"] : []
@@ -58,14 +60,26 @@ struct HostCard: View {
                 .accessibilityIdentifier("host-screen-\(host.id)")
                 .accessibilityValue(thumbnails.images[host.id] == nil ? model.text("尚无桌面预览", "No desktop preview yet") : model.text("已保存桌面预览", "Saved desktop preview"))
                 strip
-                VStack { HStack { pill; Spacer() }; Spacer() }.padding(12).allowsHitTesting(false)
+                VStack {
+                    HStack(spacing: 6) {
+                        ReachabilityLabel(state: model.reachability[host.id] ?? .checking, onImage: hasDesktop)
+                            .lineLimit(1)
+                            .padding(.horizontal, 10).padding(.vertical, 4)
+                            .background(hasDesktop ? Color(uiColor: UIColor(hex: 0x141416)).opacity(0.6) : Palette.foreground.opacity(0.07), in: Capsule())
+                            .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier("host-status-\(host.id)")
+                        if hasDesktop { pill }
+                        Spacer(minLength: 0)
+                    }
+                    Spacer()
+                }.padding(12).allowsHitTesting(false)
             }
             .background(Palette.panel)
             .clipShape(RoundedRectangle(cornerRadius: 20))
             .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(live ? (state == .connected ? green : warning) : .clear, lineWidth: 2).allowsHitTesting(false))
             .contextMenu { actions }
         }
-        .aspectRatio(16 / 9.4, contentMode: .fit)
+        .aspectRatio(16 / 9.6, contentMode: .fit)
         .task(id: host.id) { thumbnails.load(host.id) }
         .confirmationDialog(model.text("删除 \(host.name)？", "Delete \(host.name)?"), isPresented: $deleteConfirm, titleVisibility: .visible) {
             Button(model.text("删除主机", "Delete host"), role: .destructive) { model.deleteHost(host) }
@@ -79,24 +93,24 @@ struct HostCard: View {
                 Image(uiImage: picture.frosted).resizable().scaledToFill().frame(width: size.width, height: size.height).clipped()
                     .saturation(offline ? 0 : 1)
                     .overlay(Color(uiColor: UIColor(hex: 0x161618)).opacity(offline ? 0.62 : 94 / 255))
-                    .mask(VStack(spacing: 0) { Spacer(minLength: 0); Rectangle().frame(height: 58) })
-                Color.white.opacity(0.08).frame(height: 1).padding(.bottom, 58)
+                    .mask(VStack(spacing: 0) { Spacer(minLength: 0); Rectangle().frame(height: stripHeight) })
+                Color.white.opacity(0.08).frame(height: 1).padding(.bottom, stripHeight)
             } else if hasDesktop {
                 let brand = offline ? Color(uiColor: UIColor(hex: 0x6A6A6E)) : Color(uiColor: UIColor(hex: HostSystemMark(system: host.system).info?.brand ?? 0xB65F42))
                 Color(uiColor: UIColor(hex: 0x1C1C1E))
                 RadialGradient(colors: [brand.opacity(0.3), Color(uiColor: UIColor(hex: 0x151517))], center: .center, startRadius: 0, endRadius: 300)
                 HostSystemLogo(system: host.system, monochrome: offline).frame(width: 44, height: 44).foregroundStyle(.white.opacity(0.7))
-                    .opacity(offline ? 0.5 : 1).frame(width: size.width, height: max(0, size.height - 58)).padding(.bottom, 58)
-                Color.black.opacity(0.28).frame(height: 58)
+                    .opacity(offline ? 0.5 : 1).frame(width: size.width, height: max(0, size.height - stripHeight)).padding(.bottom, stripHeight)
+                Color.black.opacity(0.28).frame(height: stripHeight)
             } else {
                 RadialGradient(colors: [Palette.foreground.opacity(0.05), .clear], center: .center, startRadius: 0, endRadius: 300)
                 VStack(spacing: 0) {
                     AppIcon("ic_desktop_off", size: 40).foregroundStyle(Palette.secondary.opacity(0.55)).frame(height: 40)
                     Text(model.text("没有图形桌面", "No graphical desktop")).font(.system(size: 14)).foregroundStyle(Palette.secondary).padding(.top, 6)
                     Text(model.text("这台主机只能用终端", "This host only has a terminal")).font(.system(size: 11)).foregroundStyle(Palette.secondary.opacity(0.7))
-                }.frame(width: size.width, height: max(0, size.height - 58)).padding(.bottom, 58)
-                Palette.foreground.opacity(0.035).frame(height: 58)
-                Palette.foreground.opacity(0.07).frame(height: 1).padding(.bottom, 58)
+                }.frame(width: size.width, height: max(0, size.height - stripHeight)).padding(.bottom, stripHeight)
+                Palette.foreground.opacity(0.035).frame(height: stripHeight)
+                Palette.foreground.opacity(0.07).frame(height: 1).padding(.bottom, stripHeight)
             }
         }.frame(width: size.width, height: size.height).clipped()
     }
@@ -108,7 +122,10 @@ struct HostCard: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(host.name).font(.system(size: 16, weight: .semibold)).lineLimit(1)
                             .foregroundStyle(hasDesktop ? .white.opacity(offline ? 0.6 : 1) : Palette.foreground)
-                        ReachabilityLabel(state: model.reachability[host.id] ?? .checking, onImage: hasDesktop).lineLimit(1)
+                        Text("\(host.username)@\(host.address):\(host.port)")
+                            .font(.system(size: 11, design: .monospaced)).lineLimit(1).truncationMode(.tail)
+                            .foregroundStyle(hasDesktop ? .white.opacity(0.62) : Palette.secondary.opacity(0.75))
+                            .accessibilityIdentifier("host-login-\(host.id)")
                     }.frame(maxWidth: .infinity, alignment: .leading)
                     HStack(spacing: 6) {
                         ForEach(plugins, id: \.self) { plugin in
@@ -123,7 +140,7 @@ struct HostCard: View {
                 AppIcon("ic_more_vert").foregroundStyle(hasDesktop ? .white.opacity(0.85) : Palette.secondary)
                     .frame(width: 48, height: 48).contentShape(Rectangle())
             }.accessibilityIdentifier("host-menu-\(host.id)").accessibilityLabel(model.text("主机选项：", "Host options: ") + host.name)
-        }.padding(.trailing, 2).frame(height: 58)
+        }.padding(.trailing, 2).frame(height: stripHeight)
             .background {
                 Button { model.path.append(.host(host.id)) } label: { Color.clear.contentShape(Rectangle()) }
                     .buttonStyle(.plain).accessibilityHidden(true)
@@ -132,10 +149,13 @@ struct HostCard: View {
     @ViewBuilder private var pill: some View {
         if let label = pillLabel {
             HStack(spacing: 6) {
-                Circle().fill(state == .connected ? green : state == .connecting ? .white.opacity(0.7) : warning).frame(width: 7, height: 7)
-                Text(label).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+                AppIcon("ic_desktop", size: 13).foregroundStyle(pillTint)
+                    .accessibilityLabel(model.text("桌面", "Desktop"))
+                Text(label).font(.system(size: 12, weight: .semibold)).foregroundStyle(pillTint).lineLimit(1)
             }.padding(.horizontal, 10).padding(.vertical, 4)
                 .background(Color(uiColor: UIColor(hex: 0x141416)).opacity(0.6), in: Capsule())
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("host-desktop-\(host.id)")
         }
     }
     private var pillLabel: String? {
