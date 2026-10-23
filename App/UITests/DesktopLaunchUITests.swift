@@ -3,6 +3,48 @@ import XCTest
 /// Opt-in regression against a saved desktop host and its existing credentials.
 /// Does not reset the user's store or create/edit hosts.
 final class DesktopLaunchUITests: XCTestCase {
+    /// Real SSH to a headless fixture, with a deliberately stale positive desktop cache.
+    func testHeadlessHostStopsRetryingAndUpdatesCard() throws {
+        guard ProcessInfo.processInfo.environment["ROAMTTY_HEADLESS_DESKTOP_FIXTURE"] == "1" else {
+            throw XCTSkip("Requires seed-headless-desktop-fixture.py and a headless SSH fixture")
+        }
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchEnvironment["ROAMTTY_STORAGE_NAME"] = "DesktopHeadlessRegression"
+        app.launch()
+        defer { app.terminate() }
+        XCTAssertTrue(app.buttons["home-tab-hosts"].waitForExistence(timeout: 15))
+        app.buttons["home-tab-hosts"].tap()
+        let screen = app.buttons["host-screen-ui-live-host"]
+        XCTAssertTrue(screen.waitForExistence(timeout: 10))
+        screen.tap()
+        let failure = app.staticTexts["这台主机没有图形桌面"]
+        XCTAssertTrue(failure.waitForExistence(timeout: 15))
+        let retry = app.buttons["重试"]
+        for _ in 0..<5 {
+            Thread.sleep(forTimeInterval: 2)
+            XCTAssertTrue(failure.exists, "The terminal failure must stay visible instead of reopening the desktop")
+            XCTAssertTrue(retry.exists)
+        }
+        capture(app, "Headless desktop failure stays visible")
+        // A retry is explicit, and another negative probe returns to the same stable failure page.
+        retry.tap()
+        Thread.sleep(forTimeInterval: 2)
+        XCTAssertTrue(failure.waitForExistence(timeout: 10))
+        app.buttons["关闭"].tap()
+        XCTAssertTrue(screen.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["没有图形桌面"].exists)
+        app.terminate(); app.launch()
+        XCTAssertTrue(app.buttons["home-tab-hosts"].waitForExistence(timeout: 15))
+        app.buttons["home-tab-hosts"].tap()
+        XCTAssertTrue(screen.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["没有图形桌面"].exists)
+        screen.tap()
+        XCTAssertTrue(app.buttons["host-detail-terminal"].waitForExistence(timeout: 10))
+        XCTAssertFalse(failure.exists)
+        capture(app, "Headless host opens details after relaunch")
+    }
+
     func testDesktopControlsLayoutAndKeyboard() throws {
         guard ProcessInfo.processInfo.environment["ROAMTTY_DESKTOP_CONTROLS_FIXTURE"] == "1" else {
             throw XCTSkip("Requires isolated desktop controls fixture")

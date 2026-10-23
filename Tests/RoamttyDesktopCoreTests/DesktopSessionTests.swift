@@ -164,6 +164,32 @@ final class DesktopSessionTests: XCTestCase {
         XCTAssertTrue(seen.contains(.needsAction(needs: ["not-logged-in"])))
     }
 
+    func testProbeReportsDesktopRemovalAndReturnOnExplicitRetry() {
+        let host = FakeHost(probe: FakeHost.probe("no"), plugin: Self.goodPlugin)
+        let s = session(host)
+        let ended = expectation(description: "No desktop ends the first attempt")
+        let probed = expectation(description: "Both capability changes are reported")
+        probed.expectedFulfillmentCount = 2
+        let lock = NSLock()
+        var desktopStates: [String] = []
+        s.onProbe = { result in
+            lock.lock(); desktopStates.append(result.desktop); lock.unlock()
+            probed.fulfill()
+        }
+        s.onEnded = { _ in ended.fulfill() }
+        s.start()
+        wait(for: [ended], timeout: 5)
+        XCTAssertEqual(s.failure, .noDesktop)
+        XCTAssertTrue(host.allStreams.isEmpty)
+        s.onEnded = nil
+        host.probes = [FakeHost.probe("yes")]
+        s.start()
+        wait(s, "connected after retry", Self.connected)
+        wait(for: [probed], timeout: 5)
+        lock.lock(); let reported = desktopStates; lock.unlock()
+        XCTAssertEqual(reported, ["no", "yes"])
+    }
+
     /// macOS permissions: the hello's needs show the guide, and serve is asked again until they are granted.
     func testMacPermissionsArePolledUntilGranted() {
         let host = FakeHost(probe: FakeHost.probe(uname: "Darwin arm64"), plugin: { s, n in

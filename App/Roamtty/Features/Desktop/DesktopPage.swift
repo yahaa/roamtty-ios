@@ -461,7 +461,9 @@ struct DesktopPage: View {
                 Text(log).font(.caption).foregroundStyle(.white.opacity(0.55)).lineLimit(2)
             }
             if failed {
-                Button(model.text("重试", "Retry")) { controller.start() }.buttonStyle(RoamButtonStyle(filled: true))
+                Button(model.text("重试", "Retry")) {
+                    if let host = model.host(controller.host.id) { model.openDesktop(host) }
+                }.buttonStyle(RoamButtonStyle(filled: true))
                 Button(model.text("关闭", "Close")) { model.closeDesktop(controller.host.id) }.buttonStyle(RoamButtonStyle())
             }
         }

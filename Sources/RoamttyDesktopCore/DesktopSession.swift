@@ -102,6 +102,8 @@ public final class DesktopSession: @unchecked Sendable {
 
     // Observers: called on `callbackQueue`, in order.
     public var onPhase: ((DesktopPhase) -> Void)?
+    /// Fresh capability results let the host list replace stale desktop availability, including on retry.
+    public var onProbe: ((HostDesktop) -> Void)?
     public var onLog: (([String]) -> Void)?
     public var onHello: ((Hello) -> Void)?
     public var onStats: ((DesktopStats) -> Void)?
@@ -307,14 +309,20 @@ public final class DesktopSession: @unchecked Sendable {
         return sync({ closing }) ? .closed : outcome
     }
 
+    private func probeDesktop(_ remote: DesktopHost) -> HostDesktop? {
+        let found = DesktopProbeScript.probe(remote)
+        if let found { callbackQueue.async { self.onProbe?(found) } }
+        return found
+    }
+
     private func loggedIn(_ remote: DesktopHost) -> Outcome {
-        var probe = DesktopProbeScript.probe(remote)
+        var probe = probeDesktop(remote)
         if probe?.uname.hasPrefix("Windows") == true { sync { _windowsHost = true } }
         while probe?.desktop == "nologin" && !sync({ closing }) {
             setPhase(.needsAction(needs: ["not-logged-in"]))
             pause(ms: timings.nologinRetryMs)
             if sync({ closing }) { break }
-            probe = DesktopProbeScript.probe(remote)
+            probe = probeDesktop(remote)
         }
         if sync({ closing }) { return .closed }
         guard let probe else { return .failed(.cannotProbe) }

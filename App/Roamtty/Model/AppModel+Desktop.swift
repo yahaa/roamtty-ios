@@ -18,9 +18,9 @@ import RoamttyDesktopCore
         }
     }
     func remove(_ hostID: String) {
-        controllers[hostID]?.close()
-        controllers[hostID] = nil
+        let removed = controllers.removeValue(forKey: hostID)
         subscriptions[hostID] = nil
+        removed?.close()
         objectWillChange.send()
     }
     var live: [DesktopController] {
@@ -90,7 +90,7 @@ import RoamttyDesktopCore
         }
         session.onEnded = { [weak self] _ in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, !self.active else { return }
                 self.decoder.close()
                 self.onEnded(self)
             }
@@ -185,8 +185,7 @@ extension AppModel {
             return
         }
         if let existing = desktops[host.id],
-           existing.host.address == host.address, existing.host.port == host.port, existing.host.username == host.username {
-            if !existing.active { existing.start() }
+           existing.host.hasSameLoginIdentity(as: host), existing.active {
             if !path.contains(.desktop(host.id)) { path.append(.desktop(host.id)) }
             return
         }
@@ -211,18 +210,32 @@ extension AppModel {
                 guard let self else { return .failed(message: nil, connecting: false) }
                 return self.syncDesktopLogin(hostID: hostID, credentials: credentials)
             })
+            session.onProbe = { [weak self, weak session] probe in
+                Task { @MainActor in
+                    guard let self, let session, self.desktops[hostID]?.session === session else { return }
+                    self.saveDesktopProbe(host, probe)
+                }
+            }
             let controller = DesktopController(
                 host: host, session: session, prefs: prefs,
                 showStats: settings.desktopShowStats, english: english,
                 onPrefs: { [weak self] p in self?.saveDesktopPrefs(hostID, p) },
                 onEnded: { [weak self] ended in
-                    self?.desktops.remove(ended.host.id)
-                    self?.objectWillChange.send()
+                    guard let self, self.desktops[ended.host.id] === ended, !ended.active else { return }
+                    if case .failed = ended.session.phase {
+                        // Keep the failure page until an explicit retry or close, including its error text.
+                        if ended.session.failure == .noDesktop {
+                            self.saveDesktopProbe(ended.host, HostDesktop(desktop: "no", uname: "", pluginVersion: nil))
+                        }
+                    } else {
+                        self.desktops.remove(ended.host.id)
+                    }
+                    self.objectWillChange.send()
                 })
             desktops.put(controller)
             controller.start()
             startDesktopPathMonitor()
-            path.append(.desktop(host.id))
+            if !path.contains(.desktop(host.id)) { path.append(.desktop(host.id)) }
             objectWillChange.send()
         } catch {
             self.error = error.localizedDescription
@@ -277,7 +290,7 @@ extension AppModel {
     }
 
     func saveDesktopProbe(_ host: Host, _ probe: HostDesktop) {
-        guard var current = self.host(host.id) else { return }
+        guard var current = self.host(host.id), current.hasSameLoginIdentity(as: host) else { return }
         current.desktop = probe.desktop
         current.desktopProbedAt = Int64(Date().timeIntervalSince1970 * 1000)
         do { try store?.saveHost(current); hosts = try store?.hosts() ?? hosts } catch { self.error = error.localizedDescription }

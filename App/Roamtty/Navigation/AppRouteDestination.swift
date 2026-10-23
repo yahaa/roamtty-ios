@@ -28,8 +28,6 @@ struct AppRouteDestination: View {
         case .desktop(let id):
             if let controller = model.desktops[id] {
                 DesktopPage(controller: controller).id(ObjectIdentifier(controller))
-            } else if let host = model.host(id) {
-                Color.clear.onAppear { model.openDesktop(host) }
             } else {
                 EmptyMessage(title: model.text("桌面已关闭", "Desktop closed"), message: model.text("返回后可再次打开。", "You can open it again from the list."))
             }
