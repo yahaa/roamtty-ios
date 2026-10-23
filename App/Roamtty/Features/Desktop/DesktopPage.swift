@@ -125,7 +125,11 @@ struct DesktopPage: View {
                 DesktopGestureOverlay(controller: controller, size: geo.size)
                 cursorOverlay
                 statsOverlay
-                statusCard
+                DesktopStatusOverlay(host: controller.host.name, phase: controller.phase,
+                                     hasPicture: controller.videoSize.0 > 0, windowsHost: controller.windowsHost,
+                                     log: controller.log.last ?? "", failure: controller.session.failure, english: english) {
+                    if let host = model.host(controller.host.id) { model.openDesktop(host) }
+                } onClose: { model.closeDesktop(controller.host.id) }
                 if virtualMouse { virtualMouseOverlay }
             }
             .clipped()
@@ -427,50 +431,6 @@ struct DesktopPage: View {
         .allowsHitTesting(false)
     }
 
-    private var statusCard: some View {
-        Group {
-            switch controller.phase {
-            case .connecting(let step, _):
-                card(title: model.text("连接中", "Connecting"),
-                     detail: stepLabel(step),
-                     log: controller.log.last)
-            case .needsAction(let needs):
-                card(title: model.text("需要操作", "Action needed"),
-                     detail: needs.joined(separator: " · "),
-                     log: controller.windowsHost
-                        ? model.text("请先在这台电脑上登录桌面", "Sign in on that computer first")
-                        : controller.log.last)
-            case .recovering:
-                card(title: model.text("恢复中", "Recovering"),
-                     detail: model.text("保留上一帧 · 通常很快恢复", "Keeping the last frame · usually recovers quickly"),
-                     log: controller.log.last)
-            case .failed(let message):
-                card(title: model.text("连接失败", "Failed"), detail: message, log: nil, failed: true)
-            default:
-                EmptyView()
-            }
-        }
-    }
-
-    private func card(title: String, detail: String, log: String?, failed: Bool = false) -> some View {
-        VStack(spacing: 10) {
-            ProgressView().tint(.white).opacity(failed ? 0 : 1)
-            Text(title).font(.headline).foregroundStyle(.white)
-            Text(detail).font(.subheadline).foregroundStyle(.white.opacity(0.8)).multilineTextAlignment(.center)
-            if let log, !log.isEmpty {
-                Text(log).font(.caption).foregroundStyle(.white.opacity(0.55)).lineLimit(2)
-            }
-            if failed {
-                Button(model.text("重试", "Retry")) {
-                    if let host = model.host(controller.host.id) { model.openDesktop(host) }
-                }.buttonStyle(RoamButtonStyle(filled: true))
-                Button(model.text("关闭", "Close")) { model.closeDesktop(controller.host.id) }.buttonStyle(RoamButtonStyle())
-            }
-        }
-        .padding(20).frame(width: 280)
-        .background(Color.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 16))
-    }
-
     @ViewBuilder private var cursorOverlay: some View {
         if pointerMode == .mouse || virtualMouse, let cursor = controller.cursor, cursor.visible {
             // Approximate: place at remote coords scaled into the view (letterboxed).
@@ -523,15 +483,6 @@ struct DesktopPage: View {
         case .dim: return .white.opacity(0.65)
         case .warn: return Palette.warning
         case .bad: return Palette.danger
-        }
-    }
-
-    private func stepLabel(_ step: DesktopPhase.Step) -> String {
-        switch step {
-        case .login: return model.text("SSH 登录…", "Signing in…")
-        case .install: return model.text("安装桌面插件…", "Installing desktop plugin…")
-        case .start: return model.text("启动插件…", "Starting plugin…")
-        case .firstFrame: return model.text("等待首帧…", "Waiting for first frame…")
         }
     }
 

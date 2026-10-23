@@ -54,7 +54,12 @@ import RoamttyDesktopCore
     private let onEnded: (DesktopController) -> Void
     private let onPrefs: (DesktopHostSettings) -> Void
 
-    var windowsHost: Bool { session.windowsHost }
+    var windowsHost: Bool {
+        #if DEBUG
+        if layoutFixture { return fixtureWindowsHost }
+        #endif
+        return session.windowsHost
+    }
     var active: Bool { session.active }
     var viewOnly: Bool { session.viewOnly }
     var quality: String { session.quality }
@@ -103,19 +108,53 @@ import RoamttyDesktopCore
     func pause() { session.pause() }
     #if DEBUG
     private var layoutFixture = false
-    func configureLayoutFixture() {
+    private var fixtureWindowsHost = false
+    private var fixtureRecoverySequence = false
+    func configureLayoutFixture(status: String? = nil, english: Bool = false) {
         layoutFixture = true
-        videoSize = (1280, 720)
-        phase = .connected()
+        fixtureRecoverySequence = status == "recovery-sequence"
+        switch status {
+        case "login": phase = .connecting(step: .login)
+        case "install": phase = .connecting(step: .install)
+        case "start": phase = .connecting(step: .start)
+        case "first-frame": phase = .connecting(step: .firstFrame)
+        case "needs-screen-recording": phase = .needsAction(needs: ["screen-recording"])
+        case "needs-accessibility": phase = .needsAction(needs: ["accessibility"])
+        case "needs-windows":
+            fixtureWindowsHost = true
+            phase = .needsAction(needs: ["not-logged-in"])
+        case "failed": phase = .failed(message: DesktopText.noDesktop.text(english: english))
+        case "recovering": phase = .recovering(sinceMs: Int64(Date().timeIntervalSince1970 * 1000) - 3_000)
+        default: phase = .connected()
+        }
+        if status == nil || status == "connected" || status == "recovering" || fixtureRecoverySequence { videoSize = (1280, 720) }
+        log = [DesktopText.step(.hostDownload).text(english: english),
+               DesktopText.installing(version: "0.8.0", target: "linux-x86_64").text(english: english)]
     }
     #endif
     func resume() {
         #if DEBUG
-        if layoutFixture { display.showLayoutFixture(); return }
+        if layoutFixture {
+            if videoSize.0 > 0 { display.showLayoutFixture() }
+            return
+        }
         #endif
         session.resume()
     }
-    func input(_ bytes: [UInt8]) { session.input(bytes) }
+    func input(_ bytes: [UInt8]) {
+        #if DEBUG
+        // Existing rail actions drive real in-place phase transitions in the isolated UI fixture.
+        if fixtureRecoverySequence {
+            if bytes == DesktopProtocol.action(DesktopProtocol.ACTION_ALL_WINDOWS) {
+                phase = .recovering(sinceMs: Int64(Date().timeIntervalSince1970 * 1000))
+            } else if bytes == DesktopProtocol.action(DesktopProtocol.ACTION_SHOW_DESKTOP) {
+                phase = .connected()
+            }
+            return
+        }
+        #endif
+        session.input(bytes)
+    }
     func send(_ bytes: [UInt8]) { session.send(bytes) }
 
     func setViewOnly(_ on: Bool) { objectWillChange.send(); session.setViewOnly(on) }
@@ -159,13 +198,15 @@ extension AppModel {
     func installDesktopControlsFixture() throws {
         guard ProcessInfo.processInfo.arguments.contains("--desktop-controls-fixture"),
               ProcessInfo.processInfo.environment["ROAMTTY_STORAGE_NAME"] == "DesktopControlsFixture" else { return }
+        let environment = ProcessInfo.processInfo.environment
+        if let language = environment["ROAMTTY_DESKTOP_FIXTURE_LANGUAGE"] { settings.language = language }
         let host = Host(id: "desktop-controls-fixture", name: "MacBook", address: "127.0.0.1", port: 9, username: "fixture")
         let session = DesktopSession(config: .init(hostName: host.name, address: host.address, clientWidth: 1280, clientHeight: 720, clientDpi: 160),
                                      manifest: try PluginManifest.bundled(),
                                      login: { .failed(message: "Offline UI fixture", connecting: false) })
         let controller = DesktopController(host: host, session: session, prefs: DesktopHostSettings(),
                                            showStats: false, english: english, onPrefs: { _ in }, onEnded: { _ in })
-        controller.configureLayoutFixture()
+        controller.configureLayoutFixture(status: environment["ROAMTTY_DESKTOP_STATUS_FIXTURE"], english: english)
         desktops.put(controller)
         path = [.desktop(host.id)]
     }
