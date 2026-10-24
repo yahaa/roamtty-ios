@@ -1,7 +1,6 @@
 import Foundation
 
 enum SharedInbox {
-    static let group = "group.com.roamtty.shared"
     private static var imports: URL {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         #if DEBUG

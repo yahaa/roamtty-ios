@@ -51,7 +51,6 @@ extension AppModel {
     func sessionEnd(_ record: SessionRecord) -> SessionEnd? { runtimes[record.id].map { $0.phase.active ? nil : $0.end } ?? .restored }
 
     func persistJournal() { records = journal.records; do { try store?.saveJournal(journal) } catch { self.error = error.localizedDescription } }
-    func renameSession(_ id: String, title: String) { journal.rename(id, title: title); persistJournal(); if let record = records.first(where: { $0.id == id }) { runtimes[id]?.record = record } }
 
     // MARK: Sessions already on the server
 

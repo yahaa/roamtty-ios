@@ -130,20 +130,6 @@ final class SessionCapacityUITests: RoamttyLiveUITestCase {
         waitForConnected(timeout: 25)
     }
 
-    private func revealHostControl(_ element: XCUIElement) {
-        let scroll = app.scrollViews.firstMatch
-        XCTAssertTrue(scroll.waitForExistence(timeout: 5))
-        for attempt in 0...12 {
-            let frame = scroll.frame.intersection(app.frame)
-            let top = max(frame.minY, app.navigationBars.firstMatch.frame.maxY)
-            let visible = CGRect(x: frame.minX, y: top, width: frame.width, height: max(0, frame.maxY - top)).insetBy(dx: 0, dy: 4)
-            if element.exists && element.isHittable && visible.contains(element.frame) { return }
-            guard attempt < 12 else { XCTFail("The session control did not become visible"); return }
-            if element.exists && element.frame.midY < visible.minY { scroll.swipeDown() }
-            else { scroll.swipeUp() }
-        }
-    }
-
     private func waitFor(_ predicate: NSPredicate, element: XCUIElement, timeout: Double = 8) {
         let check = XCTNSPredicateExpectation(predicate: predicate, object: element)
         XCTAssertEqual(XCTWaiter.wait(for: [check], timeout: timeout), .completed)

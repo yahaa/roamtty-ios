@@ -114,9 +114,6 @@ struct TerminalToolboxState {
     mutating func collapseDock(at time: TimeInterval) { pinned = false; expanded = false; clearDockHide(); closeRing(); wake(at: time) }
     /// A touch on the floating dock restarts its quiet spell (Android `dockTouches++`).
     mutating func touchDock(at time: TimeInterval) { if floatingDock { armDockHide(at: time) }; wake(at: time) }
-    /// An open menu holds the floating dock (Android: menus pause the countdown).
-    mutating func holdDockHide() { clearDockHide() }
-    mutating func resumeDockHide(at time: TimeInterval) { if floatingDock { armDockHide(at: time) } }
     mutating func beginRing(at time: TimeInterval) { ringOpen = true; ringPinned = false; wake(at: time) }
     mutating func pinRing(at time: TimeInterval) { ringOpen = true; ringPinned = true; wake(at: time) }
     mutating func completeRing(at time: TimeInterval) { closeRing(); wake(at: time) }

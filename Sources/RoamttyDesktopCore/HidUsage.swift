@@ -28,12 +28,6 @@ public enum HidUsage {
     public static let LEFT_SHIFT = 0xE1
     public static let LEFT_ALT = 0xE2
     public static let LEFT_GUI = 0xE3
-    public static let RIGHT_CTRL = 0xE4
-    public static let RIGHT_SHIFT = 0xE5
-    public static let RIGHT_ALT = 0xE6
-    public static let RIGHT_GUI = 0xE7
-
-    public static let MODIFIERS: Set<Int> = [LEFT_CTRL, LEFT_SHIFT, LEFT_ALT, LEFT_GUI, RIGHT_CTRL, RIGHT_SHIFT, RIGHT_ALT, RIGHT_GUI]
 
     public static func letter(_ c: Character) -> Int {
         let v = Int(c.lowercased().unicodeScalars.first!.value)
@@ -55,7 +49,7 @@ public enum HidUsage {
 }
 
 /// The on-screen computer keyboard's modifiers (plan §5.2): a tap latches one for the next key, a long
-/// press holds it until tapped again. In combo mode keys gather (at most four) and go out together.
+/// press holds it until tapped again.
 public final class ModifierLatch {
     public enum State: Sendable { case off, once, locked }
 
@@ -68,9 +62,6 @@ public final class ModifierLatch {
     /// Insertion-ordered, like Kotlin's linkedMapOf: modifiers go down in the order they were latched.
     private var order: [Int] = []
     private var states: [Int: State] = [:]
-    public private(set) var combo = false
-    private var gathered: [Int] = []
-    public var pending: [Int] { gathered }
 
     public init() {}
 
@@ -85,25 +76,8 @@ public final class ModifierLatch {
 
     public func hold(_ hid: Int) { set(hid, .locked) }
 
-    public func setCombo(_ on: Bool) { combo = on; gathered.removeAll() }
-
-    /// A key was tapped: the (key, down) events to send, empty while a combo still gathers.
-    /// Latched modifiers wrap the key; once-latched ones then release.
-    public func press(_ hid: Int) -> [KeyEvent] {
-        if combo {
-            if gathered.count < 4 && !gathered.contains(hid) { gathered.append(hid) }
-            return []
-        }
-        return wrap([hid])
-    }
-
-    /// Sends the gathered combo; modifiers in it go first.
-    public func sendCombo() -> [KeyEvent] {
-        // Stable: Kotlin's sortedByDescending keeps the gathered order within each group.
-        let keys = gathered.filter { HidUsage.MODIFIERS.contains($0) } + gathered.filter { !HidUsage.MODIFIERS.contains($0) }
-        gathered.removeAll()
-        return keys.isEmpty ? [] : wrap(keys)
-    }
+    /// A key was tapped: the (key, down) events to send. Latched modifiers wrap the key; once-latched ones then release.
+    public func press(_ hid: Int) -> [KeyEvent] { wrap([hid]) }
 
     private func wrap(_ keys: [Int]) -> [KeyEvent] {
         let mods = order.filter { states[$0] != .off && !keys.contains($0) }

@@ -206,7 +206,7 @@ import RoamttyTransport
                         do {
                             let previous = mode == .tmux ? try SessionRemote.tmuxClients(ssh, name: name, cancellation: lifetime) : []
                             let attempt = UUID()
-                            let mosh = try ssh.startMosh(mode: mode, remoteName: name, existing: existing, columns: cols, rows: rows)
+                            let mosh = try ssh.startMosh(mode: mode, remoteName: name, existing: existing)
                             DispatchQueue.main.sync {
                                 guard self?.generation == token else { mosh.close(); return }
                                 self?.mosh = mosh; self?.transportName = "mosh"

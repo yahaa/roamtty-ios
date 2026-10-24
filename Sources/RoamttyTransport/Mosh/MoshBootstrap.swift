@@ -3,7 +3,7 @@ import RoamttyCore
 
 extension SSHConnection {
     /// mosh-server inherits the authenticated SSH connection's local address (-s), not an arbitrary client-supplied endpoint.
-    public func startMosh(mode: SessionMode, remoteName: String, existing: Bool = false, columns: Int, rows: Int) throws -> MoshTransport {
+    public func startMosh(mode: SessionMode, remoteName: String, existing: Bool = false) throws -> MoshTransport {
         if mode == .tmux, try exec(RemoteCommands.tmuxProbe).status != 0 { throw RoamError.tmuxMissing }
         // mosh-server listens only on the address this SSH login reached; resolving the name again may pick another.
         guard let peer = peerAddress else { throw RoamError.transport("mosh 不可用，使用 SSH / mosh unavailable") }

@@ -445,16 +445,6 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "CA40783062D85E118B48D1B3";
 		};
-		"B2FB6E1115FD6264B7D7F027" = {
-			"isa" = "PBXFileReference";
-			"path" = "Sources/RoamttyCore/Terminal/OutputHistory.swift";
-			"sourceTree" = "SOURCE_ROOT";
-			"lastKnownFileType" = "sourcecode.swift";
-		};
-		"5D85C7597B2E7907632A7CAF" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "B2FB6E1115FD6264B7D7F027";
-		};
 		"D8C04439A049DB28EC095138" = {
 			"isa" = "PBXFileReference";
 			"path" = "Sources/RoamttyCore/Terminal/TerminalAttachment.swift";
@@ -570,7 +560,6 @@
 				"B067C6C226A34C844ADF8BF8",
 				"4E3E0A6FCA83095DCE7BEC7D",
 				"5E179FC0D45020473EAF29F3",
-				"5D85C7597B2E7907632A7CAF",
 				"AC686F43342E9263D06AC2B8",
 				"164394B7320B127FF22F509E",
 				"6E7E1969A77D9CED3D57FF80",
@@ -1889,16 +1878,6 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "30469A9FC259E7AFCB3FD56D";
 		};
-		"1D25743B4E4A15C5F38CE846" = {
-			"isa" = "PBXFileReference";
-			"path" = "App/Roamtty/Features/Terminal/Input/CommandDraftEditor.swift";
-			"sourceTree" = "SOURCE_ROOT";
-			"lastKnownFileType" = "sourcecode.swift";
-		};
-		"8482E4DB26C279D3416510C6" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "1D25743B4E4A15C5F38CE846";
-		};
 		"9F54F99C3AF52D8AEA111C2B" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/Roamtty/Features/Terminal/Input/CursorRowButtons.swift";
@@ -2332,7 +2311,6 @@
 				"5B374F47D3E4A7102FBFAB65",
 				"63F59F9FC07850B10CD749B3",
 				"FC310D1F477EB2330168CE81",
-				"8482E4DB26C279D3416510C6",
 				"FAFB501C2F3F40C39D91218F",
 				"C58972A00ACF8E1E91EF7CE6",
 				"5A08E11F93C061E6E8A30699",
@@ -3568,7 +3546,6 @@
 				"509F207EB17BDF731A4E75FC",
 				"61C76A1052AAC076E578C27B",
 				"CA40783062D85E118B48D1B3",
-				"B2FB6E1115FD6264B7D7F027",
 				"D8C04439A049DB28EC095138",
 				"B12148D47D4A403895ADAD9C",
 				"DEC4E88920BF88513B721B48",
@@ -3656,7 +3633,6 @@
 				"9FEA86E4A1264E1A702678FC",
 				"F39A53C52C3F6F50565D0D2D",
 				"30469A9FC259E7AFCB3FD56D",
-				"1D25743B4E4A15C5F38CE846",
 				"9F54F99C3AF52D8AEA111C2B",
 				"F54B1190BF7A1A558907F83A",
 				"D7BDD82F29C03C86EA902D4D",

@@ -143,11 +143,6 @@ public func sessionListPath(_ directory: String, username: String) -> String {
     return "~" + directory.dropFirst(home.count)
 }
 
-/// A title saved before agents were called by their short names.
-public func shortenLegacyAgentTitle(_ title: String) -> String {
-    title.hasPrefix("Claude Code · ") ? "Claude" + title.dropFirst("Claude Code".count) : title
-}
-
 /// The session list's groups, in its order: what waits for the user first, sessions without an agent last.
 public enum SessionGroup: String, CaseIterable, Sendable { case waiting, working, done, other }
 

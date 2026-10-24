@@ -76,11 +76,4 @@ public enum DesktopStatsText {
         out.append(Line(transport.label(english: english), .dim))
         return out
     }
-
-    /// Traffic estimate shown on metered networks: about `kbps * 60 / 8 / 1000` MB/min.
-    public static func meteredEstimate(kbps: Int, english: Bool) -> String? {
-        guard kbps > 0 else { return nil }
-        let mb = max(1, kbps * 60 / 8 / 1000)
-        return english ? "About \(mb) MB/min" : "预估流量 \(mb) MB/分钟"
-    }
 }

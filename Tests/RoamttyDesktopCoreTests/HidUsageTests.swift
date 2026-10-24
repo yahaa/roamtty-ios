@@ -46,15 +46,4 @@ final class HidUsageTests: XCTestCase {
                            (HidUsage.LEFT_CTRL, false), (HidUsage.LEFT_SHIFT, false)]), m.press(HidUsage.Z))
         XCTAssertEqual(ev([(HidUsage.LEFT_CTRL, true), (HidUsage.Z, true), (HidUsage.Z, false), (HidUsage.LEFT_CTRL, false)]), m.press(HidUsage.Z))
     }
-
-    func testComboGathersUpToFour() {
-        let m = ModifierLatch()
-        m.setCombo(true)
-        for k in [HidUsage.DELETE, HidUsage.LEFT_CTRL, HidUsage.LEFT_ALT, HidUsage.A, HidUsage.C] { XCTAssertTrue(m.press(k).isEmpty) }
-        XCTAssertEqual(4, m.pending.count)
-        let out = m.sendCombo()
-        XCTAssertEqual(ev([(HidUsage.LEFT_CTRL, true), (HidUsage.LEFT_ALT, true), (HidUsage.DELETE, true), (HidUsage.A, true)]), Array(out.prefix(4)))
-        XCTAssertEqual(8, out.count)
-        XCTAssertTrue(m.pending.isEmpty)
-    }
 }

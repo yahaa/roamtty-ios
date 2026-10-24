@@ -422,7 +422,7 @@ private final class DeviceValidationRunner {
             }
         }
         check("mosh_udp_input_resize_and_roaming_probe") {
-            let transport = try ssh.startMosh(mode: .tmux, remoteName: name, columns: 80, rows: 24)
+            let transport = try ssh.startMosh(mode: .tmux, remoteName: name)
             let output = DeviceOutput()
             let done = DispatchSemaphore(value: 0)
             defer { transport.close(); _ = done.wait(timeout: .now() + 2) }

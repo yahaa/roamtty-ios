@@ -82,7 +82,6 @@ final class RemoteFilesTests: XCTestCase {
         XCTAssertEqual(remoteFileKind(name: "notes.md", isDirectory: true), .directory)
         let entry = RemoteEntry(name: "link", path: "/link", isDirectory: false, isSymlink: true, size: nil, mtime: 123, permissions: 0o120777)
         XCTAssertEqual(try JSONDecoder().decode(RemoteEntry.self, from: JSONEncoder().encode(entry)), entry)
-        XCTAssertEqual(formatRemoteSize(1_572_864), "1.5 MiB")
         XCTAssertEqual(entry.id, "/link")
     }
 

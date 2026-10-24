@@ -8,7 +8,6 @@ import RoamttyDesktopCore
 /// panels, stats, status card. State lives in `DesktopController` / `DesktopPageModel`.
 struct DesktopPage: View {
     @EnvironmentObject var model: AppModel
-    @Environment(\.dismiss) private var dismiss
     @ObservedObject var controller: DesktopController
     @State private var showDisconnect = false
     @State private var keyboardOverlap: CGFloat = 0

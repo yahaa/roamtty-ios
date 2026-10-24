@@ -62,7 +62,6 @@ final class DesktopStatsTextTests: XCTestCase {
         XCTAssertTrue(lines[4].text.contains("FEC 3"))
         XCTAssertEqual(lines[5].text, "1920×1080 openh264")
         XCTAssertEqual(lines[6].text, "Wi-Fi")
-        XCTAssertEqual(DesktopStatsText.meteredEstimate(kbps: 4000, english: false), "预估流量 30 MB/分钟")
     }
 
     func testRttToneThresholds() {

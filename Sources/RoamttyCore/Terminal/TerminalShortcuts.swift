@@ -5,16 +5,6 @@ import Foundation
 public enum ScreenApp: String, CaseIterable, Sendable {
     case claude, codex, grok, gemini, shell
 
-    public var label: String {
-        switch self {
-        case .claude: return "Claude Code"
-        case .codex: return "Codex"
-        case .grok: return "Grok"
-        case .gemini: return "Gemini"
-        case .shell: return ""
-        }
-    }
-
     public init(_ agent: CodingAgent) {
         switch agent {
         case .claude: self = .claude

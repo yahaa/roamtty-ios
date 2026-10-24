@@ -32,7 +32,6 @@ import RoamttyDesktopCore
         }
     }
     func networkChanged() { controllers.values.forEach { $0.session.networkChanged() } }
-    func closeAll() { Array(controllers.keys).forEach(remove) }
 }
 
 /// One host's desktop on the main actor: owns the `DesktopSession`, the VideoToolbox decoder and the page model.
@@ -48,7 +47,6 @@ import RoamttyDesktopCore
     #if DEBUG
     /// Test only (ROAMTTY_DESKTOP_AUDIO_PROBE=1): what the player decoded, for the live UI test.
     @Published private(set) var audioProbe = ""
-    private var probeTimer: Timer?
     #endif
     @Published private(set) var phase: DesktopPhase = .idle
     @Published private(set) var log: [String] = []
@@ -129,7 +127,7 @@ import RoamttyDesktopCore
         decoder.attach(name: "VideoToolbox")
         #if DEBUG
         if environment["ROAMTTY_DESKTOP_AUDIO_PROBE"] == "1" {
-            probeTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            _ = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
                 Task { @MainActor in
                     guard let self else { return }
                     let l = self.audio.level

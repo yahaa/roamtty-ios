@@ -20,7 +20,7 @@ extension SessionRuntime {
         clearModifiers(); terminalView.scrollToLiveOutput()
         if send(TerminalKeys.arrow(final, applicationCursor: terminalView.getTerminal().applicationCursor, control: control, shift: shift)) { petArrowTouches += 1 }
     }
-    func sendCursorKey(_ key: CursorRowKey, up: Bool = false) {
+    func sendCursorKey(_ key: CursorRowKey) {
         clearModifiers()
         terminalView.scrollToLiveOutput()
         let value: String
@@ -49,11 +49,6 @@ extension SessionRuntime {
         if accepted { userTyped(Data(input.utf8)) }
         return accepted
     }
-    @discardableResult func confirmPendingPaste() -> Bool {
-        guard let text = pendingPaste else { return false }
-        pendingPaste = nil
-        return pasteText(text, confirmed: true)
-    }
     /// SwiftTerm owns selection cleanup and reads the clipboard once. Its delegate output is staged in
     /// `capturedPaste` until the whole paste can be validated and enqueued.
     func finishNativePaste() {
@@ -63,7 +58,6 @@ extension SessionRuntime {
         guard let text = capture.text else { return }
         _ = pasteText(text)
     }
-    func copySelection() { terminalView.copy(nil) }
     /// The agent the session was started for, else the one its hooks report, else what the screen shows (an agent
     /// started by hand in a plain session).
     func screenApp() -> ScreenApp {
@@ -76,7 +70,6 @@ extension SessionRuntime {
     // MARK: Keyboard
 
     func hideKeyboard() { keyboardHide?.cancel(); terminalView.resignFirstResponder() }
-    func toggleKeyboard() { keyboardHide?.cancel(); if terminalView.isFirstResponder { terminalView.resignFirstResponder() } else { terminalView.becomeFirstResponder() } }
     func hideKeyboardSoon() {
         keyboardHide?.cancel()
         keyboardHide = Task { [weak self] in

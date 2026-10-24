@@ -3,7 +3,6 @@ import RoamttyDesktopCore
 import UIKit
 import PhotosUI
 import RoamttyCore
-import RoamttyTransport
 
 /// Android `TerminalPane`: the terminal fills the page with no bars. Controls live in the toolbox ghost, its
 /// shortcut ring and the dock it opens; notices float on the upper golden section over the preserved grid.
