@@ -2,11 +2,12 @@ import SwiftUI
 import RoamttyCore
 import RoamttyDesktopCore
 
-/// One session: its tile beside its name, the chip of the host it runs on and the last prompt ("你: …", or "等待输入中…"
-/// while an idle agent has had none), then, across the whole row, what the agent answered or runs and a status line with
-/// how long it has been at it, its folder and what the agent needs (allow a request, or a follow-up typed right here). A
-/// plain terminal has its folder beneath its name. Every line is there, empty if need be, and the reply takes one, so
-/// all agents' cards share one height. Long press for its menu.
+/// One session: its tile beside its name, the chip of the host it runs on, the folder it is in (the home as `~`) and the
+/// last prompt ("你: …", or "等待输入中…" while an idle agent has had none), then, across the whole row, what the agent
+/// answered or runs and a status line with how long it has been at it and what the agent needs (allow a request, or a
+/// follow-up typed right here). A plain terminal has only its name, its folder and a status line of the connection.
+/// Every line is there, empty if need be, and the reply takes one, so all agents' cards share one height (Android
+/// `SessionRow`). Long press for its menu.
 struct SessionRow: View {
     @EnvironmentObject var model: AppModel
     let record: SessionRecord
@@ -31,15 +32,10 @@ struct SessionRow: View {
         let agentPath = sessionListPath(status, username: username)
         let path = agentPath.isEmpty ? sessionListPath(runtime?.paneDirectory ?? "", username: username) : agentPath
         let name = rowName(status: status, path: path, kind: kind)
-        // Where it runs: the whole folder (the name holds only its last part); the host has its chip beside the name.
-        let location = path == name ? "" : path
         let prompt = status?.task ?? ""
         let activity = agentActivity(status)
         let reply = replyPreview(status?.reply ?? "")
         let waiting = status?.state == .waiting, idle = status?.state == .idle
-        // The line under the name holds the prompt, or says an idle agent awaits one, so every agent row reads alike;
-        // where it runs then moves to the status line.
-        let promptLine = !prompt.isEmpty || idle
         VStack(alignment: .leading, spacing: 0) {
             if divider { Rectangle().fill(Palette.foreground.opacity(0.07)).frame(height: 1).padding(.leading, 14) }
             VStack(alignment: .leading, spacing: 0) {
@@ -52,16 +48,14 @@ struct SessionRow: View {
                             if let host { HostChip(name: host.name, id: host.id, offline: model.hostOffline(record) && !phase.active).padding(.leading, 2)
                                 .accessibilityIdentifier("home-session-host-\(record.id)") }
                         }
+                        folderLine(path)
                         if !prompt.isEmpty {
                             (Text(model.text("你: ", "You: ")).foregroundColor(Palette.secondary.opacity(0.7)) + Text(prompt))
                                 .font(.system(size: 13)).foregroundStyle(Palette.secondary).lineLimit(1).accessibilityIdentifier("home-session-prompt-\(record.id)")
                         } else if idle {
                             Text(model.text("等待输入中…", "Awaiting input…")).font(.system(size: 13)).italic().foregroundStyle(Palette.secondary.opacity(0.7)).lineLimit(1)
                                 .accessibilityIdentifier("home-session-awaiting-\(record.id)")
-                        } else if !location.isEmpty {
-                            Text(location).font(.system(size: 13, design: .monospaced)).foregroundStyle(Palette.secondary).lineLimit(1).truncationMode(.middle)
-                                .accessibilityIdentifier("home-session-location-\(record.id)")
-                        } else {
+                        } else if status != nil {
                             // Kept, empty, so every card of a kind is as tall as the next.
                             Text(" ").font(.system(size: 13)).lineLimit(1).accessibilityHidden(true)
                         }
@@ -86,9 +80,6 @@ struct SessionRow: View {
                     if let status, let runtime, live { elapsed(status, since: runtime.agentStatusAt).padding(.leading, -2) }
                     HStack(spacing: 6) {
                         Spacer(minLength: 0)
-                        // Cut from its start, so the folder's own name stays.
-                        if promptLine && !location.isEmpty { Text(location).font(.system(size: 12, design: .monospaced)).foregroundStyle(Palette.secondary.opacity(0.8)).lineLimit(1).truncationMode(.head)
-                            .accessibilityIdentifier("home-session-location-\(record.id)") }
                         ForEach(sessionTransportTags(mode: record.mode, mosh: connected && runtime?.transportName == "mosh"), id: \.self) { MetaTag(text: $0) }
                         if waiting && live {
                             RowAction(label: model.text("查看", "View"), plain: true) { model.openSession(record) }.accessibilityIdentifier("home-session-view-\(record.id)")
@@ -139,6 +130,16 @@ struct SessionRow: View {
         }
         if name.trimmingCharacters(in: .whitespaces).isEmpty { name = model.text("会话 \(record.number)", "Session \(record.number)") }
         return name
+    }
+
+    /// Where it runs, behind a folder mark; cut in the middle, so both where it starts and the folder's own name stay.
+    /// Without a folder the line stays, empty, so every card of a kind is as tall as the next.
+    private func folderLine(_ path: String) -> some View {
+        HStack(spacing: 5) {
+            if !path.isEmpty { AppIcon("ic_folder", size: 12).accessibilityLabel(model.text("工作目录", "Working directory")) }
+            Text(path.isEmpty ? " " : path).font(.system(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.middle)
+                .accessibilityIdentifier(path.isEmpty ? "" : "home-session-location-\(record.id)")
+        }.foregroundStyle(Palette.secondary.opacity(0.75))
     }
 
     @ViewBuilder private func statusView(status: AgentStatus?, phase: ConnectionPhase, kind: CodingAgent?, activity: String, waiting: Bool, idle: Bool) -> some View {
