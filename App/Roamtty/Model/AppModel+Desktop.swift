@@ -66,6 +66,12 @@ import RoamttyDesktopCore
     var fps: Int { session.fps }
     var lockOnClose: Bool { session.lockOnClose }
     var displayIndex: Int { session.display }
+    /// Input and the cursor are in the display's native pixels; the video is often scaled down from
+    /// them (a 4K screen arrives 1920 wide). Before the hello, the video size stands in.
+    var remoteSize: (Int, Int) {
+        if let d = hello?.displays, d.indices.contains(displayIndex) { return (d[displayIndex].width, d[displayIndex].height) }
+        return videoSize
+    }
 
     init(host: Host, session: DesktopSession, prefs: DesktopHostSettings, showStats: Bool, english: Bool,
          onPrefs: @escaping (DesktopHostSettings) -> Void,

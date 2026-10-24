@@ -489,7 +489,7 @@ struct DesktopPage: View {
             // Approximate: place at remote coords scaled into the view (letterboxed).
             GeometryReader { geo in
                 let vp = Viewport(viewWidth: Float(geo.size.width), viewHeight: Float(geo.size.height),
-                                  remoteWidth: max(1, controller.videoSize.0), remoteHeight: max(1, controller.videoSize.1))
+                                  remoteWidth: max(1, controller.remoteSize.0), remoteHeight: max(1, controller.remoteSize.1))
                 let pt = vp.toView(Float(cursor.x), Float(cursor.y))
                 Circle().fill(Color.white).frame(width: 8, height: 8)
                     .position(x: CGFloat(pt.x), y: CGFloat(pt.y))
@@ -593,11 +593,6 @@ final class DesktopGestureView: UIView {
     private var timer: CADisplayLink?
     private var twoFingerActive = false
     private var lastPoint: CGPoint = .zero
-    /// Windows' XAML surfaces (Task View, Start, the taskbar) drop a press that lands the instant the
-    /// pointer jumped there, or a release right on its press: those steps go out `clickGap` apart.
-    private var pending: [GestureAction] = []
-    private var holdUntil: CFTimeInterval = 0
-    private static let clickGap: CFTimeInterval = 0.035
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -622,7 +617,7 @@ final class DesktopGestureView: UIView {
         let h = Float(bounds.height > 0 ? bounds.height : boundsSize.height)
         var vp = gestures.viewport
         vp.viewWidth = max(1, w); vp.viewHeight = max(1, h)
-        vp.remoteWidth = max(1, c.videoSize.0); vp.remoteHeight = max(1, c.videoSize.1)
+        vp.remoteWidth = max(1, c.remoteSize.0); vp.remoteHeight = max(1, c.remoteSize.1)
         gestures.viewport = vp.clamped()
     }
 
@@ -702,37 +697,20 @@ final class DesktopGestureView: UIView {
     override func didMoveToWindow() { becomeFirstResponder() }
 
     private func apply(_ actions: [GestureAction]) {
-        // The local zoom is no input: it never waits behind a click.
-        for a in actions { if case .view(let vp) = a { gestures.viewport = vp } else { pending.append(a) } }
-        drain()
-    }
-
-    private func drain() {
-        while !pending.isEmpty, CACurrentMediaTime() >= holdUntil {
-            let a = pending.removeFirst()
-            send(a)
-            switch (a, pending.first) {
-            case (.moveTo, .button(_, down: true)?): holdUntil = CACurrentMediaTime() + Self.clickGap
-            case (.button(let b, down: true), .button(let next, down: false)?) where b == next:
-                holdUntil = CACurrentMediaTime() + Self.clickGap
-            default: break
-            }
-        }
-    }
-
-    private func send(_ a: GestureAction) {
         guard let c = controller else { return }
-        switch a {
-        case .moveTo(let x, let y):
-            c.input(DesktopProtocol.abs(display: c.displayIndex, x: x, y: y))
-        case .moveBy(let dx, let dy):
-            c.input(DesktopProtocol.rel(dx: dx, dy: dy))
-        case .button(let b, let down):
-            c.input(DesktopProtocol.button(b, down: down))
-        case .wheel(let dx, let dy):
-            c.input(DesktopProtocol.wheel(dx: dx, dy: dy))
-        case .view(let vp):
-            gestures.viewport = vp
+        for a in actions {
+            switch a {
+            case .moveTo(let x, let y):
+                c.input(DesktopProtocol.abs(display: c.displayIndex, x: x, y: y))
+            case .moveBy(let dx, let dy):
+                c.input(DesktopProtocol.rel(dx: dx, dy: dy))
+            case .button(let b, let down):
+                c.input(DesktopProtocol.button(b, down: down))
+            case .wheel(let dx, let dy):
+                c.input(DesktopProtocol.wheel(dx: dx, dy: dy))
+            case .view(let vp):
+                gestures.viewport = vp
+            }
         }
     }
 }
