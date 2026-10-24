@@ -444,6 +444,73 @@ final class DesktopLaunchUITests: XCTestCase {
         attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
     }
 
+    /// The host's sound on the phone (Android `E2eAudioTest`): the host loops a 440 Hz / 660 Hz tone
+    /// (the runner starts it), the app decodes 440 Hz on the left at the tone's level, near live and
+    /// without drops; 声音 off stops the packets and on brings them back. Played at volume 0: a simulator
+    /// would play it through the Mac's speakers.
+    func testLiveDesktopPlaysTheHostsSound() throws {
+        guard let host = ProcessInfo.processInfo.environment["ROAMTTY_LIVE_DESKTOP_HOST"], !host.isEmpty,
+              ProcessInfo.processInfo.environment["ROAMTTY_LIVE_DESKTOP_TONE"] == "1" else {
+            throw XCTSkip("Set ROAMTTY_LIVE_DESKTOP_HOST and ROAMTTY_LIVE_DESKTOP_TONE=1 with a tone playing on the host")
+        }
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchEnvironment["ROAMTTY_DESKTOP_AUDIO_PROBE"] = "1"
+        app.launchEnvironment["ROAMTTY_DESKTOP_AUDIO_MUTE"] = "1"
+        app.launch()
+        XCTAssertTrue(app.buttons["home-tab-hosts"].waitForExistence(timeout: 15))
+        app.buttons["home-tab-hosts"].tap()
+        let card = app.buttons["host-screen-" + host]
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        let online = NSPredicate(format: "label CONTAINS[c] '打开桌面' OR label CONTAINS[c] 'Open desktop'")
+        expectation(for: online, evaluatedWith: card)
+        waitForExpectations(timeout: 20)
+        card.tap()
+        let probe = app.staticTexts["desktop-audio-probe"]
+        XCTAssertTrue(probe.waitForExistence(timeout: 60), "the player decoded something")
+        func value(_ key: String) -> Int {
+            let label = probe.label
+            guard let r = label.range(of: key + "=") else { return -1 }
+            return Int(label[r.upperBound...].prefix { $0.isNumber }) ?? -1
+        }
+        // 440 Hz crosses zero 880 times a second; the tone's RMS is 8000 / √2.
+        let tone = NSPredicate { _, _ in (860...900).contains(value("crossings")) && (5000...6300).contains(value("rms")) }
+        expectation(for: tone, evaluatedWith: probe)
+        waitForExpectations(timeout: 30)
+        // Settled: a few seconds of steady play, near live, without drops.
+        Thread.sleep(forTimeInterval: 10)
+        let dropped = value("dropped"), packets = value("packets")
+        var queued: [Int] = []
+        for _ in 0..<10 { Thread.sleep(forTimeInterval: 0.3); queued.append(value("queued")) }
+        let state = "\(probe.label), queued \(queued)"
+        // As deep as the network's jitter, never past the drop line above it.
+        XCTAssertLessThanOrEqual(queued.max() ?? 999, value("target") + 120, state)
+        XCTAssertLessThanOrEqual(value("target"), 300, state)
+        XCTAssertLessThanOrEqual((value("dropped") - dropped) * 50, max(1, value("packets") - packets), state)
+        NSLog("RoamttyAudioProbe %@", state)
+        capture(app, "Sound playing")
+
+        // 声音 off: no more packets; on again: they come back.
+        let ops = app.buttons.matching(NSPredicate(format: "label == '操作' OR label == 'Ops'")).firstMatch
+        let sound = app.switches.matching(NSPredicate(format: "label BEGINSWITH '声音' OR label BEGINSWITH 'Sound'")).firstMatch
+        ops.tap()
+        XCTAssertTrue(sound.waitForExistence(timeout: 5))
+        XCTAssertEqual(sound.value as? String, "1")
+        sound.tap()
+        app.buttons["desktop-op-close"].tap()
+        Thread.sleep(forTimeInterval: 1.5)
+        let off = value("packets")
+        Thread.sleep(forTimeInterval: 2)
+        XCTAssertEqual(value("packets"), off, "no packets while sound is off")
+        ops.tap()
+        XCTAssertTrue(sound.waitForExistence(timeout: 5))
+        sound.tap()
+        app.buttons["desktop-op-close"].tap()
+        let back = NSPredicate { _, _ in value("packets") > off + 50 }
+        expectation(for: back, evaluatedWith: probe)
+        waitForExpectations(timeout: 15)
+    }
+
     func testColdLaunchAndLiveDesktopStayRunning() throws {
         guard let host = ProcessInfo.processInfo.environment["ROAMTTY_LIVE_DESKTOP_HOST"], !host.isEmpty else {
             throw XCTSkip("Set ROAMTTY_LIVE_DESKTOP_HOST to a saved, desktop-enabled host")

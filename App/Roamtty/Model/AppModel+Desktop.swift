@@ -42,6 +42,14 @@ import RoamttyDesktopCore
     let decoder: DesktopVideoDecoder
     let page: DesktopPageModel
     let display: VideoToolboxDisplay
+    let audio: DesktopAudioPlayer
+    /// Nil until the host said; false when it has no sound to send.
+    @Published private(set) var audioAvailable: Bool?
+    #if DEBUG
+    /// Test only (ROAMTTY_DESKTOP_AUDIO_PROBE=1): what the player decoded, for the live UI test.
+    @Published private(set) var audioProbe = ""
+    private var probeTimer: Timer?
+    #endif
     @Published private(set) var phase: DesktopPhase = .idle
     @Published private(set) var log: [String] = []
     @Published private(set) var stats = DesktopStats()
@@ -67,6 +75,7 @@ import RoamttyDesktopCore
     var quality: String { session.quality }
     var fps: Int { session.fps }
     var lockOnClose: Bool { session.lockOnClose }
+    var audioOn: Bool { session.audioOn }
     var displayIndex: Int { session.display }
     /// Input and the cursor are in the display's native pixels; the video is often scaled down from
     /// them (a 4K screen arrives 1920 wide). Before the hello, the video size stands in.
@@ -86,6 +95,13 @@ import RoamttyDesktopCore
         decoder.display = display
         decoder.session = session
         session.video = decoder
+        #if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        audio = DesktopAudioPlayer(muted: environment["ROAMTTY_DESKTOP_AUDIO_MUTE"] == "1")
+        #else
+        audio = DesktopAudioPlayer()
+        #endif
+        session.audio = audio
         page = DesktopPageModel(pointerMode: prefs.pointerMode == "mouse" ? .mouse : .touch,
                                 showStats: showStats, english: english)
         session.onPhase = { [weak self] p in Task { @MainActor in self?.phase = p } }
@@ -95,6 +111,7 @@ import RoamttyDesktopCore
         session.onCursor = { [weak self] c in Task { @MainActor in self?.cursor = c } }
         session.onNotice = { [weak self] n in Task { @MainActor in self?.notice = n } }
         session.onVideoSize = { [weak self] w, h in Task { @MainActor in self?.videoSize = (w, h) } }
+        session.onAudioAvailable = { [weak self] a in Task { @MainActor in self?.audioAvailable = a } }
         session.onRemoteClipboard = { [weak self] text in
             Task { @MainActor in
                 UIPasteboard.general.string = text
@@ -105,10 +122,22 @@ import RoamttyDesktopCore
             Task { @MainActor in
                 guard let self, !self.active else { return }
                 self.decoder.close()
+                self.audio.stop()
                 self.onEnded(self)
             }
         }
         decoder.attach(name: "VideoToolbox")
+        #if DEBUG
+        if environment["ROAMTTY_DESKTOP_AUDIO_PROBE"] == "1" {
+            probeTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    let l = self.audio.level
+                    self.audioProbe = "audio rms=\(l.rms) crossings=\(l.crossings) packets=\(self.audio.packets) dropped=\(self.audio.dropped) queued=\(self.audio.queuedMs) target=\(self.audio.targetMs) cushions=\(self.audio.cushions) rate=\(Int((self.audio.rate * 1000).rounded()))"
+                }
+            }
+        }
+        #endif
     }
 
     func start() { session.start() }
@@ -177,6 +206,7 @@ import RoamttyDesktopCore
     func setFps(_ f: Int) { objectWillChange.send(); session.setFps(f); prefs.fps = f; onPrefs(prefs) }
     func setDisplay(_ i: Int) { objectWillChange.send(); session.setDisplay(i) }
     func setLockOnClose(_ on: Bool) { objectWillChange.send(); session.setLockOnClose(on); prefs.lockOnClose = on; onPrefs(prefs) }
+    func setAudio(_ on: Bool) { objectWillChange.send(); session.setAudio(on); prefs.audio = on; onPrefs(prefs) }
     func setPointerMode(_ mode: PointerMode) {
         page.pointerMode = mode
         prefs.pointerMode = mode == .mouse ? "mouse" : "touch"
@@ -260,6 +290,7 @@ extension AppModel {
             config.fps = prefs.fps
             config.quality = prefs.quality
             config.lockOnClose = prefs.lockOnClose
+            config.audio = prefs.audio
             config.keepAliveMinutes = settings.desktopKeepAliveMinutes
             let manifest = try desktopManifest()
             let hostID = host.id

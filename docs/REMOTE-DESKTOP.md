@@ -55,6 +55,15 @@ Xcode / a device; **todo** = not implemented yet; **n/a** = Android-only, iOS eq
 |---|---|---|
 | MediaCodec H.264, render callback for 手机端 | `H264` (Annex-B → AVCC, SPS/PPS) + `DesktopVideoDecoder` (Linux-testable queue) + app `VideoToolboxDisplay` (`AVSampleBufferDisplayLayer`) | **done (unverified)** — VT path is **not compiled or verified on Linux**; render time ≈ enqueue stamp (no per-frame VT callback on older iOS) |
 
+### Sound (plugin 0.9.0, roamtty #224)
+
+| Android | iOS | Status |
+|---|---|---|
+| AUDIO 0x85 (20 ms Opus, 48 kHz stereo), hello `audio`, CONFIG `audio`, STATE `audio: unavailable` | `DesktopProtocol` `.audio`, `DesktopSession.audio` sink, `setAudio`, `onAudioAvailable` | done, `DesktopSessionTests` |
+| `AudioJitter` (desktop-core): target = p95 arrival jitter (drift removed) + 40 ms, 60–300 ms; cushion only after the host's silence; drops past target + 120 ms; PI drift control on the playback rate (±3%) | `AudioJitter` (same rules, `AudioJitterTests`) | done |
+| MediaCodec Opus → low-latency AudioTrack (`setPlaybackRate`, start threshold one packet) | `DesktopAudioPlayer`: `AVAudioConverter` (Opus) → `AVAudioPlayerNode` → Varispeed; backlog from the node's render position; session `.playback` + `.mixWithOthers` | done; live `testLiveDesktopPlaysTheHostsSound` on the simulator ↔ Ubuntu VM over Wi-Fi: 440 Hz decoded, backlog ≈ target (~120 ms), one cushion, 0–7 drops per run |
+| 操作 › 声音 (per host, on by default), stats line 声音 缓冲 N ms | same, `DesktopHostSettings.audio` (decodes old settings) | done |
+
 ### Desktop page (DesktopPage.kt, design D1–D11)
 
 | Android | iOS | Status |

@@ -54,6 +54,11 @@ final class DesktopProtocolTests: XCTestCase {
 
         guard case .state(let state)? = DesktopProtocol.decode(read("state.bin")) else { return XCTFail("state") }
         XCTAssertTrue(state.kicked)
+
+        guard case .audio(let audio)? = DesktopProtocol.decode(read("audio.bin")) else { return XCTFail("audio") }
+        XCTAssertEqual(9, audio.seq)
+        XCTAssertEqual(30, audio.captureUs)
+        XCTAssertEqual([0xFC, 0xFF, 0xFE], Array(audio.packet))
     }
 
     func testHelloParses() {
@@ -67,6 +72,7 @@ final class DesktopProtocolTests: XCTestCase {
         XCTAssertEqual(["h264"], hello.encoders)
         XCTAssertTrue(hello.needs.isEmpty)
         XCTAssertNil(hello.udp)
+        XCTAssertEqual(["opus"], hello.audio)
     }
 
     func testHelloUdpOffer() {
@@ -123,16 +129,16 @@ final class DesktopProtocolTests: XCTestCase {
         XCTAssertEqual("libopenh264-2.6.0-linux64.8.so.bz2", PluginManifest.openh264File(target: "linux-x86_64", version: "2.6.0"))
     }
 
-    /// The shipped pin is Android's assets/desktop-plugin.json byte for byte (roamtty #218 head a4731b4).
+    /// The shipped pin is Android's assets/desktop-plugin.json byte for byte (roamtty #224, plugin 0.9.0).
     func testBundledManifestIsAndroidsPin() throws {
         let m = try PluginManifest.bundled()
-        XCTAssertEqual("0.8.2", m.version)
-        XCTAssertEqual("https://github.com/yahaa/roamtty-desktop/releases/download/v0.8.2/", m.baseUrl)
+        XCTAssertEqual("0.9.0", m.version)
+        XCTAssertEqual("https://github.com/yahaa/roamtty-desktop/releases/download/v0.9.0/", m.baseUrl)
         XCTAssertEqual("2.6.0", m.openh264)
         XCTAssertEqual(1...1, m.protoMin...m.protoMax)
         XCTAssertEqual(["linux-aarch64", "linux-x86_64", "macos-universal", "windows-arm64", "windows-x64"], m.targets.keys.sorted())
-        XCTAssertEqual("fcea5a975d54e6c4b22ed9c4fc69fa149991f381655f70472ac16ccb69c76ba2", m.targets["linux-x86_64"]?.sha256)
-        XCTAssertEqual(1427192, m.targets["linux-x86_64"]?.size)
+        XCTAssertEqual("ab5f1252d489275ac3b194f6f9552751b1e08d4875fe92b830c016a9d5fd0523", m.targets["linux-x86_64"]?.sha256)
+        XCTAssertEqual(1815184, m.targets["linux-x86_64"]?.size)
         XCTAssertTrue(DesktopProtocol.supported.contains(m.protoMin))
     }
 
