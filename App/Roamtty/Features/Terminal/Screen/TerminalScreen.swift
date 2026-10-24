@@ -55,7 +55,8 @@ struct TerminalScreen: View {
                                 .padding(Self.inset)
                             notice.padding(.top, page.safeAreaInsets.top)
                         }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                        if editor { editorBar(landscape: landscape).padding(.bottom, keyboardVisible ? 0 : page.safeAreaInsets.bottom) }
+                        // The bar's controls keep clear of the camera housing that the landscape grid runs under.
+                        if editor { editorBar(landscape: landscape).padding(.leading, page.safeAreaInsets.leading).padding(.trailing, page.safeAreaInsets.trailing).padding(.bottom, keyboardVisible ? 0 : page.safeAreaInsets.bottom) }
                     }
                     if reserved {
                         dock(in: CGSize(width: twoColumns ? 96 : 48, height: page.size.height), twoColumns: twoColumns, reserved: true)
@@ -80,9 +81,9 @@ struct TerminalScreen: View {
                 ImageInsertStatus(transfers: model.files, jobs: $imageJobs, topInset: page.safeAreaInsets.top).frame(width: page.size.width, height: page.size.height)
             }
         }
-        // As on Android, the terminal draws under the transparent status bar and down to the bottom edge;
-        // only the keyboard still pushes it up.
-        .ignoresSafeArea(.container, edges: .vertical)
+        // As on Android, the terminal draws under the transparent status bar, down to the bottom edge and, in
+        // landscape, out to both sides instead of leaving the notch bands empty; only the keyboard still pushes it up.
+        .ignoresSafeArea(.container)
         .persistentSystemOverlays(.hidden)
         // No visible status bar: expose the phase for VoiceOver and UI tests.
         .overlay(alignment: .topLeading) {
