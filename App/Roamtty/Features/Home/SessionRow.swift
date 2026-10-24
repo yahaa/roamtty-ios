@@ -1,5 +1,6 @@
 import SwiftUI
 import RoamttyCore
+import RoamttyDesktopCore
 
 /// One session: its tile beside its name, the chip of the host it runs on and the last prompt ("你: …", or "等待输入中…"
 /// while an idle agent has had none), then, across the whole row, what the agent answered or runs and a status line with
@@ -86,6 +87,8 @@ struct SessionRow: View {
                         } else if idle && live {
                             RowAction(label: model.text("追问", "Reply"), icon: "ic_reply", iconOnly: true) { replying.toggle(); draftFocused = replying }.accessibilityIdentifier("home-session-follow-up-\(record.id)")
                         }
+                        // Rightmost, after 追问 (Android DesktopCardButton / IconTag).
+                        desktopButton(host: host, connected: connected)
                     }
                 }.frame(minHeight: 28).padding(.top, 8)
                 if replying { followUpField(kind: kind, runtime: runtime) }
@@ -145,6 +148,17 @@ struct SessionRow: View {
             Text("· " + (status.state == .idle ? agoText(seconds, english: model.english) : shortDuration(seconds)))
                 .font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.secondary.opacity(0.8)).lineLimit(1).fixedSize()
         }.accessibilityIdentifier("home-session-time-\(record.id)")
+    }
+
+
+    @ViewBuilder private func desktopButton(host: Host?, connected: Bool) -> some View {
+        if model.settings.desktopEnabled, let host {
+            let button = model.desktopButton(for: host, sessionConnected: connected)
+            DesktopCardButton(state: button, accessibilityID: "home-session-desktop-\(record.id)") {
+                model.openDesktop(host)
+            }
+            .accessibilityLabel(model.text("打开桌面", "Open desktop"))
+        }
     }
 
     private func approve(_ runtime: SessionRuntime?) {

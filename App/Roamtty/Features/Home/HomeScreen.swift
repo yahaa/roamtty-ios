@@ -10,6 +10,7 @@ struct HomeScreen: View {
     @FocusState private var searchFocused: Bool
     var body: some View {
         VStack(spacing: 0) {
+            header
             if searching {
                 HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass").foregroundStyle(Palette.secondary)
@@ -22,27 +23,37 @@ struct HomeScreen: View {
                 HomeSessionsTab(search: search).tag(HomeTab.sessions)
                 HomeHostsTab(search: search).tag(HomeTab.hosts)
             }.tabViewStyle(.page(indexDisplayMode: .never)).accessibilityIdentifier("home-pager")
-        }.pageBackground().navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Palette.background, for: .navigationBar).toolbarBackground(.visible, for: .navigationBar)
+        }.pageBackground().toolbar(.hidden, for: .navigationBar)
             .task(id: model.hosts) {
                 while !Task.isCancelled { await model.probeHosts(model.hosts); do { try await Task.sleep(nanoseconds: 30_000_000_000) } catch { break } }
             }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) { Button { withAnimation(.easeOut(duration: 0.2)) { model.drawer = true } } label: { AppIcon("ic_sidebar", size: 24).foregroundStyle(Palette.foreground).frame(width: 40, height: 40) }.accessibilityLabel(model.text("打开菜单", "Open menu")).accessibilityIdentifier("open-drawer") }
-                ToolbarItem(placement: .principal) { HomeTabs() }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button { withAnimation { searching.toggle() }; searchFocused = searching; if !searching { search = "" } } label: { AppIcon("ic_search", size: 24).foregroundStyle(Palette.foreground).frame(width: 40, height: 40) }
-                        .accessibilityLabel(model.homeTab == .sessions ? model.text("搜索会话", "Search sessions") : model.text("搜索主机", "Search hosts")).accessibilityIdentifier("search-hosts")
-                }
-            }
+
     }
+    // A flat header matches the host cards instead of acquiring iOS 26 toolbar glass.
+    private var header: some View {
+        HStack {
+            Button { withAnimation(.easeOut(duration: 0.2)) { model.drawer = true } } label: {
+                AppIcon("ic_sidebar", size: 26).foregroundStyle(Palette.foreground)
+                    .frame(width: 48, height: 48).contentShape(Rectangle())
+            }.accessibilityLabel(model.text("打开菜单", "Open menu")).accessibilityIdentifier("open-drawer")
+            Spacer(minLength: 0)
+            HomeTabs()
+            Spacer(minLength: 0)
+            Button { withAnimation { searching.toggle() }; searchFocused = searching; if !searching { search = "" } } label: {
+                AppIcon("ic_search", size: 26).foregroundStyle(Palette.foreground)
+                    .frame(width: 48, height: 48).contentShape(Rectangle())
+            }.accessibilityLabel(model.homeTab == .sessions ? model.text("搜索会话", "Search sessions") : model.text("搜索主机", "Search hosts"))
+                .accessibilityIdentifier("search-hosts")
+        }.buttonStyle(.plain).padding(.horizontal, 6).frame(height: 64)
+    }
+
 }
 
 /// The home page's tabs in the toolbar: the names side by side, the selected one in full colour with a short bar beneath it.
 struct HomeTabs: View {
     @EnvironmentObject var model: AppModel
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 12) {
             tab(model.text("会话", "Sessions"), .sessions, id: "home-tab-sessions")
             tab(model.text("主机", "Hosts"), .hosts, id: "home-tab-hosts")
         }
@@ -51,9 +62,9 @@ struct HomeTabs: View {
         let active = model.homeTab == value
         return Button { withAnimation(.easeInOut(duration: 0.25)) { model.homeTab = value } } label: {
             VStack(spacing: 6) {
-                Text(title).font(.system(size: 20, weight: active ? .semibold : .regular)).lineLimit(1)
+                Text(title).font(.system(size: 22, weight: .regular)).lineLimit(1)
                     .foregroundStyle(active ? Palette.foreground : Palette.secondary.opacity(0.7))
-                Capsule().fill(active ? Palette.foreground : Color.clear).frame(width: 20, height: 3)
+                Capsule().fill(active ? Palette.foreground : Color.clear).frame(width: 22, height: 3)
             }.padding(.horizontal, 12).frame(minHeight: 44).contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityAddTraits(active ? [.isSelected, .isHeader] : []).accessibilityIdentifier(id)
     }

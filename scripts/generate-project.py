@@ -44,7 +44,7 @@ COMMON={
 }
 products=[]
 targets=[]
-target_ids={name:uid('target:'+name) for name in ['CNative','RoamttyCore','RoamttyTransport','Roamtty','RoamttyShare','RoamttyUITests']}
+target_ids={name:uid('target:'+name) for name in ['CNative','RoamttyCore','RoamttyTransport','RoamttyDesktopCore','Roamtty','RoamttyShare','RoamttyUITests']}
 product_ids={}
 for name in target_ids:
     suffix = '.app' if name=='Roamtty' else '.appex' if name=='RoamttyShare' else '.xctest' if name=='RoamttyUITests' else '.a'
@@ -76,10 +76,11 @@ def paths(pattern): return sorted(str(p.relative_to(ROOT)) for p in ROOT.glob(pa
 static={'SKIP_INSTALL':'YES','DEFINES_MODULE':'YES','SWIFT_INSTALL_OBJC_HEADER':'NO','PRODUCT_NAME':'$(TARGET_NAME)','MACH_O_TYPE':'staticlib','CODE_SIGNING_ALLOWED':'NO'}
 make_target('CNative',paths('Sources/CNative/**/*.c'),[],[],{**static,'MODULEMAP_FILE':'$(SRCROOT)/Sources/CNative/include/module.modulemap','PUBLIC_HEADERS_FOLDER_PATH':'include/CNative'},'com.apple.product-type.library.static')
 make_target('RoamttyCore',paths('Sources/RoamttyCore/**/*.swift'),[],['CNative'],static,'com.apple.product-type.library.static')
-make_target('RoamttyTransport',paths('Sources/RoamttyTransport/**/*.swift'),[],['RoamttyCore','CNative'],static,'com.apple.product-type.library.static')
+make_target('RoamttyTransport',paths('Sources/RoamttyTransport/**/*.swift'),[],['RoamttyCore','CNative','RoamttyDesktopCore'],static,'com.apple.product-type.library.static')
+make_target('RoamttyDesktopCore',paths('Sources/RoamttyDesktopCore/**/*.swift'),[],[],static,'com.apple.product-type.library.static')
 app_settings={'PRODUCT_BUNDLE_IDENTIFIER':'com.roamtty.app.ios','PRODUCT_NAME':'Roamtty','INFOPLIST_FILE':'App/Support/Info.plist','ASSETCATALOG_COMPILER_APPICON_NAME':'AppIcon','MARKETING_VERSION':'1.0.0','CURRENT_PROJECT_VERSION':'1','LD_RUNPATH_SEARCH_PATHS':['$(inherited)','@executable_path/Frameworks'],'CODE_SIGN_ENTITLEMENTS':'$(ROAMTTY_ENTITLEMENTS)','GENERATE_INFOPLIST_FILE':'NO'}
-resources=paths('App/Roamtty/Resources/Fonts/*')+paths('Sources/RoamttyCore/Resources/*')+['App/Roamtty/Resources/Assets.xcassets','App/Roamtty/Resources/PrivacyInfo.xcprivacy','THIRD_PARTY_NOTICES.md']+paths('licenses/**/*')
-make_target('Roamtty',paths('App/Roamtty/**/*.swift')+paths('App/Shared/*.swift'),resources,['RoamttyCore','RoamttyTransport','CNative','RoamttyShare'],app_settings,'com.apple.product-type.application')
+resources=paths('App/Roamtty/Resources/Fonts/*')+paths('Sources/RoamttyCore/Resources/*')+paths('Sources/RoamttyDesktopCore/Resources/*')+['App/Roamtty/Resources/Assets.xcassets','App/Roamtty/Resources/PrivacyInfo.xcprivacy','THIRD_PARTY_NOTICES.md']+paths('licenses/**/*')
+make_target('Roamtty',paths('App/Roamtty/**/*.swift')+paths('App/Shared/*.swift'),resources,['RoamttyCore','RoamttyTransport','RoamttyDesktopCore','CNative','RoamttyShare'],app_settings,'com.apple.product-type.application')
 make_target('RoamttyShare',paths('App/ShareExtension/**/*.swift')+paths('App/Shared/*.swift'),['App/ShareExtension/PrivacyInfo.xcprivacy'],[],{'PRODUCT_BUNDLE_IDENTIFIER':'com.roamtty.app.ios.share','PRODUCT_NAME':'RoamttyShare','INFOPLIST_FILE':'App/Support/ShareInfo.plist','APPLICATION_EXTENSION_API_ONLY':'YES','SKIP_INSTALL':'YES','MARKETING_VERSION':'1.0.0','CURRENT_PROJECT_VERSION':'1','CODE_SIGN_ENTITLEMENTS':'$(ROAMTTY_ENTITLEMENTS)','OTHER_LDFLAGS':['$(inherited)'],'LD_RUNPATH_SEARCH_PATHS':['$(inherited)','@executable_path/Frameworks','@executable_path/../../Frameworks']},'com.apple.product-type.app-extension')
 make_target('RoamttyUITests',paths('App/UITests/**/*.swift'),[],['Roamtty'],{'PRODUCT_BUNDLE_IDENTIFIER':'com.roamtty.app.ios.uitests','GENERATE_INFOPLIST_FILE':'YES','PRODUCT_NAME':'$(TARGET_NAME)','TEST_TARGET_NAME':'Roamtty','OTHER_LDFLAGS':['$(inherited)']},'com.apple.product-type.bundle.ui-testing')
 add('package:SwiftTerm','XCRemoteSwiftPackageReference',repositoryURL='https://github.com/migueldeicaza/SwiftTerm.git',requirement={'kind':'exactVersion','version':'1.13.0'})

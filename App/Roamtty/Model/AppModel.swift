@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import Network
 import RoamttyCore
 import RoamttyTransport
 
@@ -14,7 +15,11 @@ import RoamttyTransport
     @Published var hosts: [Host] = []
     @Published var settings = AppSettings()
     @Published var records: [SessionRecord] = []
-    @Published var path: [AppRoute] = []
+    @Published var path: [AppRoute] = [] {
+        didSet {
+            if let route = path.last, route != oldValue.last { recordHostUse(for: route) }
+        }
+    }
     @Published var homeTab: HomeTab = .sessions
     @Published var sheet: AppSheet?
     @Published var drawer = false
@@ -60,6 +65,10 @@ import RoamttyTransport
     var retriedThisVisit = Set<String>()
     /// Session id → when the list began waiting for its host to answer again.
     var waitingForHostSince: [String: Date] = [:]
+    /// Remote desktops (phase 5); created on first use.
+    let desktopThumbnails = DesktopThumbnails()
+    var desktopStore: DesktopStore? = nil
+    var desktopPathMonitor: NWPathMonitor?
 
     init() {
         do {
@@ -74,6 +83,7 @@ import RoamttyTransport
             if settings.font != restoredFont { settings.font = restoredFont; try store.saveSettings(settings) }
             #if DEBUG
             try installUITestFixture(store)
+            try installDesktopControlsFixture()
             #endif
         } catch { self.error = error.localizedDescription }
     }
@@ -108,6 +118,12 @@ import RoamttyTransport
     }
     func saveSettings() { do { try store?.saveSettings(settings) } catch { self.error = error.localizedDescription } }
 
+    /// Remote desktops for every host; created on first use.
+    var desktops: DesktopStore {
+        if let desktopStore { return desktopStore }
+        let store = DesktopStore(); desktopStore = store; return store
+    }
+
     // MARK: Presentation
 
     /// Presents `next` once the sheet on screen has gone.
@@ -126,6 +142,11 @@ import RoamttyTransport
         // reconnect then; it does now.
         if case .terminal(let id)? = path.last, let record = records.first(where: { $0.id == id }) { Task { await reconnectOnOpen(record) } }
         restartVisibleMonitor()
+        // Desktop is experimental and off by default: never create the store or NWPathMonitor on cold launch.
+        if settings.desktopEnabled {
+            desktopStore?.live.forEach { $0.resume() }
+            startDesktopPathMonitor()
+        }
         let existing = Set(incomingFiles + files.pendingUploadURLs).union(files.activeUploadURLs)
         incomingFiles.append(contentsOf: SharedInbox.consume().filter { !existing.contains($0) })
     }
@@ -136,6 +157,7 @@ import RoamttyTransport
         for id in Array(monitorJobs.keys) { stopMonitor(id) }
         credentialCache.forgetAll()
         for runtime in runtimes.values { runtime.clearLoginCredentials() }
+        desktopStore?.live.forEach { $0.pause() }
         prompts.removeAll().forEach { $0.answer(nil) }
     }
 }

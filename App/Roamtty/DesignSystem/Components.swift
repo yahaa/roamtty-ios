@@ -37,6 +37,20 @@ struct InfoRow: View {
         }.font(.subheadline).padding(16).frame(minHeight: 52)
     }
 }
+/// Shared visual treatment for compact actions beside host and session tags.
+struct CardActionIcon: View {
+    let icon: String
+    var tint: Color = Palette.secondary
+    var wash: Color = Palette.foreground.opacity(0.06)
+
+    var body: some View {
+        AppIcon(icon, size: 13)
+            .foregroundStyle(tint)
+            .frame(width: 28, height: 20)
+            .background(wash, in: RoundedRectangle(cornerRadius: 6))
+    }
+}
+
 struct Badge: View {
     let text: String
     var body: some View { Text(text).font(.caption).foregroundStyle(Palette.secondary).padding(.horizontal, 6).padding(.vertical, 3).background(Palette.foreground.opacity(0.06), in: RoundedRectangle(cornerRadius: 6)) }

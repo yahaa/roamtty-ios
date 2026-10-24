@@ -68,8 +68,11 @@ extension AppModel {
 
     /// Opens a session's terminal from the home page; leaving it returns to the sessions tab.
     func openSession(_ record: SessionRecord) {
-        if case .terminal = path.last { path.removeLast() }
-        path.append(.terminal(record.id))
+        // Publish only the destination, not an intermediate visit to the host underneath the terminal.
+        var next = path
+        if case .terminal = next.last { next.removeLast() }
+        next.append(.terminal(record.id))
+        path = next
         if runtimes[record.id] == nil { autoReconnectedAt[record.id] = Date(); connectSession(record) }
     }
     /// A terminal route whose runtime is gone (restored from the journal): connect it in place.

@@ -75,7 +75,11 @@ struct TerminalStartupGate {
 }
 
 /// The Android collapsed pet and released shortcut ring have independent idle clocks.
+/// A floating (unpinned) dock also hides after [dockHideSeconds] of quiet, matching Android
+/// `TerminalToolbox.dockHideMillis` (countdown ring on the collapse control).
 struct TerminalToolboxState {
+    /// Android `TerminalToolbox.dockHideMillis` / 1000. 0 disables floating-dock auto-hide.
+    static var dockHideSeconds: TimeInterval = 5
     private(set) var pinned = false
     private(set) var expanded = false
     private(set) var awake = true
@@ -83,24 +87,58 @@ struct TerminalToolboxState {
     private(set) var ringPinned = false
     private var ghostDeadline: TimeInterval = 0
     private var ringDeadline: TimeInterval = 0
+    private var dockDeadline: TimeInterval = 0
+    private var dockHideStarted: TimeInterval = 0
     var dockVisible: Bool { pinned || expanded }
+    var floatingDock: Bool { dockVisible && !pinned }
     var ghostVisible: Bool { !dockVisible && (awake || ringOpen) }
-    var deadline: TimeInterval? { dockVisible ? nil : ringOpen ? (ringPinned ? ringDeadline : nil) : awake ? ghostDeadline : nil }
+    /// Next idle expiry: floating dock first, else ring / ghost.
+    var deadline: TimeInterval? {
+        if floatingDock, Self.dockHideSeconds > 0 { return dockDeadline }
+        if dockVisible { return nil }
+        return ringOpen ? (ringPinned ? ringDeadline : nil) : awake ? ghostDeadline : nil
+    }
+    /// Remaining fraction of the floating-dock quiet spell (1 → 0), for the collapse countdown ring.
+    func dockHideProgress(at time: TimeInterval) -> CGFloat {
+        guard floatingDock, Self.dockHideSeconds > 0, dockHideStarted > 0 else { return 1 }
+        return CGFloat(max(0, min(1, 1 - (time - dockHideStarted) / Self.dockHideSeconds)))
+    }
     mutating func wake(at time: TimeInterval) { awake = true; ghostDeadline = time + 5; if ringPinned { ringDeadline = time + 4 } }
     mutating func workspaceTouch(at time: TimeInterval) { if !pinned { expanded = false }; wake(at: time) }
-    mutating func setPinned(_ value: Bool, at time: TimeInterval) { pinned = value; expanded = value; closeRing(); wake(at: time) }
-    mutating func openDock(at time: TimeInterval) { expanded = true; closeRing(); wake(at: time) }
-    mutating func collapseDock(at time: TimeInterval) { pinned = false; expanded = false; closeRing(); wake(at: time) }
+    mutating func setPinned(_ value: Bool, at time: TimeInterval) {
+        pinned = value; expanded = value; closeRing()
+        if value { clearDockHide() } else { armDockHide(at: time) }
+        wake(at: time)
+    }
+    mutating func openDock(at time: TimeInterval) { expanded = true; closeRing(); armDockHide(at: time); wake(at: time) }
+    mutating func collapseDock(at time: TimeInterval) { pinned = false; expanded = false; clearDockHide(); closeRing(); wake(at: time) }
+    /// A touch on the floating dock restarts its quiet spell (Android `dockTouches++`).
+    mutating func touchDock(at time: TimeInterval) { if floatingDock { armDockHide(at: time) }; wake(at: time) }
+    /// An open menu holds the floating dock (Android: menus pause the countdown).
+    mutating func holdDockHide() { clearDockHide() }
+    mutating func resumeDockHide(at time: TimeInterval) { if floatingDock { armDockHide(at: time) } }
     mutating func beginRing(at time: TimeInterval) { ringOpen = true; ringPinned = false; wake(at: time) }
     mutating func pinRing(at time: TimeInterval) { ringOpen = true; ringPinned = true; wake(at: time) }
     mutating func completeRing(at time: TimeInterval) { closeRing(); wake(at: time) }
     mutating func dismissRing() { closeRing(); awake = false }
     mutating func closeRing() { ringOpen = false; ringPinned = false }
     mutating func expire(at time: TimeInterval) {
+        if floatingDock, Self.dockHideSeconds > 0, dockDeadline > 0, time >= dockDeadline {
+            expanded = false
+            clearDockHide()
+            wake(at: time)
+            return
+        }
         guard !dockVisible else { return }
         if ringPinned && time >= ringDeadline { dismissRing() }
         else if !ringOpen && time >= ghostDeadline { awake = false }
     }
+    private mutating func armDockHide(at time: TimeInterval) {
+        guard !pinned, Self.dockHideSeconds > 0 else { clearDockHide(); return }
+        dockHideStarted = time
+        dockDeadline = time + Self.dockHideSeconds
+    }
+    private mutating func clearDockHide() { dockHideStarted = 0; dockDeadline = 0 }
 }
 
 enum TerminalDockGeometry {

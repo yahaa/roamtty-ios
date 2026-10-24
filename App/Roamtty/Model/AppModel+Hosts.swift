@@ -8,10 +8,29 @@ extension AppModel {
     func savedKey(_ hostID: String) -> Data? { try? vault.read(hostID: hostID, purpose: .key) }
     func loginPassword(for hostID: String) -> String? { credentialCache[hostID]?.password.flatMap { String(data: $0, encoding: .utf8) } }
 
+    /// Navigation records user intent; background probes and automatic reconnects never change recency.
+    func recordHostUse(for route: AppRoute) {
+        let hostID: String
+        switch route {
+        case .host(let id), .desktop(let id), .files(let id, _, _): hostID = id
+        case .terminal(let sessionID):
+            guard let record = records.first(where: { $0.id == sessionID }) else { return }
+            hostID = record.hostID
+        }
+        guard let store, var current = host(hostID) else { return }
+        current.lastUsedAt = Date()
+        do {
+            try store.saveHost(current)
+            hosts = try store.hosts()
+        } catch { self.error = error.localizedDescription }
+    }
+
     func saveHost(_ host: Host, password: String, key: Data?, passphrase: String) throws {
         guard let store else { throw RoamError.invalid(text("存储不可用", "Storage unavailable")) }
-        let validated = try host.validated()
+        var validated = try host.validated()
         let previousHost = self.host(host.id)
+        // An editor may have been opened before the latest visit; keep the current usage time.
+        validated.lastUsedAt = previousHost?.lastUsedAt
         let previousPassword = try vault.read(hostID: host.id, purpose: .password)
         let previousKey = try vault.read(hostID: host.id, purpose: .key)
         let nextKey = key ?? previousKey
@@ -58,6 +77,8 @@ extension AppModel {
             for record in records where record.hostID == host.id { cancelLaunch(record.id); dropRuntime(record.id) }
             credentialCache.forget(host.id)
             try vault.remove(hostID: host.id); try store?.deleteHost(id: host.id)
+            closeDesktop(host.id)
+            desktopThumbnails.remove(host.id)
             metrics.removeValue(forKey: host.id); metricSeries.removeValue(forKey: host.id); monitorStates.removeValue(forKey: host.id)
             journal.removeHost(host.id); persistJournal(); hosts.removeAll { $0.id == host.id }; path = []
         } catch { self.error = error.localizedDescription }

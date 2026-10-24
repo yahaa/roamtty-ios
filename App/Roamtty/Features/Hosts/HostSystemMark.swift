@@ -4,7 +4,7 @@ import UIKit
 struct HostSystemMark: View {
     @Environment(\.colorScheme) private var scheme
     let system: String
-    private var info: (asset: String, brand: UInt32, scale: CGFloat)? {
+    var info: (asset: String, brand: UInt32, scale: CGFloat)? {
         switch system.uppercased() {
         case "UBUNTU": return ("ubuntu", 0xE95420, 0.6)
         case "DEBIAN": return ("debian", 0xD70A53, 0.64)
@@ -38,6 +38,19 @@ struct HostSystemMark: View {
                     AppIcon("ic_os_server", size: side * 0.5).foregroundStyle(Palette.adaptive(0x682F20, 0xF9D9C9))
                 }
             }.clipShape(RoundedRectangle(cornerRadius: side * 0.28)).accessibilityLabel(system)
+        }
+    }
+}
+
+/// Untiled logo used by the desktop screen card, matching Android's strip and backdrop.
+struct HostSystemLogo: View {
+    let system: String
+    var monochrome = false
+    var body: some View {
+        if let info = HostSystemMark(system: system).info {
+            Image("ic_os_" + info.asset).resizable().renderingMode(monochrome ? .template : .original).scaledToFit()
+        } else {
+            Image("ic_os_server").resizable().renderingMode(.template).scaledToFit()
         }
     }
 }

@@ -8,11 +8,11 @@ struct HomeListHeader: View {
     let onAdd: () -> Void
     var body: some View {
         HStack {
-            Text(label).font(.system(size: 14, weight: .medium)).foregroundStyle(Palette.secondary).lineLimit(1)
+            Text(label).font(.system(size: 15, weight: .regular)).foregroundStyle(Palette.secondary).lineLimit(1)
             Spacer()
             Button(action: onAdd) { AppIcon("ic_add", size: 24).foregroundStyle(Palette.foreground).frame(width: 48, height: 48).contentShape(Rectangle()) }
                 .accessibilityLabel(addLabel).accessibilityIdentifier(id)
-        }.padding(.leading, 16).padding(.trailing, 4)
+        }.padding(.leading, 18).padding(.trailing, 6).frame(height: 56)
     }
 }
 

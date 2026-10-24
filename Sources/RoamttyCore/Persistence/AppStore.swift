@@ -51,7 +51,12 @@ public final class AppStore: PinStore {
         let s = try statement("SELECT json FROM hosts ORDER BY rowid"); defer { sqlite3_finalize(s) }
         var values: [Host] = []
         while sqlite3_step(s) == SQLITE_ROW { values.append(try decoder.decode(Host.self, from: data(s, 0))) }
-        return values
+        // Keep saved order for tied timestamps and hosts that have never been opened.
+        return values.enumerated().sorted {
+            let left = $0.element.lastUsedAt ?? .distantPast
+            let right = $1.element.lastUsedAt ?? .distantPast
+            return left == right ? $0.offset < $1.offset : left > right
+        }.map(\.element)
     }
     public func saveHost(_ host: Host) throws {
         lock.lock(); defer { lock.unlock() }
