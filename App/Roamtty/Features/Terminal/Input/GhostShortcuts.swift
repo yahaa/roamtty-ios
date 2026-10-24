@@ -116,7 +116,7 @@ struct GhostShortcuts: View {
         case .menu: break
         case .ctrl:
             runtime.shiftArmed = false; runtime.armControl()
-            if runtime.controlArmed { runtime.terminalView.becomeFirstResponder() }
+            if runtime.controlArmed { _ = runtime.terminalView.becomeFirstResponder() }
         case .shift:
             if runtime.controlArmed { runtime.armControl() }
             runtime.shiftArmed.toggle()

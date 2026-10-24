@@ -191,20 +191,20 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
         guard recognizer.state == .ended else { return }
         if let link = link(at: recognizer.location(in: terminalView)) { open(link); return }
         guard phase == .connected else { return }
-        UIMenuController.shared.hideMenu()
+        (SwiftTermMenu() as SwiftTermEditMenu).hide()
         refreshCursor()
         // A panel such as /usage hides the cursor and parks it away from the line typed on, even off screen: with
         // no cursor to aim at, any tap brings the keyboard back.
         if (terminalView as? AccessibleTerminalView)?.hostHidCursor == true && !terminalView.isFirstResponder {
-            keyboardHide?.cancel(); terminalView.becomeFirstResponder(); return
+            keyboardHide?.cancel(); _ = terminalView.becomeFirstResponder(); return
         }
         guard let row = cursorRowBounds else { return }
         // The user now decides about the keyboard: an earlier Enter's delayed hide must not undo it.
         keyboardHide?.cancel()
         let y = recognizer.location(in: terminalView).y - terminalView.contentOffset.y
-        if TerminalCursorControls.tapHitsCursor(y: y, rowTop: row.minY, rowHeight: row.height, viewportHeight: terminalView.bounds.height) { terminalView.becomeFirstResponder() }
+        if TerminalCursorControls.tapHitsCursor(y: y, rowTop: row.minY, rowHeight: row.height, viewportHeight: terminalView.bounds.height) { _ = terminalView.becomeFirstResponder() }
         // iPhone keyboards have no dismiss key and there is no Back button: a reading tap elsewhere puts it away.
-        else if terminalView.isFirstResponder { terminalView.resignFirstResponder() }
+        else if terminalView.isFirstResponder { _ = terminalView.resignFirstResponder() }
     }
     @objc private func completionTap(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended, phase == .connected else { return }
@@ -240,4 +240,12 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
         terminalView.font = terminalView.font.withSize(size); recognizer.scale = 1
         queueCursorRefresh()
     }
+}
+
+/// SwiftTerm 1.13 shows its copy and paste menu through `UIMenuController`, so only that API can close it. The call
+/// goes through a protocol so that iOS 16's deprecation does not warn on every build.
+private protocol SwiftTermEditMenu { func hide() }
+private struct SwiftTermMenu: SwiftTermEditMenu {
+    @available(iOS, deprecated: 16.0)
+    func hide() { UIMenuController.shared.hideMenu() }
 }

@@ -11,7 +11,7 @@ struct NativeTerminal: UIViewRepresentable {
     @Environment(\.colorScheme) private var scheme
     func makeUIView(context: Context) -> TerminalView { runtime.configure(settings: settings, scheme: scheme); return runtime.terminalView }
     func updateUIView(_ view: TerminalView, context: Context) { runtime.configure(settings: settings, scheme: scheme) }
-    static func dismantleUIView(_ view: TerminalView, coordinator: ()) { view.resignFirstResponder() }
+    static func dismantleUIView(_ view: TerminalView, coordinator: ()) { _ = view.resignFirstResponder() }
 }
 
 /// The terminal surface: steady cursors like Android's, VoiceOver text, and hooks the runtime needs from the view.

@@ -69,12 +69,12 @@ extension SessionRuntime {
 
     // MARK: Keyboard
 
-    func hideKeyboard() { keyboardHide?.cancel(); terminalView.resignFirstResponder() }
+    func hideKeyboard() { keyboardHide?.cancel(); _ = terminalView.resignFirstResponder() }
     func hideKeyboardSoon() {
         keyboardHide?.cancel()
         keyboardHide = Task { [weak self] in
             // Enter puts the keyboard away after 15 s without typing, so a follow-up line can still be typed.
-            do { try await Task.sleep(nanoseconds: 15_000_000_000); self?.terminalView.resignFirstResponder() } catch { }
+            do { try await Task.sleep(nanoseconds: 15_000_000_000); _ = self?.terminalView.resignFirstResponder() } catch { }
         }
     }
 

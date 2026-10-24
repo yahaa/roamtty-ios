@@ -18,7 +18,7 @@ extension SSHConnection {
     }
     /// libssh2 keeps a started SFTP request in the session's one send slot until it goes out, and no other channel
     /// can send before it does. Cancellation is therefore honored before a request starts, never part-way through.
-    private func request(_ epoch: Int, _ cancellation: TransferCancellation?, _ operation: () -> Int32) throws -> Int32 {
+    @discardableResult private func request(_ epoch: Int, _ cancellation: TransferCancellation?, _ operation: () -> Int32) throws -> Int32 {
         try transferCheck(epoch, cancellation)
         return try retry(operation)
     }
