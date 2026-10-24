@@ -92,6 +92,7 @@ final class DesktopLaunchUITests: XCTestCase {
                 XCTAssertGreaterThan(rtt.minX, screen.minX + 30, "The stats stay out of the rounded corner")
             }
             XCTAssertLessThanOrEqual(picture.maxX, ops.minX + 1)
+            XCTAssertEqual(picture.maxY, screen.maxY, accuracy: 1, "The picture runs under the home indicator")
             XCTAssertGreaterThan(ops.minY, app.buttons["所有窗口"].frame.maxY - 1, "操作 is the lowest button")
             landscapeRail[islandLeft] = (ops.width, screen.maxX - ops.minX)
             capture(app, islandLeft ? "Landscape, island left" : "Landscape, island right")
@@ -110,6 +111,21 @@ final class DesktopLaunchUITests: XCTestCase {
         }
         XCTAssertEqual(landscapeRail.count, 2)
         capture(app, "Portrait rail")
+    }
+
+    func testPinchZoomsThePicture() throws {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        launchStatusFixture(app, phase: "stats", showStats: true)
+        let picture = app.otherElements["desktop-video-surface"]
+        XCTAssertTrue(picture.waitForExistence(timeout: 5))
+        func drawnWidth() -> Int { Int((picture.value as? String)?.split(separator: "x").first ?? "") ?? 0 }
+        let before = drawnWidth()
+        XCTAssertGreaterThan(before, 0)
+        picture.pinch(withScale: 2.5, velocity: 2)
+        let zoomed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in drawnWidth() > before + 20 }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [zoomed], timeout: 5), .completed, "A pinch enlarges the picture: \(before) -> \(drawnWidth())")
+        capture(app, "Pinch zoomed")
     }
 
     private func toggleNetworkStats(_ app: XCUIApplication) {
