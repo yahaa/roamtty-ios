@@ -89,6 +89,8 @@ final class HomeLandscapeUITests: RoamttyLiveUITestCase {
         app.buttons["home-tab-hosts"].tap()
         XCTAssertTrue(app.buttons["add-host"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.buttons["add-host"].frame.midY, bar.midY, accuracy: 2)
+        // With no filters between them, search and add still sit at the end of the bar.
+        XCTAssertGreaterThan(app.buttons["add-host"].frame.minX, app.windows.firstMatch.frame.width * 0.8)
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '主机 · '")).firstMatch.exists)
         shot("landscape-hosts")
     }

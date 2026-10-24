@@ -117,7 +117,8 @@ struct HomeCompactBar: View {
                 tab(model.text("会话", "Sessions"), count: model.records.count, .sessions, id: "home-tab-sessions")
                 tab(model.text("主机", "Hosts"), count: model.hosts.count, .hosts, id: "home-tab-hosts")
             }.padding(3).background(Palette.foreground.opacity(0.07), in: Capsule())
-            Group {
+            // Takes the room between the tabs and search even when it holds nothing, so search and add stay at the end.
+            ZStack(alignment: .leading) {
                 if model.homeTab == .sessions && groups.count > 1 {
                     SessionFilters(groups: groups, total: groups.reduce(0) { $0 + $1.records.count })
                 }

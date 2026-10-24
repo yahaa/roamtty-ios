@@ -54,12 +54,20 @@ extension EnvironmentValues {
 private struct HomeScrollSpace: ViewModifier {
     @Environment(\.homeScrolled) private var scrolled
     let tab: HomeTab
-    func body(content: Content) -> some View {
-        GeometryReader { viewport in
-            content.coordinateSpace(name: "home-scroll-\(tab)").onPreferenceChange(HomeScrollOffsetKey.self) { frame in
-                let lowest = min(0, viewport.size.height - frame.height)
-                scrolled(tab, min(0, max(lowest, frame.minY)))
-            }
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 18, *) {
+            content.onScrollGeometryChange(for: CGFloat.self) { geometry in
+                let lowest = min(0, geometry.containerSize.height - geometry.contentSize.height - geometry.contentInsets.top - geometry.contentInsets.bottom)
+                return min(0, max(lowest, -(geometry.contentOffset.y + geometry.contentInsets.top)))
+            } action: { _, offset in scrolled(tab, offset) }
+        } else {
+            // Named outside the scroll view: one named on the scroll view itself moves with its content.
+            GeometryReader { viewport in
+                content.onPreferenceChange(HomeScrollOffsetKey.self) { frame in
+                    let lowest = min(0, viewport.size.height - frame.height)
+                    scrolled(tab, min(0, max(lowest, frame.minY)))
+                }
+            }.coordinateSpace(name: "home-scroll-\(tab)")
         }
     }
 }
