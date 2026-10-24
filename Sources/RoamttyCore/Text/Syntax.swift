@@ -13,7 +13,6 @@ public struct CodeLine: Equatable, Sendable {
     public var text: String
     /// Spans are UTF-16 (start, end, TokenType.rawValue) triples, suitable for NSRange.
     public var spans: [Int]
-    public var spanCount: Int { spans.count / 3 }
 }
 
 public struct CodeDocument: Sendable {
@@ -196,7 +195,7 @@ private final class PreviewLexer {
     func identifier(_ c: UInt16, dash: Bool = false) -> Bool { letter(c) || digit(c) || c == 95 || (dash && c == 45) }
     func next(_ from: Int, _ to: Int) -> UInt16 { var at = from; while at < to && (units[at] == 32 || units[at] == 9) { at += 1 }; return at < to ? units[at] : 10 }
     func regex(_ pattern: String, at: Int, to: Int) -> NSTextCheckingResult? {
-        PreviewRegexCache.expression(pattern)?.firstMatch(in: source as String, options: [.anchored, .withTransparentBounds], range: NSRange(location: at, length: to - at))
+        RegexCache.expression(pattern)?.firstMatch(in: source as String, options: [.anchored, .withTransparentBounds], range: NSRange(location: at, length: to - at))
     }
 
     func scanString(_ at: Int, _ to: Int, language: String) -> Int? {
@@ -407,17 +406,6 @@ private final class PreviewLexer {
             if end == units.count { break }; start = end + 1
         }
         return CodeDocument(language: language, lines: rows, lineCount: line, maxColumns: maxColumns)
-    }
-}
-
-private enum PreviewRegexCache {
-    static let lock = NSLock()
-    static var values: [String: NSRegularExpression] = [:]
-    static func expression(_ pattern: String) -> NSRegularExpression? {
-        lock.lock(); defer { lock.unlock() }
-        if let value = values[pattern] { return value }
-        guard let value = try? NSRegularExpression(pattern: pattern) else { return nil }
-        values[pattern] = value; return value
     }
 }
 

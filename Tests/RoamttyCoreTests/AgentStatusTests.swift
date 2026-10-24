@@ -96,8 +96,6 @@ final class AgentStatusTests: XCTestCase {
         XCTAssertNil(CodingAgent.fromTitle("Grokking notes"))
         XCTAssertEqual(CodingAgent.fromCommand("claude"), .claude)
         XCTAssertNil(CodingAgent.fromCommand("gemini"))
-        XCTAssertEqual(shortenLegacyAgentTitle("Claude Code · roamtty"), "Claude · roamtty")
-        XCTAssertEqual(shortenLegacyAgentTitle("Claude Code notes"), "Claude Code notes")
     }
 
     func testActivityShowsWhatTheAgentRuns() throws {

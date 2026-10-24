@@ -383,7 +383,7 @@ private final class InlineParser {
 }
 
 private func whole(_ line: String, _ pattern: String) -> [String]? {
-    guard let regex = MarkdownRegexCache.expression(pattern) else { return nil }
+    guard let regex = RegexCache.expression(pattern) else { return nil }
     let range = NSRange(line.startIndex..., in: line)
     guard let match = regex.firstMatch(in: line, range: range), match.range.length == range.length else { return nil }
     return (0..<match.numberOfRanges).map { index in
@@ -397,7 +397,8 @@ private extension String {
     func dropSuffix(_ suffix: String) -> String { hasSuffix(suffix) ? String(dropLast(suffix.count)) : self }
 }
 
-private enum MarkdownRegexCache {
+/// Compiled patterns shared by the Markdown and syntax highlighters.
+enum RegexCache {
     static let lock = NSLock()
     static var values: [String: NSRegularExpression] = [:]
     static func expression(_ pattern: String) -> NSRegularExpression? {

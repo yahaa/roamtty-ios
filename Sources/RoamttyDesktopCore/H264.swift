@@ -10,7 +10,6 @@ public enum H264 {
         public init(bytes: [UInt8], type: Int) { self.bytes = bytes; self.type = type }
         public var isSPS: Bool { type == 7 }
         public var isPPS: Bool { type == 8 }
-        public var isIDR: Bool { type == 5 }
         /// Payload after the 3- or 4-byte start code.
         public var payload: ArraySlice<UInt8> {
             if bytes.count >= 4, bytes[0] == 0, bytes[1] == 0, bytes[2] == 0, bytes[3] == 1 { return bytes[4...] }

@@ -133,20 +133,9 @@ final class CommandHistoryUITests: RoamttyLiveUITestCase {
         return app.descendants(matching: .any).matching(NSCompoundPredicate(andPredicateWithSubpredicates: [predicate, kinds])).firstMatch
     }
 
-    private func localizedButton(_ chinese: String, _ english: String) -> XCUIElement {
-        let button = app.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", chinese, english)).firstMatch
-        XCTAssertTrue(button.waitForExistence(timeout: 5))
-        return button
-    }
-
     private func waitUntilEnabled(_ element: XCUIElement) {
         let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND isEnabled == true"), object: element)
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 15), .completed)
-    }
-
-    private func waitUntilGone(_ element: XCUIElement) {
-        let removed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: element)
-        XCTAssertEqual(XCTWaiter.wait(for: [removed], timeout: 8), .completed)
     }
 
     private func closePlainTerminal() {

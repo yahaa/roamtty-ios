@@ -91,7 +91,6 @@ public final class DesktopSession: @unchecked Sendable {
         public init() {}
     }
 
-    public static let RECOVER_LIMIT_MS: Int64 = 30_000
     public static let POOR_MS: Int64 = 300
 
     public let config: Config
@@ -193,7 +192,6 @@ public final class DesktopSession: @unchecked Sendable {
     public var log: [String] { sync { _log } }
     public var hello: Hello? { sync { _hello } }
     public var stats: DesktopStats { sync { _stats } }
-    public var cursor: RemoteCursor? { sync { _cursor } }
     public var display: Int { sync { _display } }
     public var viewOnly: Bool { sync { _viewOnly } }
     public var fps: Int { sync { _fps } }
@@ -207,8 +205,6 @@ public final class DesktopSession: @unchecked Sendable {
     /// The host runs Windows (known once the probe answered): the NeedsAction card shows the service hint.
     public var windowsHost: Bool { sync { _windowsHost } }
     public var active: Bool { sync { if case .idle = _phase { return false }; if case .failed = _phase { return false }; return true } }
-    /// Tests: the UDP link while one is up.
-    public var udpLink: UdpLink? { sync { link } }
     /// Whether frames go over UDP right now.
     public var onUdp: Bool { sync { link?.alive ?? false } }
 
@@ -340,12 +336,12 @@ public final class DesktopSession: @unchecked Sendable {
         if sync({ closing }) { return .closed }
         guard let probe else { return .failed(.cannotProbe) }
         if probe.desktop == "no" { return .failed(.noDesktop) }
-        guard let targetName = PluginManifest.targetFor(probe.uname), let target = manifest.targets[targetName] else {
+        guard let targetName = PluginManifest.targetFor(probe.uname), let build = DesktopPluginInstaller.Build.pinned(manifest, target: targetName) else {
             return .failed(.unsupportedSystem)
         }
         let windows = targetName.hasPrefix("windows-")
         sync { _windowsHost = windows }
-        if probe.version != manifest.version, let failed = install(remote, targetName, target) { return failed }
+        if probe.version != manifest.version, let failed = install(remote, targetName, build) { return failed }
         var tries = 0
         while !sync({ closing }) && tries < 3 {
             tries += 1
@@ -374,7 +370,7 @@ public final class DesktopSession: @unchecked Sendable {
                 s.close()
                 if !errors.isEmpty { line(String(errors.suffix(500))) }
                 if status == 127 || status == WindowsDesktop.NOT_FOUND {
-                    if let failed = install(remote, targetName, target) { return failed }
+                    if let failed = install(remote, targetName, build) { return failed }
                     continue
                 }
                 if let status, s.isClosed { return .failed(.pluginStartFailedCode(status)) }
@@ -385,7 +381,7 @@ public final class DesktopSession: @unchecked Sendable {
                 s.close()
                 switch code {
                 case "encoder_failed", "proto_unsupported":
-                    if let failed = install(remote, targetName, target, force: true) { return failed }
+                    if let failed = install(remote, targetName, build) { return failed }
                 case "no_desktop": return .failed(.noDesktop)
                 case "not_logged_in":
                     // Someone is at the Mac's console, so the agent itself is gone (an upgrade that raced
@@ -400,7 +396,7 @@ public final class DesktopSession: @unchecked Sendable {
                     // administrator's login sets the service up, which serves the sign-in screen.
                     if windows && !sync({ serviceInstallTried }) {
                         sync { serviceInstallTried = true }
-                        if let failed = install(remote, targetName, target, force: true) { return failed }
+                        if let failed = install(remote, targetName, build) { return failed }
                         tries -= 1; continue
                     }
                     setPhase(.needsAction(needs: ["not-logged-in"]))
@@ -433,14 +429,13 @@ public final class DesktopSession: @unchecked Sendable {
     }
 
     /// Installs or upgrades the pinned plugin; nil once it is in place, else why not.
-    private func install(_ remote: DesktopHost, _ targetName: String, _ target: PluginManifest.Target, force: Bool = false) -> Outcome? {
+    private func install(_ remote: DesktopHost, _ targetName: String, _ build: DesktopPluginInstaller.Build) -> Outcome? {
         setPhase(.connecting(step: .install))
-        line(text(.installing(version: manifest.version, target: targetName)))
-        let openh264 = PluginManifest.openh264File(target: targetName, version: manifest.openh264).map { "\(PluginManifest.OPENH264_BASE)/\($0)" }
+        line(text(.installing(version: build.version, target: targetName)))
         let installer = DesktopPluginInstaller(remote: remote, fetch: fetch,
             onStep: { [weak self] step in guard let self else { return }; self.line(self.text(.step(step))) },
             onLine: { [weak self] l in if !l.hasPrefix("__ROAMTTY_") { self?.line(l) } })
-        switch installer.install(.init(version: manifest.version, url: manifest.url(target), sha256: target.sha256, openh264Url: openh264)) {
+        switch installer.install(build) {
         case .installed: return nil
         case .failed(let reason, _): return .failed(DesktopText.installFailure(reason))
         }
@@ -850,5 +845,5 @@ public final class DesktopSession: @unchecked Sendable {
     }
 
     /// Test only: drop this share of UDP datagrams on the phone side (1.0 blocks UDP).
-    public func testUdpDrop(_ rate: Double) { udpLink?.dropRate = rate }
+    public func testUdpDrop(_ rate: Double) { sync { link }?.dropRate = rate }
 }

@@ -1,6 +1,5 @@
 import Foundation
 import RoamttyCore
-import RoamttyTransport
 
 /// Saved hosts: editing and deleting them, their stored secrets, and whether they can be reached.
 extension AppModel {

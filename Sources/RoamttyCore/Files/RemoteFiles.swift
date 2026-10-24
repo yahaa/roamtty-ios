@@ -66,20 +66,6 @@ public func isSafeRemoteDeletePath(_ path: String) -> Bool {
     return !path.split(separator: "/").contains { $0 == "." || $0 == ".." }
 }
 
-public func formatRemoteSize(_ bytes: Int64) -> String {
-    if bytes < 0 { return "" }
-    if bytes < 1024 { return "\(bytes) B" }
-    if bytes < 1024 * 1024 { return "\(bytes / 1024) KiB" }
-    return String(format: bytes < 1024 * 1024 * 1024 ? "%.1f MiB" : "%.1f GiB", locale: Locale(identifier: "en_US_POSIX"), Double(bytes) / (bytes < 1024 * 1024 * 1024 ? 1_048_576 : 1_073_741_824))
-}
-
-public func formatRemoteMtime(_ seconds: Int64, timeZone: TimeZone = .current) -> String {
-    guard seconds > 0 else { return "" }
-    let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = timeZone; formatter.dateFormat = "yyyy-MM-dd HH:mm"
-    return formatter.string(from: Date(timeIntervalSince1970: Double(seconds)))
-}
-
 public func remoteEntryPrecedes(_ lhs: RemoteEntry, _ rhs: RemoteEntry) -> Bool {
     if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
     return lhs.name.lowercased() < rhs.name.lowercased()
@@ -141,7 +127,6 @@ public func remotePathSearch(directory: String, query: String) -> RemotePathSear
 }
 
 public struct RemoteSearchDirectories: Equatable, Sendable {
-    public var basePath: String
     public var directories: [RemoteDirectory]
     public var limited: Bool
     public var unreadable: Bool
@@ -182,7 +167,7 @@ public func resolveRemoteSearchDirectories(directory: String, prefix: String, sh
         directories = next.filter { seen.insert($0.path).inserted }
         if directories.isEmpty { break }
     }
-    return RemoteSearchDirectories(basePath: base.path, directories: directories, limited: limited, unreadable: unreadable)
+    return RemoteSearchDirectories(directories: directories, limited: limited, unreadable: unreadable)
 }
 
 /// Reserve originals first, so a generated suffix never takes a later file's basename.
@@ -206,9 +191,6 @@ public func downloadNames(paths: [String]) -> [String: String] {
 
 public enum RemoteFileKind: String, Codable, CaseIterable, Sendable {
     case directory, text, code, config, image, audio, video, archive, pdf, document, spreadsheet, presentation, executable, file
-    public static func detect(name: String, isDirectory: Bool = false, permissions: UInt32 = 0) -> Self {
-        remoteFileKind(name: name, isDirectory: isDirectory, permissions: permissions)
-    }
 }
 
 public func remoteFileKind(name: String, isDirectory: Bool = false, permissions: UInt32 = 0) -> RemoteFileKind {

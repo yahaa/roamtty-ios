@@ -3,7 +3,6 @@ import RoamttyDesktopCore
 import UIKit
 import PhotosUI
 import RoamttyCore
-import RoamttyTransport
 
 /// Android `TerminalPane`: the terminal fills the page with no bars. Controls live in the toolbox ghost, its
 /// shortcut ring and the dock it opens; notices float on the upper golden section over the preserved grid.
@@ -100,7 +99,7 @@ struct TerminalScreen: View {
             toolbox.setPinned(model.settings.toolboxPinned, at: now)
             runtime.onFontScaled = { size in model.settings.fontSize = size; model.saveSettings() }
         }
-        .onDisappear { toolbox.closeRing(); runtime.pendingPaste = nil; runtime.terminalView.resignFirstResponder() }
+        .onDisappear { toolbox.closeRing(); runtime.pendingPaste = nil; _ = runtime.terminalView.resignFirstResponder() }
         .onChange(of: runtime.workspaceTouches) { _ in if dockAvailable { toolbox.workspaceTouch(at: now) } }
         .onChange(of: runtime.phase) { phase in
             if phase == .connected { toolbox.wake(at: now) }
@@ -178,7 +177,7 @@ struct TerminalScreen: View {
     @ViewBuilder private func editorBar(landscape: Bool) -> some View {
         let field = DraftEditor(controller: draft, placeholder: model.text("输入文本后，在这里确认", "Type text, then confirm here"), maxLines: keyboardVisible ? 2 : (landscape ? 3 : 4))
             .background(RoundedRectangle(cornerRadius: 10).stroke(Palette.secondary.opacity(0.7), lineWidth: 1))
-        let collapse = Button(model.text("收起", "Hide")) { editor = false; runtime.terminalView.resignFirstResponder(); hideKeyboard() }.buttonStyle(TextActionStyle())
+        let collapse = Button(model.text("收起", "Hide")) { editor = false; _ = runtime.terminalView.resignFirstResponder(); hideKeyboard() }.buttonStyle(TextActionStyle())
         let enter = Button { _ = runtime.send("\r") } label: { Text(landscape ? model.text("回车 ↵", "Enter ↵") : "↵").font(landscape ? .subheadline.weight(.medium) : .system(size: 22)) }
             .buttonStyle(TextActionStyle()).disabled(!connected).accessibilityLabel(model.text("回车", "Enter")).accessibilityIdentifier("prompt-enter")
         let send = Button(model.text("发送文本", "Send text")) { _ = runtime.pasteText(draft.text) }
@@ -196,7 +195,7 @@ struct TerminalScreen: View {
     /// Android stages clipboard text in the editor instead of typing it straight into the program.
     private func pasteIntoEditor() {
         guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
-        draft.insert(text); editor = true; runtime.terminalView.resignFirstResponder()
+        draft.insert(text); editor = true; _ = runtime.terminalView.resignFirstResponder()
     }
 
     // MARK: Dock
@@ -255,14 +254,14 @@ struct TerminalScreen: View {
                 runtime.controlArmed = false
                 runtime.shiftArmed = false
                 hideKeyboard()
-                runtime.terminalView.resignFirstResponder()
+                _ = runtime.terminalView.resignFirstResponder()
                 if let host = model.host(runtime.record.hostID) { model.openDesktop(host) }
             }
         }
         dockButton("ic_cloud_upload", model.text("上传文件", "Upload files"), id: "upload-file", enabled: connected) { fileAction = .upload }
         dockButton("ic_cloud_download", model.text("下载文件", "Download files"), id: "download-file", enabled: connected) { fileAction = .download }
         dockButton("ic_image", model.text("插入图片", "Insert image"), id: "select-image", enabled: connected) { photoPicker = true }
-        dockButton("ic_commands", model.text("常用命令", "Common commands"), id: "common-commands", enabled: connected) { runtime.terminalView.resignFirstResponder(); commandSheet = true }
+        dockButton("ic_commands", model.text("常用命令", "Common commands"), id: "common-commands", enabled: connected) { _ = runtime.terminalView.resignFirstResponder(); commandSheet = true }
         settingsMenu
     }
     private var dockControlCount: Int { 5 + (showDesktopDock ? 1 : 0) }
@@ -320,19 +319,19 @@ struct TerminalScreen: View {
                 AppIcon("ic_sessions")
                 Circle().fill(connected ? Palette.accent : Palette.danger).frame(width: 8, height: 8).offset(x: 3, y: -3)
             }.foregroundStyle(Palette.accent).frame(width: 48, height: 48).contentShape(Rectangle())
-        }.onTapGesture { runtime.terminalView.resignFirstResponder(); toolbox.touchDock(at: now) }
+        }.onTapGesture { _ = runtime.terminalView.resignFirstResponder(); toolbox.touchDock(at: now) }
             .accessibilityLabel(model.text("切换会话：", "Switch session: ") + model.sessionTitle(runtime.record)).accessibilityIdentifier("session-switcher")
     }
     private var settingsMenu: some View {
         let size = Int(model.settings.fontSize.rounded())
         return Menu {
-            Button(model.text("编辑文本", "Edit text")) { editor = true; runtime.terminalView.resignFirstResponder() }.accessibilityIdentifier("menu-edit-text")
+            Button(model.text("编辑文本", "Edit text")) { editor = true; _ = runtime.terminalView.resignFirstResponder() }.accessibilityIdentifier("menu-edit-text")
             Button(toolbox.pinned ? model.text("取消固定操作栏", "Unpin toolbar") : model.text("固定操作栏", "Pin toolbar")) {
                 let pinned = !toolbox.pinned; toolbox.setPinned(pinned, at: now); if !pinned { toolbox.openDock(at: now) }
                 model.settings.toolboxPinned = pinned; model.saveSettings()
             }.accessibilityIdentifier("terminal-pin-tools")
             Button(model.text("隐藏操作栏", "Hide toolbar")) {
-                toolbox.collapseDock(at: now); editor = false; runtime.terminalView.resignFirstResponder()
+                toolbox.collapseDock(at: now); editor = false; _ = runtime.terminalView.resignFirstResponder()
                 model.settings.toolboxPinned = false; model.saveSettings()
             }
             Button(model.text("粘贴", "Paste")) { pasteIntoEditor(); collapseIfFloating() }.accessibilityIdentifier("menu-paste")

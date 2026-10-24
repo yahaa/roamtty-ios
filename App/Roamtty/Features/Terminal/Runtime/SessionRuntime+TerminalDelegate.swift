@@ -2,7 +2,7 @@ import UIKit
 import SwiftTerm
 
 /// SwiftTerm's callbacks: size, title and folder changes, the bytes the view wants sent, links and the bell.
-extension SessionRuntime: TerminalViewDelegate {
+extension SessionRuntime: @preconcurrency TerminalViewDelegate {
     func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
         columns = max(2, newCols); rows = max(2, newRows)
         if let mosh { mosh.resize(columns: columns, rows: rows) } else { ssh?.resize(columns: columns, rows: rows) }

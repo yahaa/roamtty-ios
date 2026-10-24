@@ -108,7 +108,6 @@ public struct SessionRecord: Codable, Equatable, Identifiable, Sendable {
         remoteName = try container.decode(String.self, forKey: .remoteName); number = try container.decode(Int.self, forKey: .number)
         external = try container.decodeIfPresent(Bool.self, forKey: .external) ?? false
     }
-    public var displayTitle: String { title.isEmpty ? "\(mode == .tmux ? "tmux" : "SSH") · \(number)" : title }
 }
 
 public struct SessionJournal: Sendable {
@@ -128,12 +127,8 @@ public struct SessionJournal: Sendable {
                                    number: (same.map(\.number).max() ?? 0) + 1, external: external != nil)
         records.append(record); return record
     }
-    public mutating func close(_ id: String) { records.removeAll { $0.id == id && $0.mode == .shell } }
     public mutating func forget(_ id: String) { records.removeAll { $0.id == id } }
     public mutating func removeHost(_ id: String) { records.removeAll { $0.hostID == id } }
-    public mutating func rename(_ id: String, title: String) {
-        if let i = records.firstIndex(where: { $0.id == id }) { records[i].title = String(title.prefix(80)) }
-    }
 }
 
 public struct InputQueue {

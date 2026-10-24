@@ -15,7 +15,6 @@ public final class DesktopPageModel: @unchecked Sendable {
     public var virtualMouse = false
     public var showStats = false
     public var keyboardPage: DesktopKeyboardPage = .ime
-    public var shortcutBar = false
     public let latch = ModifierLatch()
     /// Clip note under the 操作 clipboard buttons.
     public var clipNote: String?
@@ -27,7 +26,6 @@ public final class DesktopPageModel: @unchecked Sendable {
 
     public func togglePanel(_ p: DesktopPanel) { panel = panel == p ? .none : p }
     public func dismissPanel() { panel = .none }
-    public func leaveKeepsLink() { panel = .none }
 
     /// A modifier of the shortcut bar: tap latches once, long-press locks.
     public func tapModifier(_ hid: Int) { latch.tap(hid) }
@@ -62,11 +60,6 @@ public final class DesktopPageModel: @unchecked Sendable {
             if !part.isEmpty { frames.append(DesktopProtocol.text(String(part))) }
         }
         return .frames(frames)
-    }
-
-    /// Empty-field Backspace / Enter from the IME.
-    public func imeControlKey(backspace: Bool) -> [[UInt8]] {
-        pressKey(backspace ? HidUsage.BACKSPACE : HidUsage.ENTER).map { DesktopProtocol.key($0.hid, down: $0.down) }
     }
 
     public static func modifierKeys(os: String) -> [(label: String, hid: Int)] {

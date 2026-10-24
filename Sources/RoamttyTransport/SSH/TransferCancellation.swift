@@ -2,7 +2,7 @@ import Foundation
 
 /// Cancellation belongs to one transfer job, including its recursive children.
 /// It never tears down a host's terminal or another job's channels.
-public final class TransferCancellation {
+public final class TransferCancellation: @unchecked Sendable {
     private let lock = NSLock()
     private var cancelled = false
     public init() {}

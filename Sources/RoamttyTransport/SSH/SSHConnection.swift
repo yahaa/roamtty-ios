@@ -10,7 +10,7 @@ public struct CommandResult {
 
 /// libssh2 handles are always touched under `libraryLock`. Waiting for network readiness never holds it,
 /// so terminal, exec and short-lived SFTP channels can share an authenticated connection.
-public final class SSHConnection {
+public final class SSHConnection: @unchecked Sendable {
     let host: RoamttyCore.Host
     private var credentials: Credentials
     private let pins: PinStore

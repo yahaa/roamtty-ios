@@ -206,7 +206,7 @@ import RoamttyTransport
                         do {
                             let previous = mode == .tmux ? try SessionRemote.tmuxClients(ssh, name: name, cancellation: lifetime) : []
                             let attempt = UUID()
-                            let mosh = try ssh.startMosh(mode: mode, remoteName: name, existing: existing, columns: cols, rows: rows)
+                            let mosh = try ssh.startMosh(mode: mode, remoteName: name, existing: existing)
                             DispatchQueue.main.sync {
                                 guard self?.generation == token else { mosh.close(); return }
                                 self?.mosh = mosh; self?.transportName = "mosh"
@@ -399,7 +399,7 @@ import RoamttyTransport
         stopAgentStatusPolling()
         sideReconnect?.cancel(); sideReconnect = nil; sideReconnectAt = nil
         let connection = ssh; ssh = nil; DispatchQueue.global(qos: .utility).async { connection?.disconnect() }
-        end = .ended; phase = .disconnected; terminalView.resignFirstResponder()
+        end = .ended; phase = .disconnected; _ = terminalView.resignFirstResponder()
     }
     func probe() { mosh?.probe() }
     /// Closes the session for good once the app has let go of it. SwiftTerm's display link retains its view

@@ -88,14 +88,10 @@ public enum RemoteCommands {
         let target = "=" + sanitizeSessionName(name) + ":"
         return "/bin/sh -c " + shellQuote(pathSetup + "; tmux display-message -p -t " + shellQuote(target) + " '#{alternate_on}'")
     }
-    public static var pluginProbe: String { HostPluginProbe.script }
-    public static var systemProbe: String { HostSystemProbe.script }
     public static func installPlugin(_ name: String) -> String {
         guard let plugin = HostPlugin(rawValue: name) else { return "printf '%s\\n' 'Unsupported plugin' >&2; exit 2" }
         return HostPluginInstaller.script(plugin: plugin, sudoPassword: nil)
     }
-    /// Bounded fallback for callers without SFTP. The first line identifies bash or zsh.
-    public static let history = #"for f in "$HOME/.bash_history" "$HOME/.zsh_history"; do if [ -r "$f" ] && [ -s "$f" ]; then printf '__ITERMUX_HISTORY__=%s\n' "$f"; tail -c 262144 "$f"; exit 0; fi; done; exit 1"#
 }
 
 public enum CodingAgent: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -240,8 +236,6 @@ public enum ShellHistoryCommands {
 
 public enum HostPlugin: String, Codable, CaseIterable, Sendable { case tmux, mosh
     public var id: String { rawValue }
-    public static func decode(_ value: String?) -> Set<HostPlugin>? { value.map { Set($0.split(separator: ",").compactMap { HostPlugin(rawValue: $0.trimmingCharacters(in: .whitespaces)) }) } }
-    public static func encode(_ values: Set<HostPlugin>) -> String { allCases.filter(values.contains).map(\.rawValue).joined(separator: ",") }
 }
 
 public enum HostPluginProbe {
@@ -331,7 +325,6 @@ public enum HostSystem: String, Codable, CaseIterable, Sendable {
         case .REDHAT: return "Red Hat Enterprise Linux"; case .OPENSUSE: return "openSUSE"; case .ROCKY: return "Rocky Linux"; case .ALMALINUX: return "AlmaLinux"
         case .GENTOO: return "Gentoo"; case .NIXOS: return "NixOS"; case .LINUXMINT: return "Linux Mint"
     } }
-    public var isLinux: Bool { ![.UNKNOWN, .OTHER, .WINDOWS, .MACOS].contains(self) }
     public static func fromStored(_ value: String) -> Self { Self(rawValue: value) ?? .UNKNOWN }
 }
 

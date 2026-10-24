@@ -28,7 +28,7 @@ enum ReachabilityProbe {
         }
     }
 }
-private final class ProbeReply {
+private final class ProbeReply: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<HostReachability, Never>?
     private let connection: NWConnection

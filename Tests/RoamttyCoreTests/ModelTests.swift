@@ -20,8 +20,6 @@ final class ModelTests: XCTestCase {
         for _ in 0..<6 { _ = try journal.create(hostID: "one", mode: .shell) }
         XCTAssertThrowsError(try journal.create(hostID: "one", mode: .tmux))
         XCTAssertNoThrow(try journal.create(hostID: "two", mode: .tmux))
-        journal.close(first.id)
-        XCTAssertTrue(journal.records.contains { $0.id == first.id })
         journal.forget(first.id)
         XCTAssertFalse(journal.records.contains { $0.id == first.id })
     }

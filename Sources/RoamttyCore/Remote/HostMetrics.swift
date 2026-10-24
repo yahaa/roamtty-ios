@@ -131,8 +131,6 @@ public struct HostMetrics: Equatable, Sendable {
         return m
     }
 
-    public static func parse(_ lines: [String]) -> HostMetrics { parse(lines.joined(separator: "\n")) }
-
     static func cpuPercent(_ first: String?, _ second: String?) -> Double? {
         func ticks(_ line: String?) -> [Double]? {
             guard let line else { return nil }

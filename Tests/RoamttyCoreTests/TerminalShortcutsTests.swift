@@ -198,7 +198,6 @@ final class TerminalShortcutsTests: XCTestCase {
     }
 
     func testSameChordExplainsTheDifferentAgentActionInBothLanguages() {
-        XCTAssertEqual(ScreenApp.allCases.map(\.label), ["Claude Code", "Codex", "Grok", "Gemini", ""])
         let descriptions: [(ScreenApp, String, String)] = [
             (.claude, "Ctrl+O：展开完整对话记录", "Ctrl+O: expand the full transcript"),
             (.codex, "Ctrl+O：复制最后一条回复", "Ctrl+O: copy the last reply"),

@@ -35,9 +35,6 @@ struct ByteReader {
         return Int(bytes[position]) << 8 | Int(bytes[position + 1])
     }
 
-    /// Two bytes as a signed short.
-    mutating func i16() -> Int? { u16().map { Int(Int16(truncatingIfNeeded: $0)) } }
-
     mutating func u32() -> Int64? {
         guard remaining >= 4 else { return nil }
         var v: Int64 = 0

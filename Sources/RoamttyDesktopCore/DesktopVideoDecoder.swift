@@ -93,45 +93,10 @@ public final class DesktopVideoDecoder: DesktopVideoSink, @unchecked Sendable {
     public func close() { detach(); session = nil; display = nil }
 }
 
-/// Preferences for the remote desktop (Android `DesktopSettings`), pure data; the app persists them.
-public struct DesktopPreferences: Equatable, Sendable {
-    /// Experimental until the feature is stable: off by default; session cards show no button while off.
-    public var enabled = false
-    /// How long a desktop left in the background stays connected, in minutes: 5, 10 or 30.
-    public var keepAliveMinutes = 10
-    /// The latency, frame rate and bit rate over the picture's top left corner.
-    public var showStats = false
-    /// Debug: a base URL that replaces the pinned release.
-    public var pluginBaseUrl = ""
-    /// Debug: where UDP goes instead of the host's address.
-    public var udpHostOverride = ""
-    /// Debug: share of UDP datagrams dropped both ways.
-    public var testLoss = 0.0
-
-    public static let keepAliveOptions = [5, 10, 30]
+/// The frame rate and picture quality choices of the desktop page.
+public enum DesktopPreferences {
     public static let qualities = ["auto", "smooth", "clear", "original"]
     public static let fpsOptions = [30, 60, 90, 120]
-
-    public init() {}
-
-    public mutating func clamp() {
-        if !Self.keepAliveOptions.contains(keepAliveMinutes) { keepAliveMinutes = 10 }
-        testLoss = min(1, max(0, testLoss))
-        pluginBaseUrl = pluginBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
-        udpHostOverride = udpHostOverride.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-}
-
-/// Per-host desktop preferences (pointer mode, quality, fps, lock on close).
-public struct DesktopHostPreferences: Equatable, Sendable {
-    public var pointerMode: PointerMode = .touch
-    public var quality = "auto"
-    public var fps = 60
-    public var lockOnClose = false
-    public init() {}
-    public init(pointerMode: PointerMode = .touch, quality: String = "auto", fps: Int = 60, lockOnClose: Bool = false) {
-        self.pointerMode = pointerMode; self.quality = quality; self.fps = fps; self.lockOnClose = lockOnClose
-    }
 }
 
 /// Whether a host's stored `system` has a pinned plugin build (Android `desktopSupported`).

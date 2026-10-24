@@ -98,9 +98,11 @@ final class VideoToolboxDisplay: NSObject, DesktopVideoDisplay {
     /// Copy the displayed frame without rendering the AV layer into a black UIKit screenshot.
     /// Older iOS falls back to decoding one retained keyframe, only at thumbnail cadence.
     @MainActor func snapshot(_ completion: @escaping @MainActor (UIImage?) -> Void) {
-        let pixel: CVPixelBuffer?
-        if #available(iOS 17.4, *) { pixel = layer.sampleBufferRenderer.displayedPixelBuffer() }
-        else { pixel = nil }
+        // Handed over to the snapshot queue and only read there.
+        nonisolated(unsafe) let pixel: CVPixelBuffer? = {
+            if #available(iOS 17.4, *) { return layer.sampleBufferRenderer.displayedPixelBuffer() }
+            return nil
+        }()
         let keyframe = latestKeyframe
         snapshotQueue.async {
             let buffer = pixel ?? keyframe.flatMap { Self.decodeSnapshot($0.0, format: $0.1) }
@@ -135,8 +137,8 @@ final class VideoToolboxDisplay: NSObject, DesktopVideoDisplay {
         var format: CMFormatDescription?
         sps.withUnsafeBufferPointer { spsBuf in
             pps.withUnsafeBufferPointer { ppsBuf in
-                var pointers = [spsBuf.baseAddress!, ppsBuf.baseAddress!]
-                var sizes = [sps.count, pps.count]
+                let pointers = [spsBuf.baseAddress!, ppsBuf.baseAddress!]
+                let sizes = [sps.count, pps.count]
                 pointers.withUnsafeBufferPointer { ptrBuf in
                     sizes.withUnsafeBufferPointer { sizeBuf in
                         _ = CMVideoFormatDescriptionCreateFromH264ParameterSets(
