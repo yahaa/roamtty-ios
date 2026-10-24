@@ -6,18 +6,13 @@ struct HomeSessionsTab: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
     let search: String
-    private func searched(_ sessions: [SessionRecord]) -> [SessionRecord] {
-        guard !search.isEmpty else { return sessions }
-        return sessions.filter { record in
-            let host = model.host(record.hostID)
-            return "\(model.sessionTitle(record)) \(host?.name ?? "") \(host?.address ?? "") \(host?.username ?? "")".localizedCaseInsensitiveContains(search)
-        }
-    }
+    /// Landscape: the header line and the filters live on `HomeCompactBar`.
+    var compact = false
     var body: some View {
         // Sorted and searched once per update; every line below reads these.
-        let sessions = model.sessionsByActivity, matching = searched(sessions)
+        let sessions = model.sessionsByActivity, matching = model.searchedSessions(sessions, search)
         VStack(spacing: 0) {
-            HomeListHeader(label: model.text("会话 · \(sessions.count)", "Sessions · \(sessions.count)"), addLabel: model.text("新建会话", "New session"), id: "add-session") { model.sheet = .newSession }
+            if !compact { HomeListHeader(label: model.text("会话 · \(sessions.count)", "Sessions · \(sessions.count)"), addLabel: model.text("新建会话", "New session"), id: "add-session") { model.sheet = .newSession } }
             if model.hosts.isEmpty && sessions.isEmpty {
                 // No host is needed first: the new-session sheet fills one in on the way.
                 HomeEmptyState(logo: true, title: model.text("从第一个会话开始", "Start your first session"),
@@ -31,7 +26,7 @@ struct HomeSessionsTab: View {
             } else if matching.isEmpty {
                 HomeEmptyState(title: model.text("没有匹配的会话", "No matching sessions"), message: model.text("试试其他标题或主机信息", "Try another title or host")) { EmptyView() }
             } else {
-                HomeSessionsList(sessions: matching)
+                HomeSessionsList(sessions: matching, groups: model.sessionGroups(matching), compact: compact)
             }
         }
         // While the list is on screen, dropped and restored sessions reconnect by themselves.
@@ -47,36 +42,53 @@ struct HomeSessionsTab: View {
     }
 }
 
+/// A group of the session list: its records, most recently used first.
+struct SessionGroupMembers {
+    let group: SessionGroup
+    let records: [SessionRecord]
+    /// The last group is "终端" while it holds plain terminals only.
+    let plainOnly: Bool
+}
+
+extension AppModel {
+    /// The sessions whose title or host matches `search`.
+    func searchedSessions(_ sessions: [SessionRecord], _ search: String) -> [SessionRecord] {
+        guard !search.isEmpty else { return sessions }
+        return sessions.filter { record in
+            let host = host(record.hostID)
+            return "\(sessionTitle(record)) \(host?.name ?? "") \(host?.address ?? "") \(host?.username ?? "")".localizedCaseInsensitiveContains(search)
+        }
+    }
+    /// `sessions` grouped by what their agents are doing, empty groups left out; a session coming back stays in the
+    /// group its agent was last seen in.
+    func sessionGroups(_ sessions: [SessionRecord]) -> [SessionGroupMembers] {
+        // Each session is placed once per update, not once per group.
+        let placed = Dictionary(grouping: sessions) { sessionGroup(connected: true, status: listedAgentStatus($0).status) }
+        return SessionGroup.allCases.compactMap { value in
+            placed[value].map { members in
+                SessionGroupMembers(group: value, records: members,
+                                    plainOnly: !members.contains { listedAgentStatus($0).status != nil || sessionAgent($0) != nil })
+            }
+        }
+    }
+    /// The group `sessionFilter` names while `groups` still hold it: a filter whose group has emptied shows everything again.
+    func filteredGroup(_ groups: [SessionGroupMembers]) -> SessionGroup? { groups.first { $0.group == sessionFilter }?.group }
+}
+
 struct HomeSessionsList: View {
     @EnvironmentObject var model: AppModel
     let sessions: [SessionRecord]
-    @State private var filter: SessionGroup?
-    /// A group that holds sessions, in the list's order.
-    private struct Members {
-        let group: SessionGroup
-        let records: [SessionRecord]
-        /// The last group is "终端" while it holds plain terminals only.
-        let plainOnly: Bool
-    }
-    /// A session coming back stays in the group its agent was last seen in.
-    private func group(_ record: SessionRecord) -> SessionGroup {
-        sessionGroup(connected: true, status: model.listedAgentStatus(record).status)
-    }
-    private func plainOnly(_ members: [SessionRecord]) -> Bool {
-        !members.contains { model.listedAgentStatus($0).status != nil || model.sessionAgent($0) != nil }
-    }
+    let groups: [SessionGroupMembers]
+    /// Landscape: the filters live on `HomeCompactBar` and the group headers sit closer to their cards.
+    var compact = false
     var body: some View {
-        // Each session is placed once per update, not once per group.
-        let placed = Dictionary(grouping: sessions, by: group)
-        let groups = SessionGroup.allCases.compactMap { value in placed[value].map { Members(group: value, records: $0, plainOnly: plainOnly($0)) } }
-        // A filter whose group has emptied shows everything again.
-        let only = groups.first { $0.group == filter }?.group
+        let only = model.filteredGroup(groups)
         GeometryReader { geometry in
             let columns = max(1, Int((geometry.size.width - 32 + 12) / (320 + 12)))
             let joined = columns == 1
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    if groups.count > 1 { filters(groups, selected: only) }
+                    if groups.count > 1 && !compact { SessionFilters(groups: groups, total: sessions.count) }
                     ForEach(groups.filter { only == nil || $0.group == only }, id: \.group) { members in
                         header(members.group, count: members.records.count, plainOnly: members.plainOnly)
                         if joined {
@@ -91,19 +103,35 @@ struct HomeSessionsList: View {
                             }
                         }
                     }
-                }.padding(.horizontal, 16).padding(.bottom, 16)
-            }.accessibilityIdentifier("home-sessions-list")
+                }.padding(.horizontal, 16).padding(.bottom, 16).reportsHomeScroll(.sessions)
+            }.homeScrollSpace(.sessions).accessibilityIdentifier("home-sessions-list")
         }
     }
-    /// The chips above the groups: all sessions, then each group with how many it holds.
-    private func filters(_ groups: [Members], selected: SessionGroup?) -> some View {
+    /// A group's line: a ring in its colour (filled for the one waiting on the user), its name and how many it holds;
+    /// closer to its cards when compact.
+    private func header(_ value: SessionGroup, count: Int, plainOnly: Bool) -> some View {
+        HStack(spacing: 0) {
+            Circle().strokeBorder(value.color, lineWidth: 2).background(Circle().fill(value == .waiting ? value.color : Color.clear)).frame(width: 12, height: 12)
+            Text(value.label(model, plainOnly: plainOnly)).font(.system(size: 14, weight: .medium)).foregroundStyle(value.color).padding(.leading, 8)
+            Text("\(count)").font(.system(size: 14, weight: .medium)).foregroundStyle(value.color.opacity(0.8)).padding(.leading, 6)
+        }.padding(.leading, 6).padding(.top, compact ? 8 : 14).padding(.bottom, compact ? 6 : 8).accessibilityIdentifier("home-session-group-\(value.rawValue)")
+    }
+}
+
+/// The filter chips: all sessions, then each group with how many it holds; the one picked shows alone.
+struct SessionFilters: View {
+    @EnvironmentObject var model: AppModel
+    let groups: [SessionGroupMembers]
+    let total: Int
+    var body: some View {
+        let selected = model.filteredGroup(groups)
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                pill(model.text("全部", "All"), count: sessions.count, dot: nil, selected: selected == nil, id: "home-session-filter-all") { filter = nil }
+                pill(model.text("全部", "All"), count: total, dot: nil, selected: selected == nil, id: "home-session-filter-all") { model.sessionFilter = nil }
                 ForEach(groups, id: \.group) { members in
                     let value = members.group
                     pill(value.label(model, plainOnly: members.plainOnly), count: members.records.count, dot: value.color, selected: selected == value,
-                         id: "home-session-filter-\(value.rawValue)") { filter = selected == value ? nil : value }
+                         id: "home-session-filter-\(value.rawValue)") { model.sessionFilter = selected == value ? nil : value }
                 }
             }
         }.padding(.bottom, 2)
@@ -118,13 +146,5 @@ struct HomeSessionsList: View {
                 .background(Palette.foreground.opacity(selected ? 0.12 : 0.06), in: Capsule())
                 .overlay { Capsule().stroke(selected ? Palette.foreground.opacity(0.3) : Color.clear, lineWidth: 1) }
         }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : []).accessibilityIdentifier(id)
-    }
-    /// A group's line: a ring in its colour (filled for the one waiting on the user), its name and how many it holds.
-    private func header(_ value: SessionGroup, count: Int, plainOnly: Bool) -> some View {
-        HStack(spacing: 0) {
-            Circle().strokeBorder(value.color, lineWidth: 2).background(Circle().fill(value == .waiting ? value.color : Color.clear)).frame(width: 12, height: 12)
-            Text(value.label(model, plainOnly: plainOnly)).font(.system(size: 14, weight: .medium)).foregroundStyle(value.color).padding(.leading, 8)
-            Text("\(count)").font(.system(size: 14, weight: .medium)).foregroundStyle(value.color.opacity(0.8)).padding(.leading, 6)
-        }.padding(.leading, 6).padding(.top, 14).padding(.bottom, 8).accessibilityIdentifier("home-session-group-\(value.rawValue)")
     }
 }

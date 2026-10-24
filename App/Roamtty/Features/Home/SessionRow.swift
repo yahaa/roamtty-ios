@@ -5,7 +5,8 @@ import RoamttyDesktopCore
 /// One session: its tile beside its name, the chip of the host it runs on and the last prompt ("你: …", or "等待输入中…"
 /// while an idle agent has had none), then, across the whole row, what the agent answered or runs and a status line with
 /// how long it has been at it, its folder and what the agent needs (allow a request, or a follow-up typed right here). A
-/// plain terminal has its folder beneath its name. Long press for its menu.
+/// plain terminal has its folder beneath its name. Every line is there, empty if need be, and the reply takes one, so
+/// all agents' cards share one height. Long press for its menu.
 struct SessionRow: View {
     @EnvironmentObject var model: AppModel
     let record: SessionRecord
@@ -60,16 +61,24 @@ struct SessionRow: View {
                         } else if !location.isEmpty {
                             Text(location).font(.system(size: 13, design: .monospaced)).foregroundStyle(Palette.secondary).lineLimit(1).truncationMode(.middle)
                                 .accessibilityIdentifier("home-session-location-\(record.id)")
+                        } else {
+                            // Kept, empty, so every card of a kind is as tall as the next.
+                            Text(" ").font(.system(size: 13)).lineLimit(1).accessibilityHidden(true)
                         }
                     }
                 }
-                // What the agent runs or asks to run, else what it answered last.
+                // One line, whatever there is to say: what the agent runs or asks to run, else what it answered last, else
+                // that it has not; so every agent's card is as tall as the next.
                 if !activity.isEmpty {
                     Text(activity).font(.system(size: 13, design: .monospaced)).foregroundStyle(Palette.secondary.opacity(0.8)).lineLimit(1).padding(.top, 8)
                         .accessibilityIdentifier("home-session-activity-\(record.id)")
                 } else if idle && !reply.isEmpty {
-                    Text(reply).font(.system(size: 13)).foregroundStyle(Palette.secondary.opacity(0.8)).lineLimit(2).padding(.top, 8)
+                    Text(reply).font(.system(size: 13)).foregroundStyle(Palette.secondary.opacity(0.8)).lineLimit(1).padding(.top, 8)
                         .accessibilityIdentifier("home-session-reply-\(record.id)")
+                } else if status != nil {
+                    Text(idle ? model.text("还没有回复", "No reply yet") : " ").font(.system(size: 13)).italic()
+                        .foregroundStyle(Palette.secondary.opacity(0.5)).lineLimit(1).padding(.top, 8)
+                        .accessibilityIdentifier(idle ? "home-session-no-reply-\(record.id)" : "")
                 }
                 HStack(spacing: 8) {
                     // A dropped or restored session the list is about to reconnect says so, not "已断开".
@@ -90,7 +99,8 @@ struct SessionRow: View {
                         // Rightmost, after 追问 (Android DesktopCardButton / IconTag).
                         desktopButton(host: host, connected: connected)
                     }
-                }.frame(minHeight: 28).padding(.top, 8)
+                // As tall as its icon buttons (36 points to touch), with or without them.
+                }.frame(minHeight: 36).padding(.top, 8)
                 if replying { followUpField(kind: kind, runtime: runtime) }
                 if let failure { Text(failure).font(.system(size: 12)).foregroundStyle(Palette.danger).lineLimit(2).padding(.top, 6) }
             }.padding(.horizontal, 14).padding(.vertical, 12)

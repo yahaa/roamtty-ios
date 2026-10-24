@@ -5,10 +5,12 @@ import RoamttyDesktopCore
 struct HomeHostsTab: View {
     @EnvironmentObject var model: AppModel
     let search: String
+    /// Landscape: the header line lives on `HomeCompactBar`.
+    var compact = false
     var filtered: [Host] { model.hosts.filter { search.isEmpty || "\($0.name) \($0.address) \($0.username)".localizedCaseInsensitiveContains(search) } }
     var body: some View {
         VStack(spacing: 0) {
-            HomeListHeader(label: model.text("主机 · \(model.hosts.count)", "Hosts · \(model.hosts.count)"), addLabel: model.text("添加主机", "Add host"), id: "add-host") { model.sheet = .editor(nil) }
+            if !compact { HomeListHeader(label: model.text("主机 · \(model.hosts.count)", "Hosts · \(model.hosts.count)"), addLabel: model.text("添加主机", "Add host"), id: "add-host") { model.sheet = .editor(nil) } }
             if model.hosts.isEmpty {
                 HomeEmptyState(logo: true, title: model.text("从第一台主机开始", "Start with your first host"),
                                message: model.text("保存远端主机，运行 AI 编程工具。\n可直连，也可使用手机已有 VPN。", "Save remote hosts and run AI coding tools.\nConnect directly or use your phone’s VPN.")) {
@@ -22,8 +24,8 @@ struct HomeHostsTab: View {
                         ForEach(filtered) { host in
                             HostCard(host: host, desktops: model.desktops, thumbnails: model.desktopThumbnails)
                         }
-                    }.padding(.horizontal, 18).padding(.bottom, 18)
-                }.accessibilityIdentifier("host-grid")
+                    }.padding(.horizontal, 18).padding(.top, compact ? 8 : 0).padding(.bottom, 18).reportsHomeScroll(.hosts)
+                }.homeScrollSpace(.hosts).accessibilityIdentifier("host-grid")
             }
         }
     }

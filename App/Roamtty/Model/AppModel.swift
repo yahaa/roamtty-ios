@@ -21,6 +21,8 @@ import RoamttyTransport
         }
     }
     @Published var homeTab: HomeTab = .sessions
+    /// The session group the home list shows alone, nil for all of them.
+    @Published var sessionFilter: SessionGroup?
     @Published var sheet: AppSheet?
     @Published var drawer = false
     @Published var error: String?
