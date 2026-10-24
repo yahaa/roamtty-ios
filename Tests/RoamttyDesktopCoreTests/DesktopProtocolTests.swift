@@ -126,12 +126,12 @@ final class DesktopProtocolTests: XCTestCase {
     /// The shipped pin is Android's assets/desktop-plugin.json byte for byte (roamtty #218 head a4731b4).
     func testBundledManifestIsAndroidsPin() throws {
         let m = try PluginManifest.bundled()
-        XCTAssertEqual("0.8.1", m.version)
-        XCTAssertEqual("https://github.com/yahaa/roamtty-desktop/releases/download/v0.8.1/", m.baseUrl)
+        XCTAssertEqual("0.8.2", m.version)
+        XCTAssertEqual("https://github.com/yahaa/roamtty-desktop/releases/download/v0.8.2/", m.baseUrl)
         XCTAssertEqual("2.6.0", m.openh264)
         XCTAssertEqual(1...1, m.protoMin...m.protoMax)
         XCTAssertEqual(["linux-aarch64", "linux-x86_64", "macos-universal", "windows-arm64", "windows-x64"], m.targets.keys.sorted())
-        XCTAssertEqual("fc47b78c67ee23368fe9eaab0e0c33854b2133873cba7c2223884c7df54ccb71", m.targets["linux-x86_64"]?.sha256)
+        XCTAssertEqual("fcea5a975d54e6c4b22ed9c4fc69fa149991f381655f70472ac16ccb69c76ba2", m.targets["linux-x86_64"]?.sha256)
         XCTAssertEqual(1427192, m.targets["linux-x86_64"]?.size)
         XCTAssertTrue(DesktopProtocol.supported.contains(m.protoMin))
     }
