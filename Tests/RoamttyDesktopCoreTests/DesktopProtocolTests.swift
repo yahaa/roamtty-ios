@@ -129,11 +129,11 @@ final class DesktopProtocolTests: XCTestCase {
         XCTAssertEqual("libopenh264-2.6.0-linux64.8.so.bz2", PluginManifest.openh264File(target: "linux-x86_64", version: "2.6.0"))
     }
 
-    /// The shipped pin is Android's assets/desktop-plugin.json byte for byte (roamtty #224, plugin 0.9.0).
+    /// The shipped pin is Android's assets/desktop-plugin.json byte for byte (plugin 0.9.1).
     func testBundledManifestIsAndroidsPin() throws {
         let m = try PluginManifest.bundled()
-        XCTAssertEqual("0.9.0", m.version)
-        XCTAssertEqual("https://github.com/yahaa/roamtty-desktop/releases/download/v0.9.0/", m.baseUrl)
+        XCTAssertEqual("0.9.1", m.version)
+        XCTAssertEqual("https://github.com/yahaa/roamtty-desktop/releases/download/v0.9.1/", m.baseUrl)
         XCTAssertEqual("2.6.0", m.openh264)
         XCTAssertEqual(1...1, m.protoMin...m.protoMax)
         XCTAssertEqual(["linux-aarch64", "linux-x86_64", "macos-universal", "windows-arm64", "windows-x64"], m.targets.keys.sorted())
