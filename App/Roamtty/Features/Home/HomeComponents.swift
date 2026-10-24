@@ -30,3 +30,47 @@ struct HomeEmptyState<Action: View>: View {
         }.padding(.horizontal, 24).frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
+
+/// How far a home list has scrolled: its content's top in its scroll view (0 at rest, negative as it scrolls on) and
+/// how tall the content is.
+struct HomeScrollOffsetKey: PreferenceKey {
+    static var defaultValue = CGRect.zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
+}
+
+/// Where a home list reports how far it has scrolled, held to the range it can rest in (overscroll and its bounce
+/// left out): `HomeScreen` slides its landscape bar by it.
+struct HomeScrollReportKey: EnvironmentKey {
+    static let defaultValue: (HomeTab, CGFloat) -> Void = { _, _ in }
+}
+
+extension EnvironmentValues {
+    var homeScrolled: (HomeTab, CGFloat) -> Void {
+        get { self[HomeScrollReportKey.self] }
+        set { self[HomeScrollReportKey.self] = newValue }
+    }
+}
+
+private struct HomeScrollSpace: ViewModifier {
+    @Environment(\.homeScrolled) private var scrolled
+    let tab: HomeTab
+    func body(content: Content) -> some View {
+        GeometryReader { viewport in
+            content.coordinateSpace(name: "home-scroll-\(tab)").onPreferenceChange(HomeScrollOffsetKey.self) { frame in
+                let lowest = min(0, viewport.size.height - frame.height)
+                scrolled(tab, min(0, max(lowest, frame.minY)))
+            }
+        }
+    }
+}
+
+extension View {
+    /// On a scroll view's content: reports where it is to the scroll view `homeScrollSpace` names.
+    func reportsHomeScroll(_ tab: HomeTab) -> some View {
+        background(GeometryReader { proxy in
+            Color.clear.preference(key: HomeScrollOffsetKey.self, value: proxy.frame(in: .named("home-scroll-\(tab)")))
+        })
+    }
+    /// On a home list's scroll view: passes how far it has scrolled to `homeScrolled`.
+    func homeScrollSpace(_ tab: HomeTab) -> some View { modifier(HomeScrollSpace(tab: tab)) }
+}
