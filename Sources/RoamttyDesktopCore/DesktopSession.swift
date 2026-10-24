@@ -42,6 +42,8 @@ public struct DesktopStats: Equatable, Sendable {
     public var fecRecovered: Int64 = 0, lostFrames: Int64 = 0
     /// Where the last second's frames spent their time, host to screen.
     public var latency: LatencyMeter.Latency? = nil
+    /// Sound waiting to be heard on the phone, while sound plays.
+    public var audioMs: Int? = nil
     public init() {}
 }
 
@@ -63,6 +65,8 @@ public final class DesktopSession: @unchecked Sendable {
         public var fps = 60
         public var quality = "auto"
         public var lockOnClose = false
+        /// The host's sound on the phone (sent only by plugins that can).
+        public var audio = true
         public var keepAliveMinutes = 5
         public var udpHostOverride = ""
         /// Test only: drop this share of datagrams on both ends.
@@ -99,6 +103,8 @@ public final class DesktopSession: @unchecked Sendable {
     private let callbackQueue: DispatchQueue
     /// The decoder; the session owns it, as Android's connection owns its `VideoDecoder`.
     public var video: DesktopVideoSink?
+    /// The sound player; the session feeds it AUDIO frames while sound is on and the page is shown.
+    public var audio: DesktopAudioSink?
 
     // Observers: called on `callbackQueue`, in order.
     public var onPhase: ((DesktopPhase) -> Void)?
@@ -112,6 +118,8 @@ public final class DesktopSession: @unchecked Sendable {
     /// One-off messages for the page, e.g. 请在本机解锁; nil clears it.
     public var onNotice: ((String?) -> Void)?
     public var onVideoSize: ((Int, Int) -> Void)?
+    /// Whether the host can send its sound: known with the hello, false after STATE `audio: unavailable`.
+    public var onAudioAvailable: ((Bool) -> Void)?
     /// The desktop ended (closed, failed or kicked) and is no longer active.
     public var onEnded: ((DesktopSession) -> Void)?
 
@@ -127,7 +135,9 @@ public final class DesktopSession: @unchecked Sendable {
     private var _videoSize = (0, 0)
     private var _display = 0
     private var _viewOnly = false
-    private var _fps: Int, _quality: String, _lockOnClose: Bool
+    private var _fps: Int, _quality: String, _lockOnClose: Bool, _audio: Bool
+    private var _audioAvailable: Bool?
+    private var audioPacketsSeen: Int64 = 0
     private var _failure: DesktopText?
 
     private var running = false
@@ -174,7 +184,7 @@ public final class DesktopSession: @unchecked Sendable {
                 makeUdp: @escaping (String, Int) throws -> UdpTransport = { try UdpSocketTransport(host: $0, port: $1) }) {
         self.config = config; self.manifest = manifest; self.timings = timings; self.callbackQueue = callbackQueue
         self.login = login; self.fetch = fetch; self.makeUdp = makeUdp
-        _fps = config.fps; _quality = config.quality; _lockOnClose = config.lockOnClose
+        _fps = config.fps; _quality = config.quality; _lockOnClose = config.lockOnClose; _audio = config.audio
     }
 
     // MARK: State
@@ -189,6 +199,9 @@ public final class DesktopSession: @unchecked Sendable {
     public var fps: Int { sync { _fps } }
     public var quality: String { sync { _quality } }
     public var lockOnClose: Bool { sync { _lockOnClose } }
+    public var audioOn: Bool { sync { _audio } }
+    /// Nil until the host said; false when it has no sound to send (an older plugin, or no audio server).
+    public var audioAvailable: Bool? { sync { _audioAvailable } }
     /// Why the last attempt failed, in both languages (the phase carries it in the configured one).
     public var failure: DesktopText? { sync { _failure } }
     /// The host runs Windows (known once the probe answered): the NeedsAction card shows the service hint.
@@ -495,8 +508,13 @@ public final class DesktopSession: @unchecked Sendable {
         }
         updateStats { $0.encoder = hello.hardware }
         startUdp(hello, queue)
-        let (display, fps, quality, lockOnClose, viewOnly) = sync { (_display, _fps, _quality, _lockOnClose, _viewOnly) }
-        queue.send(DesktopProtocol.config(["display": display, "fps": fps, "quality": quality, "lock_on_close": lockOnClose]))
+        let (display, fps, quality, lockOnClose, viewOnly, audioOn) = sync { (_display, _fps, _quality, _lockOnClose, _viewOnly, _audio) }
+        let canAudio = hello.audio.contains("opus")
+        sync { _audioAvailable = canAudio }
+        callbackQueue.async { self.onAudioAvailable?(canAudio) }
+        var first: [String: Any] = ["display": display, "fps": fps, "quality": quality, "lock_on_close": lockOnClose]
+        if canAudio && audioOn { first["audio"] = true }
+        queue.send(DesktopProtocol.config(first))
         if viewOnly { queue.send(DesktopProtocol.req(DesktopProtocol.REQ_VIEW_ONLY_ON)) }
         if paused { queue.send(DesktopProtocol.req(DesktopProtocol.REQ_PAUSE)) }
         if !sync({ everConnected }) { setPhase(.connecting(step: .firstFrame)) }
@@ -538,6 +556,7 @@ public final class DesktopSession: @unchecked Sendable {
         s.close()
         l?.close()
         updateStats { $0.link = "SSH"; $0.lossPercent = nil }
+        audio?.stop()
         sync { inputsSent = 0; inputsDropped = 0 }
         if sync({ kicked }) { return .kicked }
         if sync({ closing }) { return .closed }
@@ -614,6 +633,12 @@ public final class DesktopSession: @unchecked Sendable {
             let udp = l?.alive ?? false
             let taken = latency.take()
             let sink = video
+            let sound = audio
+            let audioMs: Int? = sync {
+                guard let sound, sound.packets != audioPacketsSeen else { return nil }
+                audioPacketsSeen = sound.packets
+                return sound.queuedMs
+            }
             updateStats { s in
                 s.fps = Int(Double(frames) / seconds)
                 s.kbps = Int(Double(bytes) * 8 / 1000 / seconds)
@@ -625,6 +650,7 @@ public final class DesktopSession: @unchecked Sendable {
                 s.lostFrames = l?.lostMessages ?? 0
                 // A still screen sends no frames: the last measured second stands.
                 s.latency = taken ?? s.latency
+                s.audioMs = audioMs
             }
         }
     }
@@ -680,6 +706,19 @@ public final class DesktopSession: @unchecked Sendable {
             }
             if let e = st.error { line(e) }
             if let timing = st.timing { latency.onHostTiming(timing) }
+            if let a = st.audio {
+                line("host audio \(a): \(JSONValue.string(st.json["detail"]))")
+                sync { _audioAvailable = false }
+                audio?.stop()
+                callbackQueue.async { self.onAudioAvailable?(false) }
+            }
+        case .audio(let a):
+            let play: Bool = sync {
+                guard _audio else { return false }
+                if case .connected(_, true) = _phase { return false }
+                return true
+            }
+            if play { audio?.submit(a) }
         case .ping(let t1):
             let now = Self.nowUs()
             send(DesktopProtocol.pong(t1, now, now))
@@ -742,12 +781,25 @@ public final class DesktopSession: @unchecked Sendable {
     public func setFps(_ value: Int) { sync { _fps = value }; send(DesktopProtocol.config(["fps": value])) }
     public func setDisplay(_ index: Int) { sync { _display = index }; send(DesktopProtocol.config(["display": index])) }
     public func setLockOnClose(_ on: Bool) { sync { _lockOnClose = on }; send(DesktopProtocol.config(["lock_on_close": on])) }
+    /// 声音: asking again after the host said it has none lets it try once more (a device plugged in since).
+    public func setAudio(_ on: Bool) {
+        let (known, retry): (Bool, Bool) = sync {
+            _audio = on
+            let retry = on && _audioAvailable == false && (_hello?.audio.contains("opus") ?? false)
+            if retry { _audioAvailable = true }
+            return (_audioAvailable != nil, retry)
+        }
+        if !on { audio?.stop() }
+        if retry { callbackQueue.async { self.onAudioAvailable?(true) } }
+        if known { send(DesktopProtocol.config(["audio": on])) }
+    }
 
     // MARK: Lifecycle
 
     /// The page went away: no pictures, the link kept for the keep-alive time.
     public func pause() {
         send(DesktopProtocol.req(DesktopProtocol.REQ_PAUSE))
+        audio?.stop()
         if case .connected(let poor, _) = phase { setPhase(.connected(poor: poor, paused: true)) }
         let generation: Int = sync { keepAliveGeneration += 1; return keepAliveGeneration }
         DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(config.keepAliveMinutes * 60)) { [weak self] in
@@ -789,6 +841,7 @@ public final class DesktopSession: @unchecked Sendable {
         s?.close()
         l?.close()
         h?.disconnect()
+        audio?.stop()
         wakeAll()
         if !wasRunning {
             setPhase(.idle)

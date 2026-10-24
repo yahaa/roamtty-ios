@@ -87,9 +87,9 @@ final class DesktopSessionTests: XCTestCase {
         wait(s, "connected", Self.connected)
         XCTAssertTrue(seen.contains(.connecting(step: .install)))
         XCTAssertTrue(host.allScripts.contains { $0.contains(#"mkdir -p "$HOME/.roamtty/bin" "$HOME/.roamtty/desktop""#) })
-        XCTAssertTrue(host.allScripts.contains { $0.contains("roamtty-desktop/releases/download/v0.8.2/linux-x86_64.gz") })
+        XCTAssertTrue(host.allScripts.contains { $0.contains("roamtty-desktop/releases/download/v0.9.0/linux-x86_64.gz") })
         XCTAssertTrue(host.allScripts.contains { $0.contains(#""$HOME/.roamtty/bin/roamtty-desktop" install"#) }, "OpenH264")
-        XCTAssertEqual(Array(s.log.prefix(4)), ["安装桌面插件 0.8.2（linux-x86_64）", "主机直接下载…", "获取 Cisco OpenH264 编码器…", "注册插件…"])
+        XCTAssertEqual(Array(s.log.prefix(4)), ["安装桌面插件 0.9.0（linux-x86_64）", "主机直接下载…", "获取 Cisco OpenH264 编码器…", "注册插件…"])
     }
 
     func testMissingBinaryExit127Installs() {
@@ -101,7 +101,7 @@ final class DesktopSessionTests: XCTestCase {
         wait(s, "connected", Self.connected)
         XCTAssertEqual(host.allStreams.count, 2)
         XCTAssertTrue(s.log.contains("sh: roamtty-desktop: not found"))
-        XCTAssertTrue(s.log.contains("安装桌面插件 0.8.2（linux-x86_64）"))
+        XCTAssertTrue(s.log.contains("安装桌面插件 0.9.0（linux-x86_64）"))
     }
 
     func testOtherExitStatusFails() {
@@ -383,6 +383,74 @@ final class DesktopSessionTests: XCTestCase {
         })
         s.setQuality("clear"); s.setFps(30); s.setLockOnClose(true); s.setDisplay(0)
         XCTAssertEqual(s.quality, "clear"); XCTAssertEqual(s.fps, 30); XCTAssertTrue(s.lockOnClose)
+    }
+
+    /// 声音: asked for in the first CONFIG when the host offers Opus; packets reach the player only while the
+    /// page is shown and sound is on; switching it off tells the host; STATE `unavailable` says the host has none.
+    func testAudioFollowsTheSwitchAndThePage() throws {
+        let gate = Box(false)
+        let host = FakeHost(probe: FakeHost.probe(), plugin: { s, _ in
+            s.hello(PluginFrames.hello(audio: ["opus"]))
+            s.feed(PluginFrames.video(1))
+            var seq: Int64 = 0
+            for _ in 0..<200 {
+                Thread.sleep(forTimeInterval: 0.02)
+                seq += 1
+                s.feed(PluginFrames.audio(seq))
+                if gate.value { s.feed(PluginFrames.state(["audio": "unavailable", "detail": "no server"])); gate.value = false }
+            }
+        })
+        let s = session(host)
+        let sound = RecordingAudio()
+        s.audio = sound
+        let available = Box<Bool?>(nil)
+        s.onAudioAvailable = { available.value = $0 }
+        s.start()
+        wait(s, "connected", Self.connected)
+        let stream = try XCTUnwrap(host.allStreams.first)
+        let first = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(stream.received.first!.payload)) as? [String: Any])
+        XCTAssertEqual(first["audio"] as? Bool, true)
+        XCTAssertTrue(waitUntil(2) { available.value == true })
+        XCTAssertTrue(waitUntil(2) { sound.packets >= 5 })
+        XCTAssertTrue(waitUntil(2) { s.stats.audioMs == 40 })
+
+        // Paused: nothing reaches the player.
+        s.pause()
+        let stops = sound.stopped
+        XCTAssertGreaterThan(stops, 0)
+        let paused = sound.packets
+        Thread.sleep(forTimeInterval: 0.2)
+        XCTAssertEqual(sound.packets, paused)
+        s.resume()
+        XCTAssertTrue(waitUntil(2) { sound.packets > paused })
+
+        // Off: the host is told, the player stops and hears nothing more.
+        s.setAudio(false)
+        XCTAssertFalse(s.audioOn)
+        XCTAssertTrue(waitUntil(2) { stream.received.contains { $0.type == DesktopProtocol.CONFIG && String(decoding: $0.payload, as: UTF8.self) == #"{"audio":false}"# } })
+        let off = sound.packets
+        Thread.sleep(forTimeInterval: 0.2)
+        XCTAssertEqual(sound.packets, off)
+        s.setAudio(true)
+        XCTAssertTrue(waitUntil(2) { sound.packets > off })
+
+        // The host has no sound after all.
+        gate.value = true
+        XCTAssertTrue(waitUntil(2) { available.value == false && s.audioAvailable == false })
+        XCTAssertTrue(waitUntil(2) { s.log.contains { $0.contains("host audio unavailable") } })
+    }
+
+    /// A plugin before 0.9.0 offers no sound: the first CONFIG does not ask for it.
+    func testOlderPluginsAreNotAskedForSound() throws {
+        let host = FakeHost(probe: FakeHost.probe(), plugin: Self.goodPlugin)
+        let s = session(host)
+        let available = Box<Bool?>(nil)
+        s.onAudioAvailable = { available.value = $0 }
+        s.start()
+        wait(s, "connected", Self.connected)
+        let first = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try XCTUnwrap(host.allStreams.first).received.first!.payload)) as? [String: Any])
+        XCTAssertNil(first["audio"])
+        XCTAssertTrue(waitUntil(2) { available.value == false })
     }
 
     /// A network change without UDP drops the SSH link; the loop gets it back with the token.

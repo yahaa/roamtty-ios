@@ -64,6 +64,14 @@ struct DesktopPage: View {
                     // The rail takes most of the home indicator's inset; the keyboard panel keeps it all.
                     .ignoresSafeArea(.container, edges: panel == .keyboard ? [] : .bottom)
                 }
+                #if DEBUG
+                if !controller.audioProbe.isEmpty {
+                    // Test only: a near-invisible line the live UI test reads (ROAMTTY_DESKTOP_AUDIO_PROBE=1).
+                    Text(controller.audioProbe).font(.system(size: 6)).opacity(0.02).allowsHitTesting(false)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                        .accessibilityIdentifier("desktop-audio-probe")
+                }
+                #endif
                 if panel == .operations {
                     // The panel opens just beside the rail, which reaches past the safe area.
                     operationsPanel(size: geo.size, landscape: landscape,
@@ -245,6 +253,11 @@ struct DesktopPage: View {
                                 choice(model.text("鼠标指针", "Trackpad"), selected: pointerMode == .mouse) { pointerMode = .mouse; controller.setPointerMode(.mouse) }
                             }
                         }
+                        toggleRow(model.text("声音", "Sound"), controller.audioAvailable == false
+                                  ? model.text("这台电脑暂时无法传回声音", "This computer cannot send its sound right now")
+                                  : model.text("在手机上播放电脑的声音", "Play the computer's sound on the phone"),
+                                  value: Binding(get: { controller.audioOn }, set: { controller.setAudio($0) }))
+                            .accessibilityIdentifier("desktop-audio")
                         toggleRow(model.text("仅观看", "View only"), model.text("不向电脑发送任何操作", "Do not send input to the computer"), value: Binding(get: { controller.viewOnly }, set: { controller.setViewOnly($0) }))
                         toggleRow(model.text("虚拟鼠标", "Virtual mouse"), model.text("悬浮的左键、右键和滚轮", "Floating left, right buttons and scroll wheel"), value: Binding(get: { virtualMouse }, set: { virtualMouse = $0; page.virtualMouse = $0 }))
                         toggleRow(model.text("显示网络状态", "Show network stats"), model.text("画面左上角显示延迟、帧率和码率", "Latency, frame rate and bitrate at top left"), value: Binding(get: { showStats }, set: {

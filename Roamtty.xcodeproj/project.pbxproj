@@ -1024,6 +1024,16 @@
 			"productReference" = "963E5982DADA5BA041DD36E5";
 			"productType" = "com.apple.product-type.library.static";
 		};
+		"C17D876C1AEF3D85F4DE9A7B" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/AudioJitter.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"3F4D5C6D9628B15D582F970F" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "C17D876C1AEF3D85F4DE9A7B";
+		};
 		"7143C377557812A60016CDCE" = {
 			"isa" = "PBXFileReference";
 			"path" = "Sources/RoamttyDesktopCore/Bytes.swift";
@@ -1228,6 +1238,7 @@
 			"isa" = "PBXSourcesBuildPhase";
 			"buildActionMask" = "2147483647";
 			"files" = (
+				"3F4D5C6D9628B15D582F970F",
 				"5B56FC2FE5D5553DBE39C361",
 				"1960C8CA70758188DCE9ABE7",
 				"60E57B7F4EA83B7D1D658A7E",
@@ -1527,6 +1538,16 @@
 		"C30972585B0E368F1789B3FC" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "7672C1D1E26CB56E4D1FA8A3";
+		};
+		"F8750F867E3429D175D3957A" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Features/Desktop/DesktopAudioPlayer.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"1DDA4A25308A02113138E6C0" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "F8750F867E3429D175D3957A";
 		};
 		"2C6A5B7E10DADC4DBC5248D9" = {
 			"isa" = "PBXFileReference";
@@ -2276,6 +2297,7 @@
 				"C6EA69FAF18B124E496A541E",
 				"8B46ECD41A1E511E040ABE89",
 				"C30972585B0E368F1789B3FC",
+				"1DDA4A25308A02113138E6C0",
 				"4B43049E682EB6241D9323A4",
 				"D5E10AFFB2A511263FEF5585",
 				"69119A85CFCB1484B3A9EA74",
@@ -3564,6 +3586,7 @@
 				"D8BDC8BC630C1BAF30F87DB0",
 				"38D68A97E078A8F2A64DF395",
 				"F4B54B0336DEDE94FFC7328E",
+				"C17D876C1AEF3D85F4DE9A7B",
 				"7143C377557812A60016CDCE",
 				"9024D0B1E705D9201188720F",
 				"9F678F1890FA8F8D8BC2CE4E",
@@ -3598,6 +3621,7 @@
 				"AF11A6F1A8B8F9621BB73A4E",
 				"B0A8A779DAD9D6D35AD13587",
 				"7672C1D1E26CB56E4D1FA8A3",
+				"F8750F867E3429D175D3957A",
 				"2C6A5B7E10DADC4DBC5248D9",
 				"E141EFA8404E93DBC6F842A6",
 				"1ADA88A30302E2D195D883DE",

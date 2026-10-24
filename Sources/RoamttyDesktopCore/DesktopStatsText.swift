@@ -72,6 +72,7 @@ public enum DesktopStatsText {
         var size = stats.width > 0 ? "\(stats.width)×\(stats.height)" : "—"
         if !stats.encoder.isEmpty { size += " \(stats.encoder)" }
         out.append(Line(size, .dim))
+        if let ms = stats.audioMs { out.append(Line(english ? "Sound buffered \(ms) ms" : "声音 缓冲 \(ms) ms", .dim)) }
         out.append(Line(transport.label(english: english), .dim))
         return out
     }

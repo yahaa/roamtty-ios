@@ -21,6 +21,7 @@ public enum DesktopProtocol {
     public static let CURSOR_POS = 0x82
     public static let CURSOR_SHAPE = 0x83
     public static let STATE = 0x84
+    public static let AUDIO = 0x85
 
     public static let REQ_KEYFRAME = 1
     public static let REQ_PAUSE = 2
@@ -112,6 +113,9 @@ public enum DesktopProtocol {
         case CURSOR_SHAPE:
             guard let hash = b.u64(), let w = b.u16(), let h = b.u16(), let hx = b.u16(), let hy = b.u16() else { return nil }
             return .cursorShape(hash: hash, width: w, height: h, hotX: hx, hotY: hy, rgba: b.rest())
+        case AUDIO:
+            guard let seq = b.u32(), let cap = b.i64() else { return nil }
+            return .audio(Audio(seq: seq, captureUs: cap, data: frame.payload, offset: 12))
         case STATE:
             guard let json = JSONValue.object(String(decoding: frame.payload, as: UTF8.self)) else { return nil }
             return .state(StateMessage(json: json))
@@ -199,6 +203,8 @@ public struct Hello: Equatable, Sendable {
     public let hardware: String
     public let needs: [String]
     public let udp: UdpOffer?
+    /// The sound codecs the host can send (`opus`); empty before plugin 0.9.0.
+    public let audio: [String]
 
     static func parse(_ json: [String: Any]) -> Hello? {
         guard let proto = JSONValue.int(json["proto"]) else { return nil }
@@ -215,7 +221,7 @@ public struct Hello: Equatable, Sendable {
         return Hello(proto: proto, version: JSONValue.string(json["ver"]), os: JSONValue.string(json["os"]),
                      session: JSONValue.string(json["session"]), resumeToken: JSONValue.string(json["resume_token"]),
                      displays: displays, encoders: JSONValue.strings(json["enc"]), hardware: JSONValue.string(json["hw"]),
-                     needs: JSONValue.strings(json["needs"]), udp: udp)
+                     needs: JSONValue.strings(json["needs"]), udp: udp, audio: JSONValue.strings(json["audio"]))
     }
 }
 
@@ -238,6 +244,15 @@ public struct Video: Equatable, Sendable {
     public var accessUnit: ArraySlice<UInt8> { data[min(offset, data.count)...] }
 }
 
+/// One 20 ms Opus packet of 48 kHz stereo, from `offset` on; `seq` goes up by one per packet the host made.
+public struct Audio: Equatable, Sendable {
+    public let seq: Int64
+    public let captureUs: Int64
+    public let data: [UInt8]
+    public let offset: Int
+    public var packet: ArraySlice<UInt8> { data[min(offset, data.count)...] }
+}
+
 /// STATE: a JSON object whose fields come and go with the plugin version.
 public struct StateMessage: @unchecked Sendable {
     public let json: [String: Any]
@@ -248,6 +263,8 @@ public struct StateMessage: @unchecked Sendable {
     public var error: String? { let e = JSONValue.string(json["error"]); return e.isEmpty ? nil : e }
     /// The host's share of a frame's latency (plugin ≥ 0.6.0).
     public var timing: [String: Any]? { json["timing"] as? [String: Any] }
+    /// `unavailable` when the host cannot capture its sound (plugin ≥ 0.9.0).
+    public var audio: String? { let a = JSONValue.string(json["audio"]); return a.isEmpty ? nil : a }
 }
 
 public enum ServerMessage: Sendable {
@@ -255,6 +272,7 @@ public enum ServerMessage: Sendable {
     case cursorPos(x: Int, y: Int, visible: Bool, shape: UInt64)
     case cursorShape(hash: UInt64, width: Int, height: Int, hotX: Int, hotY: Int, rgba: [UInt8])
     case state(StateMessage)
+    case audio(Audio)
     case ping(t1: Int64)
     case pong(t1: Int64, t2: Int64, t3: Int64)
 }

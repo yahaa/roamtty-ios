@@ -63,7 +63,7 @@ final class FakeHost: DesktopHost, @unchecked Sendable {
 
     init(probe: String, plugin: @escaping (FakeStream, Int) -> Void) { probes = [probe]; self.plugin = plugin }
 
-    static func probe(_ desktop: String = "yes", uname: String = "Linux x86_64", version: String? = "0.8.2") -> String {
+    static func probe(_ desktop: String = "yes", uname: String = "Linux x86_64", version: String? = "0.9.0") -> String {
         "__ITERMUX_DESKTOP__=\(desktop)\n__ITERMUX_UNAME__=\(uname)\n__ITERMUX_DESKTOP_PLUGIN__=\(version.map { "roamtty-desktop \($0) proto 1" } ?? "")\n"
     }
 
@@ -110,6 +110,19 @@ final class InstantDecoder: DesktopVideoSink, @unchecked Sendable {
     var all: [Int64] { lock.lock(); defer { lock.unlock() }; return frames }
 }
 
+/// Stands in for the AVAudioEngine player: records what it was handed and how often it was stopped.
+final class RecordingAudio: DesktopAudioSink, @unchecked Sendable {
+    private let lock = NSLock()
+    private var seqs: [Int64] = []
+    private var stops = 0
+    func submit(_ audio: Audio) { lock.lock(); seqs.append(audio.seq); lock.unlock() }
+    func stop() { lock.lock(); stops += 1; lock.unlock() }
+    var queuedMs: Int { 40 }
+    var packets: Int64 { lock.lock(); defer { lock.unlock() }; return Int64(seqs.count) }
+    var all: [Int64] { lock.lock(); defer { lock.unlock() }; return seqs }
+    var stopped: Int { lock.lock(); defer { lock.unlock() }; return stops }
+}
+
 enum PluginFrames {
     static func video(_ n: Int64, key: Bool = true, w: Int = 1280, h: Int = 720) -> [UInt8] {
         var b = ByteWriter()
@@ -120,10 +133,18 @@ enum PluginFrames {
     static func state(_ json: [String: Any]) -> [UInt8] {
         DesktopProtocol.frame(DesktopProtocol.STATE, Array(try! JSONSerialization.data(withJSONObject: json)))
     }
-    static func hello(session: String = "s1", token: String = "tok+/=", needs: [String] = [], udp: (Int, [UInt8])? = nil) -> [String: Any] {
-        var h: [String: Any] = ["proto": 1, "ver": "0.8.2", "os": "linux", "session": session, "resume_token": token,
+    static func audio(_ seq: Int64) -> [UInt8] {
+        var b = ByteWriter()
+        b.u32(seq); b.i64(3)
+        b.append([0xFC, 0xFF, 0xFE])
+        return DesktopProtocol.frame(DesktopProtocol.AUDIO, b.bytes)
+    }
+    static func hello(session: String = "s1", token: String = "tok+/=", needs: [String] = [], udp: (Int, [UInt8])? = nil,
+                      audio: [String] = []) -> [String: Any] {
+        var h: [String: Any] = ["proto": 1, "ver": "0.9.0", "os": "linux", "session": session, "resume_token": token,
                                 "displays": [["id": 0, "w": 1920, "h": 1080, "primary": true, "name": "screen"]], "enc": ["h264"], "hw": "openh264", "needs": needs]
         if let (port, key) = udp { h["udp"] = ["port": port, "key": Data(key).base64EncodedString()] }
+        if !audio.isEmpty { h["audio"] = audio }
         return h
     }
 }

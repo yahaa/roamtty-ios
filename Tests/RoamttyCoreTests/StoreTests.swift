@@ -126,6 +126,16 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(recovered.desktopKeepAliveMinutes, 10)
         XCTAssertTrue(recovered.desktopHosts.isEmpty)
 
+        // Per-host preferences saved before 声音 existed keep everything else, and sound is on.
+        let beforeAudio = Data(#"{"desktopHosts":{"h1":{"pointerMode":"mouse","quality":"clear","fps":90,"lockOnClose":true}}}"#.utf8)
+        let kept = try XCTUnwrap(try JSONDecoder().decode(AppSettings.self, from: beforeAudio).desktopHosts["h1"])
+        XCTAssertEqual([kept.pointerMode, kept.quality], ["mouse", "clear"])
+        XCTAssertEqual(kept.fps, 90)
+        XCTAssertTrue(kept.lockOnClose)
+        XCTAssertTrue(kept.audio)
+        var muted = DesktopHostSettings(); muted.audio = false
+        XCTAssertFalse(try JSONDecoder().decode(DesktopHostSettings.self, from: JSONEncoder().encode(muted)).audio)
+
         // Round-trip with desktop on.
         var on = AppSettings()
         on.desktopEnabled = true

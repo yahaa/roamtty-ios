@@ -227,5 +227,20 @@ public struct DesktopHostSettings: Codable, Equatable, Sendable {
     public var quality = "auto"
     public var fps = 60
     public var lockOnClose = false
+    /// 声音: the host's sound on the phone, on unless switched off for this host.
+    public var audio = true
     public init() {}
+
+    private enum CodingKeys: String, CodingKey { case pointerMode, quality, fps, lockOnClose, audio }
+
+    /// Fields added later are missing from settings saved before them: they keep their defaults, or the
+    /// whole map (every host's preferences) would fail to decode.
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        pointerMode = try values.decodeIfPresent(String.self, forKey: .pointerMode) ?? "touch"
+        quality = try values.decodeIfPresent(String.self, forKey: .quality) ?? "auto"
+        fps = try values.decodeIfPresent(Int.self, forKey: .fps) ?? 60
+        lockOnClose = try values.decodeIfPresent(Bool.self, forKey: .lockOnClose) ?? false
+        audio = try values.decodeIfPresent(Bool.self, forKey: .audio) ?? true
+    }
 }
