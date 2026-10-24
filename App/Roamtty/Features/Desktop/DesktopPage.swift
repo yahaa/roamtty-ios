@@ -54,8 +54,10 @@ struct DesktopPage: View {
                 } else {
                     VStack(spacing: 0) {
                         desktopWorkspace(landscape: false, bottomInset: max(0, keyboardOverlap - geo.safeAreaInsets.bottom))
-                        if panel != .keyboard { controlRail(landscape: false) }
+                        if panel != .keyboard { controlRail(landscape: false, bottomInset: geo.safeAreaInsets.bottom) }
                     }
+                    // The rail takes most of the home indicator's inset; the keyboard panel keeps it all.
+                    .ignoresSafeArea(.container, edges: panel == .keyboard ? [] : .bottom)
                 }
                 if panel == .operations {
                     operationsPanel(size: geo.size, landscape: landscape)
@@ -154,21 +156,30 @@ struct DesktopPage: View {
 
     /// Landscape: the rail reaches the screen edge (`edgeInset` past the safe area) and keeps only
     /// `edgeClearance` of it free, for an island on that side.
-    private func controlRail(landscape: Bool, edgeInset: CGFloat = 0, edgeClearance: CGFloat = 0) -> some View {
+    private func controlRail(landscape: Bool, edgeInset: CGFloat = 0, edgeClearance: CGFloat = 0, bottomInset: CGFloat = 0) -> some View {
         let layout = landscape ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
-        return layout {
-            railItem("ic_operations", model.text("操作", "Ops"), selected: panel == .operations, landscape: landscape) { togglePanel(.operations) }
-            railItem("ic_keyboard", model.text("键盘", "Keys"), selected: panel == .keyboard, landscape: landscape) {
+        let items: [(icon: String, title: String, selected: Bool, action: () -> Void)] = [
+            ("ic_operations", model.text("操作", "Ops"), panel == .operations, { togglePanel(.operations) }),
+            ("ic_keyboard", model.text("键盘", "Keys"), panel == .keyboard, {
                 togglePanel(.keyboard); imeFocused = panel == .keyboard && keyboardPage == .ime
-            }
-            railItem("ic_show_desktop", model.text("显示桌面", "Desktop"), selected: false, landscape: landscape) {
+            }),
+            ("ic_show_desktop", model.text("显示桌面", "Desktop"), false, {
                 controller.input(DesktopProtocol.action(DesktopProtocol.ACTION_SHOW_DESKTOP))
-            }
-            railItem("ic_windows_all", model.text("所有窗口", "Windows"), selected: false, landscape: landscape) {
+            }),
+            ("ic_windows_all", model.text("所有窗口", "Windows"), false, {
                 controller.input(DesktopProtocol.action(DesktopProtocol.ACTION_ALL_WINDOWS))
+            }),
+        ]
+        // 操作 stays in the bottom corner: leftmost in portrait, lowest in landscape.
+        let ordered = landscape ? Array(items.reversed()) : items
+        return layout {
+            ForEach(ordered, id: \.icon) { item in
+                railItem(item.icon, item.title, selected: item.selected, landscape: landscape, action: item.action)
             }
         }
-        .padding(.vertical, landscape ? 0 : 4)
+        .padding(.top, landscape ? 0 : 4)
+        // Portrait: the buttons sit just above the home indicator, not a whole safe inset above it.
+        .padding(.bottom, landscape ? 0 : max(4, bottomInset - 24))
         .padding(.trailing, edgeClearance)
         .frame(width: landscape ? 72 + edgeInset : nil)
         .background(railColor.ignoresSafeArea(edges: landscape ? .trailing : .bottom))

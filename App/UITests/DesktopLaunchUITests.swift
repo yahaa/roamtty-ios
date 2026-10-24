@@ -91,8 +91,17 @@ final class DesktopLaunchUITests: XCTestCase {
                 XCTAssertGreaterThan(rtt.minX, screen.minX + 30, "The stats stay out of the rounded corner")
             }
             XCTAssertLessThanOrEqual(picture.maxX, ops.minX + 1)
+            XCTAssertGreaterThan(ops.minY, app.buttons["所有窗口"].frame.maxY - 1, "操作 is the lowest button")
             capture(app, islandLeft ? "Landscape, island left" : "Landscape, island right")
         }
+        XCUIDevice.shared.orientation = .portrait
+        let upright = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in app.frame.width < app.frame.height }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [upright], timeout: 5), .completed)
+        Thread.sleep(forTimeInterval: 1)
+        let ops = app.buttons["操作"].frame
+        XCTAssertLessThan(ops.maxX, app.buttons["所有窗口"].frame.minX, "操作 is the leftmost button")
+        XCTAssertGreaterThan(ops.maxY, app.frame.maxY - 20, "The buttons sit just above the home indicator")
+        capture(app, "Portrait rail")
     }
 
     private func toggleNetworkStats(_ app: XCUIApplication) {
