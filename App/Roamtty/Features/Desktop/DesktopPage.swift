@@ -21,6 +21,8 @@ struct DesktopPage: View {
     @State private var showStats = false
     @State private var pointerMode: PointerMode = .touch
     @State private var imeFocused = false
+    /// Landscape: the Dynamic Island (or notch) is on the leading edge, beside the picture.
+    @State private var islandLeading = true
 
     private let panelColor = Color(red: 28/255, green: 28/255, blue: 30/255)
     private let railColor = Color(red: 20/255, green: 20/255, blue: 22/255)
@@ -40,10 +42,15 @@ struct DesktopPage: View {
             ZStack {
                 Color.black.ignoresSafeArea()
                 if landscape {
+                    // Only the island's side keeps its safe inset: the picture and the rail use the other.
+                    let insets = geo.safeAreaInsets
                     HStack(spacing: 0) {
-                        desktopWorkspace(landscape: true, bottomInset: max(0, keyboardOverlap - geo.safeAreaInsets.bottom))
-                        controlRail(landscape: true)
+                        desktopWorkspace(landscape: true, bottomInset: max(0, keyboardOverlap - insets.bottom),
+                                         bleed: islandLeading ? 0 : insets.leading)
+                            .padding(.leading, islandLeading ? insets.leading : 0)
+                        controlRail(landscape: true, edgeInset: insets.trailing, edgeClearance: islandLeading ? 0 : min(insets.trailing, 50))
                     }
+                    .ignoresSafeArea(.container, edges: .horizontal)
                 } else {
                     VStack(spacing: 0) {
                         desktopWorkspace(landscape: false, bottomInset: max(0, keyboardOverlap - geo.safeAreaInsets.bottom))
@@ -69,6 +76,11 @@ struct DesktopPage: View {
             keyboardOverlap = localFrame.intersects(window.bounds) ? max(0, window.bounds.maxY - localFrame.minY) : 0
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardOverlap = 0 }
+        // A half turn keeps the size, so nothing else re-lays the page out when the island changes sides.
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
+            updateIslandSide()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { updateIslandSide() }
+        }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
@@ -80,6 +92,7 @@ struct DesktopPage: View {
             }
         }
         .onAppear {
+            updateIslandSide()
             controller.resume()
             showStats = model.settings.desktopShowStats
             page.showStats = showStats
@@ -108,9 +121,10 @@ struct DesktopPage: View {
 
     /// Keep the video and its gesture viewport in the same unobscured rectangle. Only this
     /// column resizes for input; the landscape rail retains its full-height touch targets.
-    private func desktopWorkspace(landscape: Bool, bottomInset: CGFloat) -> some View {
+    /// `bleed`: how far the picture runs past the leading safe area, where the stats stay clear of the corner.
+    private func desktopWorkspace(landscape: Bool, bottomInset: CGFloat, bleed: CGFloat = 0) -> some View {
         VStack(spacing: 0) {
-            desktopPicture(landscape: landscape)
+            desktopPicture(landscape: landscape, bleed: bleed)
             if panel == .keyboard {
                 keyboardPanel.fixedSize(horizontal: false, vertical: true)
             }
@@ -118,13 +132,13 @@ struct DesktopPage: View {
         .padding(.bottom, panel == .keyboard && keyboardPage == .ime ? bottomInset : 0)
     }
 
-    private func desktopPicture(landscape: Bool) -> some View {
+    private func desktopPicture(landscape: Bool, bleed: CGFloat) -> some View {
         GeometryReader { geo in
             ZStack {
                 DesktopVideoSurface(display: controller.display)
                 DesktopGestureOverlay(controller: controller, size: geo.size)
                 cursorOverlay
-                if landscape { statsOverlay } else { portraitStatsOverlay }
+                if landscape { statsOverlay.padding(.leading, bleed) } else { portraitStatsOverlay }
                 DesktopStatusOverlay(host: controller.host.name, phase: controller.phase,
                                      hasPicture: controller.videoSize.0 > 0, windowsHost: controller.windowsHost,
                                      log: controller.log.last ?? "", failure: controller.session.failure, english: english) {
@@ -138,7 +152,9 @@ struct DesktopPage: View {
 
     // MARK: Android desktop controls
 
-    private func controlRail(landscape: Bool) -> some View {
+    /// Landscape: the rail reaches the screen edge (`edgeInset` past the safe area) and keeps only
+    /// `edgeClearance` of it free, for an island on that side.
+    private func controlRail(landscape: Bool, edgeInset: CGFloat = 0, edgeClearance: CGFloat = 0) -> some View {
         let layout = landscape ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
         return layout {
             railItem("ic_operations", model.text("操作", "Ops"), selected: panel == .operations, landscape: landscape) { togglePanel(.operations) }
@@ -153,15 +169,16 @@ struct DesktopPage: View {
             }
         }
         .padding(.vertical, landscape ? 0 : 4)
-        .frame(width: landscape ? 72 : nil)
+        .padding(.trailing, edgeClearance)
+        .frame(width: landscape ? 72 + edgeInset : nil)
         .background(railColor.ignoresSafeArea(edges: landscape ? .trailing : .bottom))
     }
 
     private func railItem(_ icon: String, _ title: String, selected: Bool, landscape: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 3) {
-                AppIcon(icon, size: 22).foregroundStyle(selected ? accent : ink)
-                Text(title).font(.system(size: 11)).foregroundStyle(selected ? accent : inkDim).lineLimit(1)
+                AppIcon(icon, size: landscape ? 24 : 22).foregroundStyle(selected ? accent : ink)
+                Text(title).font(.system(size: landscape ? 12 : 11)).foregroundStyle(selected ? accent : inkDim).lineLimit(1)
             }
             .padding(.horizontal, 6).padding(.vertical, 8)
             .frame(maxWidth: .infinity, maxHeight: landscape ? .infinity : nil)
@@ -493,6 +510,12 @@ struct DesktopPage: View {
 
     // MARK: Helpers
 
+    private func updateIslandSide() {
+        let orientation = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }?.interfaceOrientation
+        // Landscape left: the home button's side, so the top of the phone, is on the right.
+        islandLeading = orientation != .landscapeLeft
+    }
 
     private func togglePanel(_ p: DesktopPanel) {
         panel = panel == p ? .none : p
@@ -570,6 +593,11 @@ final class DesktopGestureView: UIView {
     private var timer: CADisplayLink?
     private var twoFingerActive = false
     private var lastPoint: CGPoint = .zero
+    /// Windows' XAML surfaces (Task View, Start, the taskbar) drop a press that lands the instant the
+    /// pointer jumped there, or a release right on its press: those steps go out `clickGap` apart.
+    private var pending: [GestureAction] = []
+    private var holdUntil: CFTimeInterval = 0
+    private static let clickGap: CFTimeInterval = 0.035
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -674,20 +702,37 @@ final class DesktopGestureView: UIView {
     override func didMoveToWindow() { becomeFirstResponder() }
 
     private func apply(_ actions: [GestureAction]) {
-        guard let c = controller else { return }
-        for a in actions {
-            switch a {
-            case .moveTo(let x, let y):
-                c.input(DesktopProtocol.abs(display: c.displayIndex, x: x, y: y))
-            case .moveBy(let dx, let dy):
-                c.input(DesktopProtocol.rel(dx: dx, dy: dy))
-            case .button(let b, let down):
-                c.input(DesktopProtocol.button(b, down: down))
-            case .wheel(let dx, let dy):
-                c.input(DesktopProtocol.wheel(dx: dx, dy: dy))
-            case .view(let vp):
-                gestures.viewport = vp
+        // The local zoom is no input: it never waits behind a click.
+        for a in actions { if case .view(let vp) = a { gestures.viewport = vp } else { pending.append(a) } }
+        drain()
+    }
+
+    private func drain() {
+        while !pending.isEmpty, CACurrentMediaTime() >= holdUntil {
+            let a = pending.removeFirst()
+            send(a)
+            switch (a, pending.first) {
+            case (.moveTo, .button(_, down: true)?): holdUntil = CACurrentMediaTime() + Self.clickGap
+            case (.button(let b, down: true), .button(let next, down: false)?) where b == next:
+                holdUntil = CACurrentMediaTime() + Self.clickGap
+            default: break
             }
+        }
+    }
+
+    private func send(_ a: GestureAction) {
+        guard let c = controller else { return }
+        switch a {
+        case .moveTo(let x, let y):
+            c.input(DesktopProtocol.abs(display: c.displayIndex, x: x, y: y))
+        case .moveBy(let dx, let dy):
+            c.input(DesktopProtocol.rel(dx: dx, dy: dy))
+        case .button(let b, let down):
+            c.input(DesktopProtocol.button(b, down: down))
+        case .wheel(let dx, let dy):
+            c.input(DesktopProtocol.wheel(dx: dx, dy: dy))
+        case .view(let vp):
+            gestures.viewport = vp
         }
     }
 }
