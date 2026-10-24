@@ -26,7 +26,7 @@ final class DesktopLaunchUITests: XCTestCase {
                 let ops = app.buttons[english ? "Ops" : "操作"]
                 if landscape {
                     XCTAssertEqual(rtt.frame.minX, picture.minX + 15, accuracy: 1)
-                    XCTAssertEqual(ops.frame.width, 72, accuracy: 1, "Restore the original narrow control rail")
+                    XCTAssertEqual(ops.frame.width, 54, accuracy: 1, "Landscape buttons are as deep as portrait ones")
                     XCTAssertGreaterThanOrEqual(ops.frame.minX, picture.maxX - 1)
                 } else {
                     XCTAssertGreaterThanOrEqual(ops.frame.minY, picture.maxY - 1)
@@ -72,6 +72,7 @@ final class DesktopLaunchUITests: XCTestCase {
         let app = XCUIApplication()
         defer { XCUIDevice.shared.orientation = .portrait; app.terminate() }
         launchStatusFixture(app, phase: "stats", showStats: true)
+        var landscapeRail: [Bool: (depth: CGFloat, fromEdge: CGFloat)] = [:]
         // Device landscape left puts the top of the phone, and its island, on the left.
         for (orientation, islandLeft) in [(UIDeviceOrientation.landscapeLeft, true), (.landscapeRight, false)] {
             XCUIDevice.shared.orientation = orientation
@@ -84,7 +85,7 @@ final class DesktopLaunchUITests: XCTestCase {
             let rtt = app.staticTexts["UDP 15 ms"].frame
             if islandLeft {
                 XCTAssertGreaterThan(picture.minX, screen.minX + 20, "The picture keeps clear of the island")
-                XCTAssertGreaterThan(ops.maxX, screen.maxX - 4, "The rail runs to the screen edge")
+                XCTAssertGreaterThan(ops.maxX, screen.maxX - 12, "The buttons sit by the screen edge")
             } else {
                 XCTAssertEqual(picture.minX, screen.minX, accuracy: 1, "The picture runs to the screen edge")
                 XCTAssertLessThan(ops.maxX, screen.maxX - 20, "The rail's buttons keep clear of the island")
@@ -92,6 +93,7 @@ final class DesktopLaunchUITests: XCTestCase {
             }
             XCTAssertLessThanOrEqual(picture.maxX, ops.minX + 1)
             XCTAssertGreaterThan(ops.minY, app.buttons["所有窗口"].frame.maxY - 1, "操作 is the lowest button")
+            landscapeRail[islandLeft] = (ops.width, screen.maxX - ops.minX)
             capture(app, islandLeft ? "Landscape, island left" : "Landscape, island right")
         }
         XCUIDevice.shared.orientation = .portrait
@@ -101,6 +103,12 @@ final class DesktopLaunchUITests: XCTestCase {
         let ops = app.buttons["操作"].frame
         XCTAssertLessThan(ops.maxX, app.buttons["所有窗口"].frame.minX, "操作 is the leftmost button")
         XCTAssertGreaterThan(ops.maxY, app.frame.maxY - 20, "The buttons sit just above the home indicator")
+        // Lying down, the rail is as thick as standing up, with only the island's side kept clear.
+        for (islandLeft, rail) in landscapeRail {
+            XCTAssertEqual(rail.depth, ops.height, accuracy: 1, "Landscape buttons are as deep as portrait ones")
+            if islandLeft { XCTAssertEqual(rail.fromEdge, app.frame.maxY - ops.minY, accuracy: 1, "The landscape rail is as thick as the portrait one") }
+        }
+        XCTAssertEqual(landscapeRail.count, 2)
         capture(app, "Portrait rail")
     }
 

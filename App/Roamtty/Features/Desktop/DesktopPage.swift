@@ -23,6 +23,9 @@ struct DesktopPage: View {
     @State private var imeFocused = false
     /// Landscape: the Dynamic Island (or notch) is on the leading edge, beside the picture.
     @State private var islandLeading = true
+    @State private var railWidth: CGFloat = 0
+    /// How deep a rail button is across the rail, the same standing up or lying down.
+    private let railDepth: CGFloat = 54
 
     private let panelColor = Color(red: 28/255, green: 28/255, blue: 30/255)
     private let railColor = Color(red: 20/255, green: 20/255, blue: 22/255)
@@ -49,6 +52,7 @@ struct DesktopPage: View {
                                          bleed: islandLeading ? 0 : insets.leading)
                             .padding(.leading, islandLeading ? insets.leading : 0)
                         controlRail(landscape: true, edgeInset: insets.trailing, edgeClearance: islandLeading ? 0 : min(insets.trailing, 50))
+                            .background(GeometryReader { rail in Color.clear.preference(key: RailWidthKey.self, value: rail.size.width) })
                     }
                     .ignoresSafeArea(.container, edges: .horizontal)
                 } else {
@@ -60,12 +64,15 @@ struct DesktopPage: View {
                     .ignoresSafeArea(.container, edges: panel == .keyboard ? [] : .bottom)
                 }
                 if panel == .operations {
-                    operationsPanel(size: geo.size, landscape: landscape)
+                    // The panel opens just beside the rail, which reaches past the safe area.
+                    operationsPanel(size: geo.size, landscape: landscape,
+                                    trailing: max(8, railWidth + 8 - geo.safeAreaInsets.trailing))
                         .transition(.move(edge: landscape ? .trailing : .bottom))
                 }
 
             }
             .animation(.easeOut(duration: 0.2), value: panel)
+            .onPreferenceChange(RailWidthKey.self) { railWidth = $0 }
         }
         // UIKit's hidden IME can include an input-assistant row that SwiftUI's automatic
         // avoidance misses after rotation. Reserve the entire keyboard frame explicitly.
@@ -154,7 +161,9 @@ struct DesktopPage: View {
 
     // MARK: Android desktop controls
 
-    /// Landscape: the rail reaches the screen edge (`edgeInset` past the safe area) and keeps only
+    /// The rail is as thick in landscape as in portrait: one button deep, 4pt on the picture's side,
+    /// and on the screen edge's side the gap the portrait rail leaves above the home indicator.
+    /// Landscape: the rail reaches the screen edge (`edgeInset` past the safe area) and keeps
     /// `edgeClearance` of it free, for an island on that side.
     private func controlRail(landscape: Bool, edgeInset: CGFloat = 0, edgeClearance: CGFloat = 0, bottomInset: CGFloat = 0) -> some View {
         let layout = landscape ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
@@ -177,27 +186,27 @@ struct DesktopPage: View {
                 railItem(item.icon, item.title, selected: item.selected, landscape: landscape, action: item.action)
             }
         }
-        .padding(.top, landscape ? 0 : 4)
-        // Portrait: the buttons sit just above the home indicator, not a whole safe inset above it.
-        .padding(.bottom, landscape ? 0 : max(4, bottomInset - 24))
-        .padding(.trailing, edgeClearance)
-        .frame(width: landscape ? 72 + edgeInset : nil)
+        .padding(landscape ? .leading : .top, 4)
+        // The buttons sit just above the home indicator, or as close to a bare screen edge.
+        .padding(landscape ? .trailing : .bottom, max(edgeClearance, railEdgeGap(landscape ? edgeInset : bottomInset)))
         .background(railColor.ignoresSafeArea(edges: landscape ? .trailing : .bottom))
     }
+
+    private func railEdgeGap(_ inset: CGFloat) -> CGFloat { max(4, min(inset, 34) - 24) }
 
     private func railItem(_ icon: String, _ title: String, selected: Bool, landscape: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 3) {
-                AppIcon(icon, size: landscape ? 24 : 22).foregroundStyle(selected ? accent : ink)
-                Text(title).font(.system(size: landscape ? 12 : 11)).foregroundStyle(selected ? accent : inkDim).lineLimit(1)
+                AppIcon(icon, size: 22).foregroundStyle(selected ? accent : ink)
+                Text(title).font(.system(size: 11)).foregroundStyle(selected ? accent : inkDim).lineLimit(1).fixedSize()
             }
-            .padding(.horizontal, 6).padding(.vertical, 8)
-            .frame(maxWidth: .infinity, maxHeight: landscape ? .infinity : nil)
+            .frame(width: landscape ? railDepth : nil, height: landscape ? nil : railDepth)
+            .frame(maxWidth: landscape ? nil : .infinity, maxHeight: landscape ? .infinity : nil)
             .contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityLabel(title)
     }
 
-    private func operationsPanel(size: CGSize, landscape: Bool) -> some View {
+    private func operationsPanel(size: CGSize, landscape: Bool, trailing: CGFloat) -> some View {
         ZStack(alignment: landscape ? .trailing : .bottom) {
             Color.black.opacity(0.4).ignoresSafeArea().onTapGesture { dismissPanel() }
             VStack(spacing: 0) {
@@ -279,7 +288,7 @@ struct DesktopPage: View {
             .frame(width: landscape ? min(340, max(0, size.width - 80)) : size.width, height: size.height * (landscape ? 0.92 : 0.7))
             .background(panelColor, in: RoundedRectangle(cornerRadius: 18))
             .clipShape(RoundedRectangle(cornerRadius: 18))
-            .padding(.trailing, landscape ? 80 : 0)
+            .padding(.trailing, landscape ? trailing : 0)
 
         }
     }
@@ -819,5 +828,9 @@ private struct VirtualMousePad: View {
                 .background(Color.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
         }.buttonStyle(.plain)
     }
+}
+private struct RailWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 #endif
