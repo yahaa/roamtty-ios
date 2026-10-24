@@ -194,21 +194,34 @@ private final class AvccHolder {
 /// Hosts the controller's `AVSampleBufferDisplayLayer`.
 struct DesktopVideoSurface: UIViewRepresentable {
     let display: VideoToolboxDisplay
+    /// The picture's frame inside the view when zoomed or panned; nil fills the view.
+    var content: CGRect? = nil
     func makeUIView(context: Context) -> DesktopVideoHostView {
         let view = DesktopVideoHostView()
         view.attach(display)
+        view.content = content
         return view
     }
     func updateUIView(_ uiView: DesktopVideoHostView, context: Context) {
         uiView.attach(display)
+        uiView.content = content
     }
 }
 
 final class DesktopVideoHostView: UIView {
     private weak var display: VideoToolboxDisplay?
+    var content: CGRect? {
+        didSet {
+            guard content != oldValue else { return }
+            // UI tests read the picture's drawn size here.
+            accessibilityValue = content.map { "\(Int($0.width))x\(Int($0.height))" }
+            setNeedsLayout()
+        }
+    }
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .black
+        clipsToBounds = true
         isAccessibilityElement = true
         accessibilityIdentifier = "desktop-video-surface"
         accessibilityLabel = "Remote desktop picture"
@@ -224,7 +237,10 @@ final class DesktopVideoHostView: UIView {
     }
     override func layoutSubviews() {
         super.layoutSubviews()
-        display?.layer.frame = bounds
+        // Follows the fingers: no implicit layer animation.
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        display?.layer.frame = content ?? bounds
+        CATransaction.commit()
     }
 }
 #endif

@@ -50,6 +50,8 @@ import RoamttyDesktopCore
     @Published var notice: String?
     @Published private(set) var videoSize = (0, 0)
     @Published var clipNote: String?
+    /// The gesture view's zoom and pan; the picture and the cursor are drawn where it puts them.
+    @Published var viewport: Viewport?
     private(set) var prefs: DesktopHostSettings
     private let onEnded: (DesktopController) -> Void
     private let onPrefs: (DesktopHostSettings) -> Void
