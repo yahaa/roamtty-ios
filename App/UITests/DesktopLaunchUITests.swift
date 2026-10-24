@@ -397,12 +397,13 @@ final class DesktopLaunchUITests: XCTestCase {
             XCTAssertEqual(app.state, .runningForeground)
         }
         app.buttons["home-tab-hosts"].tap()
-        let card = app.buttons.matching(NSPredicate(format: "identifier ==[c] %@", "host-" + host)).firstMatch
+        // The card's picture opens the desktop once the host is reachable.
+        let card = app.buttons["host-screen-" + host]
         XCTAssertTrue(card.waitForExistence(timeout: 10))
+        let online = NSPredicate(format: "label CONTAINS[c] '打开桌面' OR label CONTAINS[c] 'Open desktop'")
+        expectation(for: online, evaluatedWith: card)
+        waitForExpectations(timeout: 20)
         card.tap()
-        let desktop = app.buttons["host-detail-desktop"]
-        XCTAssertTrue(desktop.waitForExistence(timeout: 10))
-        desktop.tap()
         let ops = app.buttons.matching(NSPredicate(format: "label == '操作' OR label == 'Ops'")).firstMatch
         XCTAssertTrue(ops.waitForExistence(timeout: 15))
         ops.tap()
