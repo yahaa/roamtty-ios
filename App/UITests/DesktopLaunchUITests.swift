@@ -68,6 +68,42 @@ final class DesktopLaunchUITests: XCTestCase {
         }
     }
 
+    func testLandscapeRailAndPictureUseTheSideWithoutTheIsland() throws {
+        let app = XCUIApplication()
+        defer { XCUIDevice.shared.orientation = .portrait; app.terminate() }
+        launchStatusFixture(app, phase: "stats", showStats: true)
+        // Device landscape left puts the top of the phone, and its island, on the left.
+        for (orientation, islandLeft) in [(UIDeviceOrientation.landscapeLeft, true), (.landscapeRight, false)] {
+            XCUIDevice.shared.orientation = orientation
+            let rotated = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in app.frame.width > app.frame.height }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [rotated], timeout: 5), .completed)
+            Thread.sleep(forTimeInterval: 1)
+            let screen = app.frame
+            let picture = app.otherElements["desktop-video-surface"].frame
+            let ops = app.buttons["操作"].frame
+            let rtt = app.staticTexts["UDP 15 ms"].frame
+            if islandLeft {
+                XCTAssertGreaterThan(picture.minX, screen.minX + 20, "The picture keeps clear of the island")
+                XCTAssertGreaterThan(ops.maxX, screen.maxX - 4, "The rail runs to the screen edge")
+            } else {
+                XCTAssertEqual(picture.minX, screen.minX, accuracy: 1, "The picture runs to the screen edge")
+                XCTAssertLessThan(ops.maxX, screen.maxX - 20, "The rail's buttons keep clear of the island")
+                XCTAssertGreaterThan(rtt.minX, screen.minX + 30, "The stats stay out of the rounded corner")
+            }
+            XCTAssertLessThanOrEqual(picture.maxX, ops.minX + 1)
+            XCTAssertGreaterThan(ops.minY, app.buttons["所有窗口"].frame.maxY - 1, "操作 is the lowest button")
+            capture(app, islandLeft ? "Landscape, island left" : "Landscape, island right")
+        }
+        XCUIDevice.shared.orientation = .portrait
+        let upright = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in app.frame.width < app.frame.height }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [upright], timeout: 5), .completed)
+        Thread.sleep(forTimeInterval: 1)
+        let ops = app.buttons["操作"].frame
+        XCTAssertLessThan(ops.maxX, app.buttons["所有窗口"].frame.minX, "操作 is the leftmost button")
+        XCTAssertGreaterThan(ops.maxY, app.frame.maxY - 20, "The buttons sit just above the home indicator")
+        capture(app, "Portrait rail")
+    }
+
     private func toggleNetworkStats(_ app: XCUIApplication) {
         app.buttons["操作"].tap()
         let scroll = app.scrollViews["desktop-operations-scroll"]

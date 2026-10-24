@@ -21,6 +21,8 @@ struct DesktopPage: View {
     @State private var showStats = false
     @State private var pointerMode: PointerMode = .touch
     @State private var imeFocused = false
+    /// Landscape: the Dynamic Island (or notch) is on the leading edge, beside the picture.
+    @State private var islandLeading = true
 
     private let panelColor = Color(red: 28/255, green: 28/255, blue: 30/255)
     private let railColor = Color(red: 20/255, green: 20/255, blue: 22/255)
@@ -40,15 +42,22 @@ struct DesktopPage: View {
             ZStack {
                 Color.black.ignoresSafeArea()
                 if landscape {
+                    // Only the island's side keeps its safe inset: the picture and the rail use the other.
+                    let insets = geo.safeAreaInsets
                     HStack(spacing: 0) {
-                        desktopWorkspace(landscape: true, bottomInset: max(0, keyboardOverlap - geo.safeAreaInsets.bottom))
-                        controlRail(landscape: true)
+                        desktopWorkspace(landscape: true, bottomInset: max(0, keyboardOverlap - insets.bottom),
+                                         bleed: islandLeading ? 0 : insets.leading)
+                            .padding(.leading, islandLeading ? insets.leading : 0)
+                        controlRail(landscape: true, edgeInset: insets.trailing, edgeClearance: islandLeading ? 0 : min(insets.trailing, 50))
                     }
+                    .ignoresSafeArea(.container, edges: .horizontal)
                 } else {
                     VStack(spacing: 0) {
                         desktopWorkspace(landscape: false, bottomInset: max(0, keyboardOverlap - geo.safeAreaInsets.bottom))
-                        if panel != .keyboard { controlRail(landscape: false) }
+                        if panel != .keyboard { controlRail(landscape: false, bottomInset: geo.safeAreaInsets.bottom) }
                     }
+                    // The rail takes most of the home indicator's inset; the keyboard panel keeps it all.
+                    .ignoresSafeArea(.container, edges: panel == .keyboard ? [] : .bottom)
                 }
                 if panel == .operations {
                     operationsPanel(size: geo.size, landscape: landscape)
@@ -69,6 +78,11 @@ struct DesktopPage: View {
             keyboardOverlap = localFrame.intersects(window.bounds) ? max(0, window.bounds.maxY - localFrame.minY) : 0
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardOverlap = 0 }
+        // A half turn keeps the size, so nothing else re-lays the page out when the island changes sides.
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
+            updateIslandSide()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { updateIslandSide() }
+        }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
@@ -80,6 +94,7 @@ struct DesktopPage: View {
             }
         }
         .onAppear {
+            updateIslandSide()
             controller.resume()
             showStats = model.settings.desktopShowStats
             page.showStats = showStats
@@ -108,9 +123,10 @@ struct DesktopPage: View {
 
     /// Keep the video and its gesture viewport in the same unobscured rectangle. Only this
     /// column resizes for input; the landscape rail retains its full-height touch targets.
-    private func desktopWorkspace(landscape: Bool, bottomInset: CGFloat) -> some View {
+    /// `bleed`: how far the picture runs past the leading safe area, where the stats stay clear of the corner.
+    private func desktopWorkspace(landscape: Bool, bottomInset: CGFloat, bleed: CGFloat = 0) -> some View {
         VStack(spacing: 0) {
-            desktopPicture(landscape: landscape)
+            desktopPicture(landscape: landscape, bleed: bleed)
             if panel == .keyboard {
                 keyboardPanel.fixedSize(horizontal: false, vertical: true)
             }
@@ -118,13 +134,13 @@ struct DesktopPage: View {
         .padding(.bottom, panel == .keyboard && keyboardPage == .ime ? bottomInset : 0)
     }
 
-    private func desktopPicture(landscape: Bool) -> some View {
+    private func desktopPicture(landscape: Bool, bleed: CGFloat) -> some View {
         GeometryReader { geo in
             ZStack {
                 DesktopVideoSurface(display: controller.display)
                 DesktopGestureOverlay(controller: controller, size: geo.size)
                 cursorOverlay
-                if landscape { statsOverlay } else { portraitStatsOverlay }
+                if landscape { statsOverlay.padding(.leading, bleed) } else { portraitStatsOverlay }
                 DesktopStatusOverlay(host: controller.host.name, phase: controller.phase,
                                      hasPicture: controller.videoSize.0 > 0, windowsHost: controller.windowsHost,
                                      log: controller.log.last ?? "", failure: controller.session.failure, english: english) {
@@ -138,30 +154,42 @@ struct DesktopPage: View {
 
     // MARK: Android desktop controls
 
-    private func controlRail(landscape: Bool) -> some View {
+    /// Landscape: the rail reaches the screen edge (`edgeInset` past the safe area) and keeps only
+    /// `edgeClearance` of it free, for an island on that side.
+    private func controlRail(landscape: Bool, edgeInset: CGFloat = 0, edgeClearance: CGFloat = 0, bottomInset: CGFloat = 0) -> some View {
         let layout = landscape ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
-        return layout {
-            railItem("ic_operations", model.text("操作", "Ops"), selected: panel == .operations, landscape: landscape) { togglePanel(.operations) }
-            railItem("ic_keyboard", model.text("键盘", "Keys"), selected: panel == .keyboard, landscape: landscape) {
+        let items: [(icon: String, title: String, selected: Bool, action: () -> Void)] = [
+            ("ic_operations", model.text("操作", "Ops"), panel == .operations, { togglePanel(.operations) }),
+            ("ic_keyboard", model.text("键盘", "Keys"), panel == .keyboard, {
                 togglePanel(.keyboard); imeFocused = panel == .keyboard && keyboardPage == .ime
-            }
-            railItem("ic_show_desktop", model.text("显示桌面", "Desktop"), selected: false, landscape: landscape) {
+            }),
+            ("ic_show_desktop", model.text("显示桌面", "Desktop"), false, {
                 controller.input(DesktopProtocol.action(DesktopProtocol.ACTION_SHOW_DESKTOP))
-            }
-            railItem("ic_windows_all", model.text("所有窗口", "Windows"), selected: false, landscape: landscape) {
+            }),
+            ("ic_windows_all", model.text("所有窗口", "Windows"), false, {
                 controller.input(DesktopProtocol.action(DesktopProtocol.ACTION_ALL_WINDOWS))
+            }),
+        ]
+        // 操作 stays in the bottom corner: leftmost in portrait, lowest in landscape.
+        let ordered = landscape ? Array(items.reversed()) : items
+        return layout {
+            ForEach(ordered, id: \.icon) { item in
+                railItem(item.icon, item.title, selected: item.selected, landscape: landscape, action: item.action)
             }
         }
-        .padding(.vertical, landscape ? 0 : 4)
-        .frame(width: landscape ? 72 : nil)
+        .padding(.top, landscape ? 0 : 4)
+        // Portrait: the buttons sit just above the home indicator, not a whole safe inset above it.
+        .padding(.bottom, landscape ? 0 : max(4, bottomInset - 24))
+        .padding(.trailing, edgeClearance)
+        .frame(width: landscape ? 72 + edgeInset : nil)
         .background(railColor.ignoresSafeArea(edges: landscape ? .trailing : .bottom))
     }
 
     private func railItem(_ icon: String, _ title: String, selected: Bool, landscape: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 3) {
-                AppIcon(icon, size: 22).foregroundStyle(selected ? accent : ink)
-                Text(title).font(.system(size: 11)).foregroundStyle(selected ? accent : inkDim).lineLimit(1)
+                AppIcon(icon, size: landscape ? 24 : 22).foregroundStyle(selected ? accent : ink)
+                Text(title).font(.system(size: landscape ? 12 : 11)).foregroundStyle(selected ? accent : inkDim).lineLimit(1)
             }
             .padding(.horizontal, 6).padding(.vertical, 8)
             .frame(maxWidth: .infinity, maxHeight: landscape ? .infinity : nil)
@@ -472,7 +500,7 @@ struct DesktopPage: View {
             // Approximate: place at remote coords scaled into the view (letterboxed).
             GeometryReader { geo in
                 let vp = Viewport(viewWidth: Float(geo.size.width), viewHeight: Float(geo.size.height),
-                                  remoteWidth: max(1, controller.videoSize.0), remoteHeight: max(1, controller.videoSize.1))
+                                  remoteWidth: max(1, controller.remoteSize.0), remoteHeight: max(1, controller.remoteSize.1))
                 let pt = vp.toView(Float(cursor.x), Float(cursor.y))
                 Circle().fill(Color.white).frame(width: 8, height: 8)
                     .position(x: CGFloat(pt.x), y: CGFloat(pt.y))
@@ -493,6 +521,12 @@ struct DesktopPage: View {
 
     // MARK: Helpers
 
+    private func updateIslandSide() {
+        let orientation = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }?.interfaceOrientation
+        // Landscape left: the home button's side, so the top of the phone, is on the right.
+        islandLeading = orientation != .landscapeLeft
+    }
 
     private func togglePanel(_ p: DesktopPanel) {
         panel = panel == p ? .none : p
@@ -594,7 +628,7 @@ final class DesktopGestureView: UIView {
         let h = Float(bounds.height > 0 ? bounds.height : boundsSize.height)
         var vp = gestures.viewport
         vp.viewWidth = max(1, w); vp.viewHeight = max(1, h)
-        vp.remoteWidth = max(1, c.videoSize.0); vp.remoteHeight = max(1, c.videoSize.1)
+        vp.remoteWidth = max(1, c.remoteSize.0); vp.remoteHeight = max(1, c.remoteSize.1)
         gestures.viewport = vp.clamped()
     }
 
