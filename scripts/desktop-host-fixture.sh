@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Loopback desktop host for iOS RoamttyDesktopCore / SSHDesktopHost tests.
-# Pins roamtty-desktop 0.8.0 (same as Sources/RoamttyDesktopCore/Resources/desktop-plugin.json).
+# Pins roamtty-desktop 0.8.1 (same as Sources/RoamttyDesktopCore/Resources/desktop-plugin.json).
 #
 # Usage:
 #   scripts/desktop-host-fixture.sh start|stop|status|env

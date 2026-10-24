@@ -136,7 +136,7 @@ import RoamttyDesktopCore
                                                       networkMs: 15, decodeMs: 1, renderMs: 0, totalMs: 22)
         }
         log = [DesktopText.step(.hostDownload).text(english: english),
-               DesktopText.installing(version: "0.8.0", target: "linux-x86_64").text(english: english)]
+               DesktopText.installing(version: "0.8.1", target: "linux-x86_64").text(english: english)]
     }
     #endif
     func resume() {

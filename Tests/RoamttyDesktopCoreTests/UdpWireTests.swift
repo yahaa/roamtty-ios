@@ -120,6 +120,30 @@ final class UdpWireTests: XCTestCase {
         XCTAssertNil(r.push(frags[1], nowUs: 300_002), "a message given up on stays given up")
     }
 
+    /// A reliable message that went quiet is forgotten, not done: its resend is delivered, not acknowledged unseen.
+    func testAnExpiredReliableMessageCanStillArrive() {
+        let r = Reassembler()
+        let frags = UdpWire.fragment(msg: 9, flags: UdpWire.FLAG_RELIABLE, bytes: [UInt8](repeating: 7, count: UdpWire.SHARD * 3), ratio: 0)
+        XCTAssertNil(r.push(frags[0], nowUs: 0))
+        XCTAssertEqual([], r.expire(nowUs: 1_000_000, timeoutUs: 300_000))
+        XCTAssertFalse(r.isDone(9))
+        let out = frags.compactMap { r.push($0, nowUs: 1_000_001) }
+        XCTAssertEqual([UdpWire.SHARD * 3], out.map(\.bytes.count))
+        XCTAssertTrue(r.isDone(9))
+    }
+
+    /// Shards of a block already rebuilt still count as received, so a lossless message reports no loss.
+    func testLateShardsOfARebuiltBlockCount() {
+        let r = Reassembler()
+        let frags = UdpWire.fragment(msg: 3, flags: UdpWire.FLAG_VIDEO, bytes: [UInt8](repeating: 5, count: UdpWire.SHARD * 2 * UdpWire.MAX_K), ratio: 0.25)
+        XCTAssertGreaterThan(frags.map(\.blocks).max() ?? 0, 1)
+        frags.forEach { _ = r.push($0, nowUs: 0) }
+        let report = r.takeReports()
+        XCTAssertEqual(1, report.count)
+        XCTAssertEqual(frags.count, report.first?.total)
+        XCTAssertEqual(frags.count, report.first?.received)
+    }
+
     // MARK: The link
 
     /// A tiny host stand-in: answers heartbeats, rebuilds messages, acknowledges reliable ones.

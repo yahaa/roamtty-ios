@@ -31,8 +31,8 @@ final class DesktopTextTests: XCTestCase {
     }
 
     func testInstallAndFailureCopy() {
-        XCTAssertEqual(DesktopText.installing(version: "0.8.0", target: "linux-x86_64").text(english: false), "安装桌面插件 0.8.0（linux-x86_64）")
-        XCTAssertEqual(DesktopText.installing(version: "0.8.0", target: "linux-x86_64").text(english: true), "Installing desktop plugin 0.8.0 (linux-x86_64)")
+        XCTAssertEqual(DesktopText.installing(version: "0.8.1", target: "linux-x86_64").text(english: false), "安装桌面插件 0.8.1（linux-x86_64）")
+        XCTAssertEqual(DesktopText.installing(version: "0.8.1", target: "linux-x86_64").text(english: true), "Installing desktop plugin 0.8.1 (linux-x86_64)")
         XCTAssertEqual(DesktopText.pluginStartFailedCode(127).text(english: false), "桌面插件启动失败（退出码 127）")
         XCTAssertEqual(DesktopText.lostOver30s.text(english: false), "连接中断超过 30 秒，桌面已断开")
         XCTAssertEqual(DesktopText.openedElsewhere.text(english: false), "已在另一台设备上打开")

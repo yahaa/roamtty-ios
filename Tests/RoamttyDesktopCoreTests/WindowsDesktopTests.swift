@@ -79,7 +79,7 @@ final class WindowsDesktopTests: XCTestCase {
         let exe = Data("MZ fake".utf8)
         var steps: [DesktopPluginInstaller.Step] = []
         let installer = DesktopPluginInstaller(remote: host, fetch: { $0.hasSuffix(".exe") ? exe : Data("bz".utf8) }, onStep: { steps.append($0) })
-        let result = installer.install(.init(version: "0.8.0", url: "https://x/windows-x64.exe", sha256: PluginManifest.sha256Hex(exe), openh264Url: "https://c/openh264-2.6.0-win64.dll.bz2"))
+        let result = installer.install(.init(version: "0.8.1", url: "https://x/windows-x64.exe", sha256: PluginManifest.sha256Hex(exe), openh264Url: "https://c/openh264-2.6.0-win64.dll.bz2"))
         XCTAssertEqual(result, .installed)
         XCTAssertEqual(steps, [.hostDownload, .phoneDownload, .upload, .verify, .encoderHost, .encoderPhone, .register, .done])
         XCTAssertTrue(scripts.contains { $0.contains(#"$f = "$env:USERPROFILE\.roamtty\bin\roamtty-desktop-"#) && $0.contains("Get-FileHash") })

@@ -36,9 +36,9 @@ final class DesktopProbeTests: XCTestCase {
         // Installed: the probe reads its version line.
         try FileManager.default.createDirectory(at: home.appendingPathComponent(".roamtty/bin"), withIntermediateDirectories: true)
         let bin = home.appendingPathComponent(".roamtty/bin/roamtty-desktop")
-        try Data("#!/bin/sh\necho 'roamtty-desktop 0.8.0 proto 1'\n".utf8).write(to: bin)
+        try Data("#!/bin/sh\necho 'roamtty-desktop 0.8.1 proto 1'\n".utf8).write(to: bin)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bin.path)
-        XCTAssertEqual(DesktopProbeScript.probe(host)?.version, "0.8.0")
+        XCTAssertEqual(DesktopProbeScript.probe(host)?.version, "0.8.1")
     }
 
     /// No POSIX shell answered: the PowerShell probe goes next.

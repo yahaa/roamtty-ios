@@ -144,9 +144,10 @@ public final class UdpLink: @unchecked Sendable {
 
     /// Sends a whole protocol frame; `reliable` ones are resent until the host acknowledges them.
     public func send(_ frame: [UInt8], reliable: Bool) {
+        // Ids are u32 on the wire (RACKs come back as u32): wrap the same way here, so they still match.
         let id: Int64 = locked {
-            if reliable { defer { reliableSeq += 1 }; return reliableSeq * 2 + 1 }
-            defer { plainSeq += 1 }; return plainSeq * 2
+            if reliable { defer { reliableSeq += 1 }; return (reliableSeq * 2 + 1) & 0xFFFF_FFFF }
+            defer { plainSeq += 1 }; return (plainSeq * 2) & 0xFFFF_FFFF
         }
         let frags = UdpWire.fragment(msg: id, flags: reliable ? UdpWire.FLAG_RELIABLE : 0, bytes: frame,
                                      ratio: reliable && frame.count > UdpWire.SHARD ? 0.25 : 0)

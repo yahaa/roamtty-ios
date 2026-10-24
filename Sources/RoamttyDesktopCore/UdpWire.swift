@@ -256,7 +256,10 @@ public final class Reassembler {
         p.lastUs = nowUs
         let b: Block
         if let existing = p.blocks[f.block] { b = existing } else { b = Block(k: f.k, len: f.len, n: n); p.blocks[f.block] = b; p.total += n }
-        if b.data != nil || b.shards.count != n || b.shards[f.index] != nil { return nil }
+        if b.shards.count != n { return nil }
+        // A shard of a block already rebuilt still arrived: count it, or the host's rate control sees loss.
+        if b.data != nil { p.received += 1; return nil }
+        if b.shards[f.index] != nil { return nil }
         b.shards[f.index] = f.shard
         p.received += 1
         if b.shards.lazy.filter({ $0 != nil }).count >= b.k {
@@ -314,12 +317,14 @@ public final class Reassembler {
         return out
     }
 
-    /// Gives up on messages quiet for `timeoutUs`; returns the video ones lost.
+    /// Gives up on messages quiet for `timeoutUs`; returns the video ones lost. A reliable message is only
+    /// forgotten, not marked done: the sender keeps resending it until it is acknowledged, so a resend must
+    /// start it over rather than be acknowledged unseen.
     public func expire(nowUs: Int64, timeoutUs: Int64) -> [Int64] {
         let stale = pending.filter { nowUs - $0.value.lastUs > timeoutUs }.keys.sorted()
         return stale.compactMap { m in
             let p = pending.removeValue(forKey: m)!
-            finish(m, p, outcome: 0, nowUs: nowUs)
+            if p.flags & UdpWire.FLAG_RELIABLE == 0 { finish(m, p, outcome: 0, nowUs: nowUs) }
             return p.flags & UdpWire.FLAG_VIDEO != 0 ? m : nil
         }
     }
