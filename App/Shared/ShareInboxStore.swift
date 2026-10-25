@@ -167,13 +167,15 @@ enum ShareInboxStore {
                 total += size
                 let file = try FileHandle(forReadingFrom: url); defer { try? file.close() }
                 var chunks = 0; var actual = 0
-                while let bytes = try file.read(upToCount: chunkSize), !bytes.isEmpty {
+                while try autoreleasepool(invoking: { () throws -> Bool in
                     try cancellation.check()
+                    guard let bytes = try file.read(upToCount: chunkSize), !bytes.isEmpty else { return false }
                     actual += bytes.count
                     guard actual <= size else { throw failure("Shared file changed while copying") }
                     let account = "\(id)/\(index)/\(chunks)"
                     try write(bytes, account: account); written.append(account); chunks += 1
-                }
+                    return true
+                }) { }
                 guard actual == size else { throw failure("Shared file changed while copying") }
                 items.append(Item(name: url.lastPathComponent, count: chunks, size: size))
             }

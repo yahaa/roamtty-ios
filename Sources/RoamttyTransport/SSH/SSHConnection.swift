@@ -72,26 +72,110 @@ public final class SSHConnection: @unchecked Sendable {
     @discardableResult
     func retry(timeout: TimeInterval = 20, cancelled: () -> Bool = { false }, _ operation: () -> Int32) throws -> Int32 {
         let until = Date().addingTimeInterval(timeout)
+        var pending = false
         while true {
-            guard !isStopped, !cancelled() else { throw RoamError.cancelled }
+            if isStopped {
+                // Finish only an operation already retained by libssh2. The
+                // caller still receives cancellation, never business success.
+                if pending { settle(timeout: 0, operation) }
+                throw RoamError.cancelled
+            }
+            guard !cancelled() else { throw RoamError.cancelled }
             let value = locked(operation)
-            if value != LIBSSH2_ERROR_EAGAIN {
+            pending = value == LIBSSH2_ERROR_EAGAIN
+            if !pending {
                 guard value >= 0 else { throw error(value) }
                 return value
             }
-            guard Date() < until else { throw RoamError.timeout }
-            try networkWait()
+            guard Date() < until else {
+                disconnect(); settle(timeout: 0, operation)
+                throw RoamError.timeout
+            }
+            do { try networkWait() }
+            catch {
+                if isStopped { settle(timeout: 0, operation) }
+                throw error
+            }
+        }
+    }
+    /// Destructors and already-started requests retain native state through EAGAIN.
+    /// Cancellation must finish that local state before its owner releases the resource.
+    @discardableResult
+    func settle(timeout: TimeInterval, flushing channel: OpaquePointer? = nil, _ operation: () -> Int32) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        var abortIO = false
+        while true {
+            let result = locked {
+                guard abortIO, isStopped, let session else { return operation() }
+                // A pending packet can keep returning EAGAIN even after socket shutdown
+                // (including custom socket callbacks). Fail its I/O while holding the
+                // library lock so libssh2 can finish local destruction without a wait.
+                let sendCallback = unsafeBitCast(stoppedCleanupSend, to: (@convention(c) () -> Void).self)
+                let recvCallback = unsafeBitCast(stoppedCleanupReceive, to: (@convention(c) () -> Void).self)
+                let send = libssh2_session_callback_set2(session, LIBSSH2_CALLBACK_SEND, sendCallback)
+                let recv = libssh2_session_callback_set2(session, LIBSSH2_CALLBACK_RECV, recvCallback)
+                defer {
+                    _ = libssh2_session_callback_set2(session, LIBSSH2_CALLBACK_SEND, send)
+                    _ = libssh2_session_callback_set2(session, LIBSSH2_CALLBACK_RECV, recv)
+                }
+                if let channel {
+                    // A retained channel-data packet must finish before EOF or
+                    // close can start with a different native packet address.
+                    _ = libssh2_channel_write_ex(channel, 0, nil, 0)
+                }
+                return operation()
+            }
+            if result != LIBSSH2_ERROR_EAGAIN {
+                if result < 0 { _ = error(result) }
+                return result >= 0
+            }
+            if isStopped {
+                abortIO = true
+                // Another channel may own the retained transport packet. Let
+                // its owner finish destruction under the same library lock.
+                Thread.sleep(forTimeInterval: 0.001)
+                continue
+            }
+            if Date() >= deadline { disconnect(); abortIO = true; continue }
+            do { try networkWait() }
+            catch { disconnect(); abortIO = true }
         }
     }
     func pointer(timeout: TimeInterval = 20, cancelled: () -> Bool = { false }, _ operation: () -> OpaquePointer?) throws -> OpaquePointer {
         let until = Date().addingTimeInterval(timeout)
+        var pending = false
+        func finishStoppedRequest() -> OpaquePointer? {
+            var pointer: OpaquePointer?
+            settle(timeout: 0) {
+                pointer = operation()
+                return pointer == nil ? libssh2_session_last_errno(session) : 0
+            }
+            return pointer
+        }
         while true {
-            guard !isStopped, !cancelled() else { throw RoamError.cancelled }
+            if isStopped {
+                // A buffered successful result must reach its owning caller's
+                // defer, even if disconnect won the race with native init/open.
+                if pending, let pointer = finishStoppedRequest() { return pointer }
+                throw RoamError.cancelled
+            }
+            guard !cancelled() else { throw RoamError.cancelled }
             let result: (OpaquePointer?, Int32) = locked { let p = operation(); return (p, p == nil ? libssh2_session_last_errno(session) : 0) }
             if let p = result.0 { return p }
-            guard result.1 == LIBSSH2_ERROR_EAGAIN else { throw error(result.1) }
-            guard Date() < until else { throw RoamError.timeout }
-            try networkWait()
+            pending = result.1 == LIBSSH2_ERROR_EAGAIN
+            guard pending else { throw error(result.1) }
+            guard Date() < until else {
+                disconnect()
+                // Return a successful native open to its owner for disposal;
+                // otherwise preserve the timeout that invalidated the session.
+                if let pointer = finishStoppedRequest() { return pointer }
+                throw RoamError.timeout
+            }
+            do { try networkWait() }
+            catch {
+                if isStopped, let pointer = finishStoppedRequest() { return pointer }
+                throw error
+            }
         }
     }
     func error(_ code: Int32) -> RoamError {
@@ -211,9 +295,8 @@ public final class SSHConnection: @unchecked Sendable {
             // A second init cannot start while the first remains in EAGAIN.
             // Finish the shared init sequence, then dispose a cancelled result.
             let sftp = try pointer { libssh2_sftp_init(session) }
-            if cancelled() {
-                do { try retry(timeout: 10) { libssh2_sftp_shutdown(sftp) } }
-                catch { if error as? RoamError == .timeout { disconnect() } }
+            if isStopped || cancelled() {
+                settle(timeout: 10) { libssh2_sftp_shutdown(sftp) }
                 throw RoamError.cancelled
             }
             return sftp
@@ -247,8 +330,8 @@ public final class SSHConnection: @unchecked Sendable {
         }
     }
     func closeChannel(_ channel: OpaquePointer) {
-        _ = try? retry(timeout: 2) { libssh2_channel_close(channel) }
-        locked { _ = libssh2_channel_free(channel) }
+        settle(timeout: 2, flushing: channel) { libssh2_channel_close(channel) }
+        settle(timeout: 2, flushing: channel) { libssh2_channel_free(channel) }
     }
     /// Closing a pipe-backed exec channel does not stop its remote process.
     /// Signal this channel's process group first, leaving other exec/PTY/SFTP
@@ -331,7 +414,13 @@ public final class SSHConnection: @unchecked Sendable {
     static let burstLimit = 128 * 1024
     public func runTerminal(onOutput: @escaping (Data) -> Void) throws {
         guard let channel = terminal else { throw RoamError.invalid("Terminal is not open") }
+        var sizing: (Int, Int)?
         defer {
+            // Resize uses a raw nonblocking call so input/output can interleave.
+            // Its retained packet must unwind before another channel can close.
+            if isStopped, let size = sizing {
+                settle(timeout: 0) { libssh2_channel_request_pty_size_ex(channel, Int32(size.0), Int32(size.1), 0, 0) }
+            }
             stateLock.lock(); acceptingInput = false; input.reset(); terminal = nil; stateLock.unlock()
             closeChannel(channel); onPhase?(.disconnected)
         }
@@ -340,7 +429,6 @@ public final class SSHConnection: @unchecked Sendable {
         var lastAlive = Date()
         // libssh2 resends the request it started after EAGAIN and ignores the size passed with the retry, so the
         // size in flight is kept apart from a newer one, which goes once it is done.
-        var sizing: (Int, Int)?
         while !isStopped {
             stateLock.lock()
             if sizing == nil { sizing = pendingSize; pendingSize = nil }
@@ -469,3 +557,10 @@ public final class SSHConnection: @unchecked Sendable {
     public func cancelTransfers() { stateLock.lock(); transferGeneration += 1; stateLock.unlock() }
     func transferEpoch() -> Int { stateLock.lock(); defer { stateLock.unlock() }; return transferGeneration }
 }
+
+// libssh2 socket callbacks return negative errno, rather than setting errno.
+private let stoppedCleanupReceive: @convention(c) (Int32, UnsafeRawPointer?, Int, Int32, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> Int = { _, _, _, _, _ in -Int(ENOTCONN) }
+
+// Discard output only after socket shutdown. Reporting a complete send lets
+// libssh2 clear its retained packet slot before its final receive fails.
+private let stoppedCleanupSend: @convention(c) (Int32, UnsafeRawPointer?, Int, Int32, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> Int = { _, _, count, _, _ in count }
