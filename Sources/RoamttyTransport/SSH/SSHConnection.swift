@@ -23,6 +23,15 @@ public final class SSHConnection: @unchecked Sendable {
     private let creationCondition = NSCondition()
     private var creatingChannel = false
     var session: OpaquePointer?
+    // Raw read/write/resize calls interleave on a worker. EAGAIN does not imply
+    // that the most recent call owns libssh2's one retained transport packet.
+    private struct PendingChannelIO {
+        var read: (stream: Int32, count: Int)?
+        var write: (stream: Int32, bytes: Data)?
+        var resize: (columns: Int32, rows: Int32, width: Int32, height: Int32)?
+        var isEmpty: Bool { read == nil && write == nil && resize == nil }
+    }
+    private var pendingChannelIO: [OpaquePointer: PendingChannelIO] = [:]
     private var socket: Int32 = -1
     private var terminal: OpaquePointer?
     private var stopped = false
@@ -98,10 +107,71 @@ public final class SSHConnection: @unchecked Sendable {
             }
         }
     }
+    /// Keep the exact retry arguments until the raw native operation completes.
+    /// Recording and stopped replay use the same library lock as ordinary I/O.
+    func readChannel(_ channel: OpaquePointer, _ stream: Int32, _ bytes: UnsafeMutablePointer<CChar>?, _ count: Int) -> Int {
+        locked {
+            let result = libssh2_channel_read_ex(channel, stream, bytes, count)
+            var pending = pendingChannelIO[channel] ?? PendingChannelIO()
+            if result == LIBSSH2_ERROR_EAGAIN { pending.read = pending.read ?? (stream, count) }
+            else { pending.read = nil }
+            storePending(pending, channel: channel)
+            return result
+        }
+    }
+    func writeChannel(_ channel: OpaquePointer, _ stream: Int32, _ bytes: UnsafePointer<CChar>?, _ count: Int) -> Int {
+        locked {
+            let result = libssh2_channel_write_ex(channel, stream, bytes, count)
+            var pending = pendingChannelIO[channel] ?? PendingChannelIO()
+            if result == LIBSSH2_ERROR_EAGAIN, pending.write == nil {
+                // libssh2 writes at most 32700 bytes, even for a larger input.
+                // Own only this in-flight chunk; the caller's buffer may expire.
+                pending.write = (stream, bytes.map { Data(bytes: $0, count: min(count, 32768)) } ?? Data())
+            } else if result != LIBSSH2_ERROR_EAGAIN { pending.write = nil }
+            storePending(pending, channel: channel)
+            return result
+        }
+    }
+    func resizeChannel(_ channel: OpaquePointer, _ columns: Int32, _ rows: Int32, _ width: Int32, _ height: Int32) -> Int32 {
+        locked {
+            let result = libssh2_channel_request_pty_size_ex(channel, columns, rows, width, height)
+            var pending = pendingChannelIO[channel] ?? PendingChannelIO()
+            if result == LIBSSH2_ERROR_EAGAIN { pending.resize = pending.resize ?? (columns, rows, width, height) }
+            else { pending.resize = nil }
+            storePending(pending, channel: channel)
+            return result
+        }
+    }
+    private func storePending(_ pending: PendingChannelIO, channel: OpaquePointer) {
+        if pending.isEmpty { pendingChannelIO.removeValue(forKey: channel) }
+        else { pendingChannelIO[channel] = pending }
+    }
+    /// One bounded pass, under stopped disposal callbacks and libraryLock.
+    /// Never wait for one candidate: its packet can belong to another candidate
+    /// on this very worker. Whichever owns the native slot can finish this pass;
+    /// the remaining candidates finish on the next pass.
+    private func unwindPendingChannelIO() {
+        var scratch = [CChar](repeating: 0, count: 32768)
+        for (channel, var pending) in pendingChannelIO {
+            if let read = pending.read {
+                let result = libssh2_channel_read_ex(channel, read.stream, &scratch, min(read.count, scratch.count))
+                if result != LIBSSH2_ERROR_EAGAIN { pending.read = nil }
+            }
+            if let write = pending.write {
+                let result = write.bytes.withUnsafeBytes { libssh2_channel_write_ex(channel, write.stream, $0.bindMemory(to: CChar.self).baseAddress, $0.count) }
+                if result != LIBSSH2_ERROR_EAGAIN { pending.write = nil }
+            }
+            if let size = pending.resize {
+                let result = libssh2_channel_request_pty_size_ex(channel, size.columns, size.rows, size.width, size.height)
+                if result != LIBSSH2_ERROR_EAGAIN { pending.resize = nil }
+            }
+            storePending(pending, channel: channel)
+        }
+    }
     /// Destructors and already-started requests retain native state through EAGAIN.
     /// Cancellation must finish that local state before its owner releases the resource.
     @discardableResult
-    func settle(timeout: TimeInterval, flushing channel: OpaquePointer? = nil, _ operation: () -> Int32) -> Bool {
+    func settle(timeout: TimeInterval, _ operation: () -> Int32) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         var abortIO = false
         while true {
@@ -118,11 +188,7 @@ public final class SSHConnection: @unchecked Sendable {
                     _ = libssh2_session_callback_set2(session, LIBSSH2_CALLBACK_SEND, send)
                     _ = libssh2_session_callback_set2(session, LIBSSH2_CALLBACK_RECV, recv)
                 }
-                if let channel {
-                    // A retained channel-data packet must finish before EOF or
-                    // close can start with a different native packet address.
-                    _ = libssh2_channel_write_ex(channel, 0, nil, 0)
-                }
+                unwindPendingChannelIO()
                 return operation()
             }
             if result != LIBSSH2_ERROR_EAGAIN {
@@ -130,10 +196,10 @@ public final class SSHConnection: @unchecked Sendable {
                 return result >= 0
             }
             if isStopped {
+                // Give every raw owner one disposal attempt before yielding to
+                // another worker's in-flight retry/pointer operation.
+                if abortIO { Thread.sleep(forTimeInterval: 0.001) }
                 abortIO = true
-                // Another channel may own the retained transport packet. Let
-                // its owner finish destruction under the same library lock.
-                Thread.sleep(forTimeInterval: 0.001)
                 continue
             }
             if Date() >= deadline { disconnect(); abortIO = true; continue }
@@ -330,8 +396,12 @@ public final class SSHConnection: @unchecked Sendable {
         }
     }
     func closeChannel(_ channel: OpaquePointer) {
-        settle(timeout: 2, flushing: channel) { libssh2_channel_close(channel) }
-        settle(timeout: 2, flushing: channel) { libssh2_channel_free(channel) }
+        settle(timeout: 2) { libssh2_channel_close(channel) }
+        settle(timeout: 2) {
+            let result = libssh2_channel_free(channel)
+            if result != LIBSSH2_ERROR_EAGAIN { pendingChannelIO.removeValue(forKey: channel) }
+            return result
+        }
     }
     /// Closing a pipe-backed exec channel does not stop its remote process.
     /// Signal this channel's process group first, leaving other exec/PTY/SFTP
@@ -373,7 +443,7 @@ public final class SSHConnection: @unchecked Sendable {
         while !isStopped, Date() < deadline {
             for stream in 0...1 {
                 let count = buffer.withUnsafeMutableBytes { raw in
-                    locked { libssh2_channel_read_ex(channel, Int32(stream), raw.bindMemory(to: CChar.self).baseAddress, raw.count) }
+                    readChannel(channel, Int32(stream), raw.bindMemory(to: CChar.self).baseAddress, raw.count)
                 }
                 if count < 0 && count != LIBSSH2_ERROR_EAGAIN { return false }
             }
@@ -416,11 +486,6 @@ public final class SSHConnection: @unchecked Sendable {
         guard let channel = terminal else { throw RoamError.invalid("Terminal is not open") }
         var sizing: (Int, Int)?
         defer {
-            // Resize uses a raw nonblocking call so input/output can interleave.
-            // Its retained packet must unwind before another channel can close.
-            if isStopped, let size = sizing {
-                settle(timeout: 0) { libssh2_channel_request_pty_size_ex(channel, Int32(size.0), Int32(size.1), 0, 0) }
-            }
             stateLock.lock(); acceptingInput = false; input.reset(); terminal = nil; stateLock.unlock()
             closeChannel(channel); onPhase?(.disconnected)
         }
@@ -436,14 +501,14 @@ public final class SSHConnection: @unchecked Sendable {
             stateLock.unlock()
             var resized = false
             if let size = sizing {
-                let rc = locked { libssh2_channel_request_pty_size_ex(channel, Int32(size.0), Int32(size.1), 0, 0) }
+                let rc = resizeChannel(channel, Int32(size.0), Int32(size.1), 0, 0)
                 if rc == 0 { sizing = nil; resized = true }
                 else if rc != LIBSSH2_ERROR_EAGAIN { throw error(rc) }
             }
             if !outgoing.isEmpty {
-                let sent = outgoing.withUnsafeBytes { raw in locked {
-                    libssh2_channel_write_ex(channel, 0, raw.bindMemory(to: CChar.self).baseAddress!.advanced(by: offset), outgoing.count - offset)
-                } }
+                let sent = outgoing.withUnsafeBytes { raw in
+                    writeChannel(channel, 0, raw.bindMemory(to: CChar.self).baseAddress!.advanced(by: offset), outgoing.count - offset)
+                }
                 if sent > 0 { offset += sent; if offset == outgoing.count { outgoing.removeAll(keepingCapacity: true); offset = 0 } }
                 else if sent < 0 && sent != LIBSSH2_ERROR_EAGAIN { throw error(Int32(sent)) }
             }
@@ -453,7 +518,7 @@ public final class SSHConnection: @unchecked Sendable {
             for stream in 0...1 {
                 while chunk.count < Self.burstLimit {
                     let count = buffer.withUnsafeMutableBytes { raw in
-                        locked { libssh2_channel_read_ex(channel, Int32(stream), raw.bindMemory(to: CChar.self).baseAddress, raw.count) }
+                        readChannel(channel, Int32(stream), raw.bindMemory(to: CChar.self).baseAddress, raw.count)
                     }
                     if count > 0 { chunk.append(contentsOf: buffer[0..<count]) }
                     else if count < 0 && count != LIBSSH2_ERROR_EAGAIN {
@@ -516,7 +581,7 @@ public final class SSHConnection: @unchecked Sendable {
                 // can fill its output window before all input has been sent.
                 for stream in 0...1 {
                     let count = buffer.withUnsafeMutableBytes { raw in
-                        locked { libssh2_channel_read_ex(channel, Int32(stream), raw.bindMemory(to: CChar.self).baseAddress, raw.count) }
+                        readChannel(channel, Int32(stream), raw.bindMemory(to: CChar.self).baseAddress, raw.count)
                     }
                     if count > 0 {
                         guard count <= limit - output.count else { throw RoamError.invalid("远端响应过大 / Remote response too large") }
@@ -539,9 +604,7 @@ public final class SSHConnection: @unchecked Sendable {
                     return result
                 }
                 if sent < stdin.count {
-                    let count = locked {
-                        libssh2_channel_write_ex(channel, 0, inputBytes.bindMemory(to: CChar.self).baseAddress!.advanced(by: sent), min(32768, stdin.count - sent))
-                    }
+                    let count = writeChannel(channel, 0, inputBytes.bindMemory(to: CChar.self).baseAddress!.advanced(by: sent), min(32768, stdin.count - sent))
                     if count > 0 { sent += count; progressed = true }
                     else if count < 0 && count != LIBSSH2_ERROR_EAGAIN { throw error(Int32(count)) }
                 } else if !eofSent {

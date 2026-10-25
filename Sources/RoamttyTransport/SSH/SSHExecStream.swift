@@ -78,9 +78,9 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
                 if stop { return }
                 var progressed = false
                 if !pending.isEmpty {
-                    let sent = pending.withUnsafeBytes { raw in connection.locked {
-                        libssh2_channel_write_ex(channel, 0, raw.bindMemory(to: CChar.self).baseAddress, pending.count)
-                    } }
+                    let sent = pending.withUnsafeBytes { raw in
+                        connection.writeChannel(channel, 0, raw.bindMemory(to: CChar.self).baseAddress, pending.count)
+                    }
                     if sent > 0 {
                         cond.lock(); outgoing.removeFirst(sent); cond.unlock()
                         progressed = true
@@ -96,7 +96,7 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
                         let want = min(buffer.count, available)
                         if want == 0 { break }
                         let count = buffer.withUnsafeMutableBytes { raw in
-                            connection.locked { libssh2_channel_read_ex(channel, Int32(stream), raw.bindMemory(to: CChar.self).baseAddress, want) }
+                            connection.readChannel(channel, Int32(stream), raw.bindMemory(to: CChar.self).baseAddress, want)
                         }
                         if count > 0 {
                             cond.lock()
