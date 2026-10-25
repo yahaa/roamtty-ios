@@ -113,6 +113,7 @@ import RoamttyTransport
             runtime.discard()
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
+        checks.append(accessibilityTailProbe(host: host)); save()
         do {
             let result = try await performInBackground { try uploadProbe() }
             checks.append(result); save()
@@ -124,6 +125,37 @@ import RoamttyTransport
         checks.append(["name": "finished", "footprintMiB": Diagnostics.footprintMiB() ?? 0,
             "desktopGestureViewsStillRetained": gestures.filter { $0.value != nil }.count,
             "terminalCensus": TerminalCensus.live]); save()
+    }
+
+    private static func accessibilityTailProbe(host: Host) -> [String: Any] {
+        let runtime = SessionRuntime(record: SessionRecord(hostID: host.id, mode: .shell), host: host)
+        defer { runtime.discard() }
+        runtime.configure(settings: AppSettings(), scheme: .dark)
+        let terminal = runtime.terminalView.getTerminal()
+        terminal.resize(cols: 80, rows: 24)
+        terminal.feed(text: String(repeating: "history 历史 👩🏽‍💻 e\u{301} abcdefghijklmnopqrstuvwxyz0123456789\r\n", count: 2100))
+        let byteLimit = 16 * 1024
+        let expected = Data(terminal.getBufferAsData().suffix(byteLimit))
+        var equivalent = true
+        func measure(_ operation: () -> Data) -> [String: Any] {
+            var samples: [Double] = []
+            for _ in 0..<20 {
+                autoreleasepool {
+                    let start = ProcessInfo.processInfo.systemUptime
+                    let result = operation()
+                    samples.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
+                    equivalent = equivalent && result == expected
+                }
+            }
+            samples.sort()
+            return ["iterations": samples.count, "p50Milliseconds": samples[samples.count / 2],
+                "maxMilliseconds": samples.last ?? 0, "sumMilliseconds": samples.reduce(0, +)]
+        }
+        let full = measure { Data(terminal.getBufferAsData().suffix(byteLimit)) }
+        let bounded = measure { terminal.getBufferTailAsData(maxBytes: byteLimit) }
+        return ["name": "terminal_accessibility_tail", "byteLimit": byteLimit, "returnedBytes": expected.count,
+            "passed": equivalent && expected.count == byteLimit, "fullExportThenSuffix": full,
+            "boundedTail": bounded, "timingIsBenchmarkNotPassThreshold": true]
     }
 
     nonisolated private static func uploadProbe() throws -> [String: Any] {
