@@ -31,7 +31,7 @@ import RoamttyDesktopCore
             }
         }
     }
-    func networkChanged() { controllers.values.forEach { $0.session.networkChanged() } }
+    func networkChanged(_ change: NetworkChange) { controllers.values.forEach { $0.session.networkChanged(change) } }
 }
 
 /// One host's desktop on the main actor: owns the `DesktopSession`, the VideoToolbox decoder and the page model.
@@ -403,9 +403,26 @@ extension AppModel {
         if desktopPathMonitor != nil { return }
         let monitor = NWPathMonitor()
         desktopPathMonitor = monitor
-        monitor.pathUpdateHandler = { [weak self] _ in
-            DispatchQueue.main.async { self?.desktopStore?.networkChanged() }
+        // Updates come one at a time on this serial queue, the only place `last` is touched.
+        let queue = DispatchQueue(label: "roamtty.desktop.path", qos: .utility)
+        final class Last: @unchecked Sendable { var interface: String?? = nil }
+        let last = Last()
+        monitor.pathUpdateHandler = { [weak self] path in
+            let current = Self.defaultInterface(path)
+            let change = NetworkChange.between(last.interface, current)
+            last.interface = .some(current)
+            guard let change else { return }
+            DispatchQueue.main.async { self?.desktopStore?.networkChanged(change) }
         }
-        monitor.start(queue: DispatchQueue.global(qos: .utility))
+        monitor.start(queue: queue)
+    }
+
+    /// The interface the traffic goes out on ("cellular:pdp_ip0"), nil without one. A VPN's tunnel
+    /// (Tailscale's utun, type other) is not it: its updates leave the network the same.
+    nonisolated static func defaultInterface(_ path: NWPath) -> String? {
+        guard path.status == .satisfied else { return nil }
+        let kinds: [NWInterface.InterfaceType] = [.wifi, .cellular, .wiredEthernet]
+        guard let i = path.availableInterfaces.first(where: { kinds.contains($0.type) }) else { return nil }
+        return "\(i.type):\(i.name)"
     }
 }

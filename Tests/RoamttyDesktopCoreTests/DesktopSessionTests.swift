@@ -453,6 +453,61 @@ final class DesktopSessionTests: XCTestCase {
         XCTAssertTrue(waitUntil(2) { available.value == false })
     }
 
+    /// The first report is the network in use; the same interface again is only a path update.
+    func testNetworkChangeBetweenReports() {
+        XCTAssertNil(NetworkChange.between(nil, "wifi:en0"))
+        XCTAssertNil(NetworkChange.between(nil, nil))
+        XCTAssertEqual(NetworkChange.between(.some("cellular:pdp_ip0"), "cellular:pdp_ip0"), .pathUpdate)
+        XCTAssertEqual(NetworkChange.between(.some("cellular:pdp_ip0"), "wifi:en0"), .newInterface)
+        XCTAssertEqual(NetworkChange.between(.some(nil), "wifi:en0"), .newInterface, "a network again after none")
+        XCTAssertEqual(NetworkChange.between(.some("wifi:en0"), nil), .newInterface)
+    }
+
+    /// Path updates of the same network (iOS sends them every few seconds on mobile data with a VPN) keep a
+    /// UDP socket that works; one that has gone quiet gets a new socket; SSH alone is left to its pings.
+    func testPathUpdatesKeepAWorkingUdpSocket() throws {
+        let key = [UInt8](repeating: 9, count: 16)
+        let udp = UdpHostStandIn(key: key)
+        let host = FakeHost(probe: FakeHost.probe(), plugin: { s, _ in
+            s.hello(PluginFrames.hello(udp: (60123, key)))
+            s.feed(PluginFrames.video(1))
+        })
+        let s = session(host, udp: udp)
+        s.start()
+        wait(s, "connected", Self.connected)
+        XCTAssertTrue(waitUntil(3) { s.onUdp }, "heartbeats answered")
+        for _ in 0..<3 { s.networkChanged(.pathUpdate); Thread.sleep(forTimeInterval: 0.3) }
+        Thread.sleep(forTimeInterval: 2)
+        XCTAssertEqual(udp.rebinds, 0, "a working socket was replaced")
+        XCTAssertEqual(host.allStreams.count, 1)
+
+        // The same interface but the socket no longer reaches the host (another Wi-Fi on en0).
+        udp.blocked = true
+        let at = Date()
+        s.networkChanged(.pathUpdate)
+        XCTAssertTrue(waitUntil(3) { udp.rebinds == 1 }, "a quiet socket was kept")
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(at), 1.4)
+        XCTAssertEqual(host.allStreams.count, 1, "UDP's trouble left SSH alone")
+
+        // A new interface still rebinds at once.
+        udp.blocked = false
+        XCTAssertTrue(waitUntil(3) { s.onUdp })
+        s.networkChanged(.newInterface)
+        XCTAssertEqual(udp.rebinds, 2)
+    }
+
+    func testPathUpdateOnSshKeepsTheLink() {
+        let host = FakeHost(probe: FakeHost.probe(), plugin: { s, n in Self.goodPlugin(s, n) })
+        let s = session(host)
+        s.start()
+        wait(s, "connected", Self.connected)
+        s.networkChanged(.pathUpdate)
+        Thread.sleep(forTimeInterval: 2)
+        XCTAssertEqual(host.allStreams.count, 1)
+        XCTAssertEqual(host.disconnects, 0)
+        XCTAssertTrue(Self.connected(s.phase))
+    }
+
     /// A network change without UDP drops the SSH link; the loop gets it back with the token.
     func testNetworkChangeOnSshReconnects() {
         let host = FakeHost(probe: FakeHost.probe(), plugin: { s, n in Self.goodPlugin(s, n) })

@@ -60,6 +60,21 @@ public struct DesktopStats: Equatable, Sendable {
 /// worker thread for the attempt loop plus a reader, a writer and a 250 ms ticker per stream; every
 /// callback goes out on `callbackQueue` in order. The SSH login, the phone's downloads, the UDP socket and
 /// the video decoder are injected, so the whole flow runs in tests against a local shell or a fake host.
+/// What `NWPathMonitor` said, as `DesktopSession.networkChanged` needs it.
+public enum NetworkChange: Sendable, Equatable {
+    /// Another interface carries the traffic, or there is one again after none.
+    case newInterface
+    /// The same interface, something else about the path changed.
+    case pathUpdate
+
+    /// `previous` and `current`: the interface the default route uses ("wifi:en0"), nil while there is
+    /// none. Nil for the first report: that is the network the session already uses.
+    public static func between(_ previous: String??, _ current: String?) -> NetworkChange? {
+        guard let previous else { return nil }
+        return previous == current ? .pathUpdate : .newInterface
+    }
+}
+
 public final class DesktopSession: @unchecked Sendable {
     public struct Config: Sendable {
         public var hostName: String
@@ -133,6 +148,9 @@ public final class DesktopSession: @unchecked Sendable {
 
     // Serialize transport media delivery with pause/resume and stream publication. No state
     // lock is held across a sink callback; synchronous reentry on this executor is supported.
+    /// How long a UDP link may hear nothing after a path update before it gets a new socket: the host
+    /// answers our heartbeats (four a second), so a working link is never this quiet.
+    static let pathUpdateQuietUs: Int64 = 1_500_000
     private let mediaQueue = DispatchQueue(label: "roamtty.desktop.media")
     private let mediaKey = DispatchSpecificKey<Bool>()
     private func mediaSync<T>(_ body: () -> T) -> T {
@@ -845,9 +863,26 @@ public final class DesktopSession: @unchecked Sendable {
 
     /// A new network. On UDP: a new socket and three heartbeats now, plus a keyframe. On SSH: drop the old
     /// socket instead of waiting for keepalives; the loop resumes it.
-    public func networkChanged() {
+    ///
+    /// `.pathUpdate` is something else about the same network (a VPN's interface, the radio, DNS): iOS
+    /// reports those too, and a new socket for each moved the port every 3-25 s on mobile data, losing
+    /// what was on its way each time. Then only a UDP link that hears nothing for `pathUpdateQuietUs`
+    /// gets a new socket (Wi-Fi to another Wi-Fi keeps the interface but not the socket's address); SSH
+    /// is left to its pings.
+    public func networkChanged(_ change: NetworkChange = .newInterface) {
         let (ok, l, s, h) = sync { (everConnected && !closing, link, stream, host) }
         guard ok else { return }
+        if change == .pathUpdate {
+            guard let l, l.alive else { return }
+            DispatchQueue.global().asyncAfter(deadline: .now() + .microseconds(Int(Self.pathUpdateQuietUs))) { [weak self] in
+                guard let self, self.sync({ self.link === l && !self.closing }), l.silentUs >= Self.pathUpdateQuietUs else { return }
+                self.line("network changed, UDP silent, rebinding")
+                l.rebind()
+                self.sync { self.lastKeyAskMs = 0 }
+                self.askKeyframe()
+            }
+            return
+        }
         if let l, l.alive {
             line("network changed, rebinding UDP")
             l.rebind()
