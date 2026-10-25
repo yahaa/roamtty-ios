@@ -2,7 +2,9 @@
 
 **Goal:** Fix all eight primary findings and four additional findings from the 2026-10-25 review of `ed1ac19`, validate on the connected iPhone, and explain the causes and verification in a PR.
 
-**Architecture:** Keep current app boundaries. Make ownership explicit, separate cancellation from native destruction, bound work at its real queue, and preserve user intent independently of connection phases. Patch the pinned SwiftTerm sources locally with documented provenance rather than editing package caches. Use testable core components for scheduling and byte budgets where appropriate.
+**Architecture:** Keep current app boundaries. Make ownership explicit, separate cancellation from native destruction, bound work at its real queue, and preserve user intent independently of connection phases. Carry the two SwiftTerm patches in the user's fork, pinned to an exact commit with documented provenance. Use testable core components for scheduling and byte budgets where appropriate.
+
+**Dependency plan amendment:** After the initial implementation, the user requested a GitHub fork to remove the large source import from the app PR. Task 3's historical vendoring steps below are superseded by [the fork dependency](../../dependencies/swiftterm.md); the two library patches remain byte-identical.
 
 **Tech stack:** Swift 5 mode / Swift tools 6, SwiftUI/UIKit, libssh2, CoreMedia/VideoToolbox, SwiftTerm 1.13.0, SwiftPM and generated Xcode project.
 

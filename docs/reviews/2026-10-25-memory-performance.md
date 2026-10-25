@@ -70,7 +70,9 @@ Scope harness 使用可控的系统权限钩子来确认原始 URL 与 start/sto
 
 ## 依赖与复核
 
-SwiftTerm 固定在 v1.13.0 / `8e7a1e154f470e19c709a00a8768df348ba5fc43`，引入的 73 个源码/许可文件逐一校验，72 个与上游字节一致。唯一上游源文件改动为 `Terminal.swift` 中弱捕获的 reset 回调与有界尾部接口；本地 package、工程生成器与终端 harness 使用同一份源码。保留 MIT 许可与下游改动说明。
+SwiftTerm 基于 v1.13.0 / `8e7a1e154f470e19c709a00a8768df348ba5fc43`，现改用用户账号下的 [yahaa/SwiftTerm fork](https://github.com/yahaa/SwiftTerm)，App 与终端 harness 都锁定完整提交 `0a311223749cf1b96294772a2c5478be67915572`。移除 App 仓库中的 `ThirdParty/SwiftTerm` 源码副本，保留 MIT 许可及[补丁来源说明](../dependencies/swiftterm.md)。fork 保留上游 package 和仓库结构，唯一源码差异是 `Terminal.swift` 的 reset 弱捕获与有界尾部接口（+26/-1）；迁移前逐一确认 73 个源码/许可文件与此前审查版本字节一致，其中 72 个与上游一致。
+
+迁移验证：Xcode 与 SwiftPM 均从 fork 拉取并解析到上述完整提交，两个实际 checkout 均干净；终端回归重新执行 **783 项全部通过**（URL 518、宽字符 17、滚动 33、内存 215），工程重生成无额外变化，iPhone 优化 Debug **2026102512** 构建通过。此构建在同一手机复测普通/reset 后终端模型、runtime 与视图均 **0/10** 残留，16 KiB 尾部逐字节等价，20 次提取中位数 **2.164 ms → 0.289 ms**。仅迁移依赖来源，没有再次改动 App、核心业务或测试用例实现；此前其他完整回归的候选标识和覆盖边界保持上文所述。
 
 完整分支独立复核在 `cb78903` 结束时没有 Critical/Important，指出两项非阻断 Minor。本次一并处理，并在 `81c73bc` 完成唯一一轮定向复核，两个发现均 ADDRESSED，无新增问题：
 

@@ -3,11 +3,11 @@
 // run through scripts/test-terminal-url.sh.
 import PackageDescription
 
-let swiftTerm = "../../ThirdParty/SwiftTerm"
+let swiftTerm = "https://github.com/yahaa/SwiftTerm.git"
 let package = Package(
     name: "TerminalUrlChecks",
     platforms: [.macOS(.v13)],
-    dependencies: [.package(path: swiftTerm)],
+    dependencies: [.package(url: swiftTerm, revision: "0a311223749cf1b96294772a2c5478be67915572")],
     targets: [
         .executableTarget(name: "TerminalMemoryChecks", dependencies: [.product(name: "SwiftTerm", package: "SwiftTerm")]),
         .executableTarget(name: "TerminalUrlChecks", dependencies: [.product(name: "SwiftTerm", package: "SwiftTerm")]),

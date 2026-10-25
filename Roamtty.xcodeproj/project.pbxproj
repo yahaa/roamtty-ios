@@ -3564,8 +3564,12 @@
 			"productType" = "com.apple.product-type.bundle.ui-testing";
 		};
 		"01AC32DF7ED67D23A6DE0B00" = {
-			"isa" = "XCLocalSwiftPackageReference";
-			"relativePath" = "ThirdParty/SwiftTerm";
+			"isa" = "XCRemoteSwiftPackageReference";
+			"repositoryURL" = "https://github.com/yahaa/SwiftTerm.git";
+			"requirement" = {
+				"kind" = "revision";
+				"revision" = "0a311223749cf1b96294772a2c5478be67915572";
+			};
 		};
 		"A61F807B6AB9E19D98833099" = {
 			"isa" = "XCSwiftPackageProductDependency";
