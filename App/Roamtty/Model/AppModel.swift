@@ -149,6 +149,11 @@ import RoamttyTransport
             desktopStore?.live.forEach { $0.resume() }
             startDesktopPathMonitor()
         }
+        #if DEBUG
+        // Fixture diagnostics use separate stores and must not consume the user's shared inbox.
+        let diagnostics = ["--device-validation", "--memory-validation", "--desktop-memory-validation"]
+        if ProcessInfo.processInfo.arguments.contains(where: { diagnostics.contains($0) }) { return }
+        #endif
         let existing = Set(incomingFiles + files.pendingUploadURLs).union(files.activeUploadURLs)
         incomingFiles.append(contentsOf: SharedInbox.consume().filter { !existing.contains($0) })
     }
