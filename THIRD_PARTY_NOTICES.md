@@ -4,7 +4,7 @@ Roamtty iOS is copyright 2026 Roamtty contributors, licensed under Apache-2.0. T
 
 | Component | Version | License |
 | --- | --- | --- |
-| SwiftTerm, Miguel de Icaza and contributors | 1.13.0 | MIT, `licenses/SwiftTerm-MIT.txt` |
+| SwiftTerm, Miguel de Icaza and contributors | 1.13.0 + [fork patches at `0a311223`](https://github.com/yahaa/SwiftTerm/commit/0a311223749cf1b96294772a2c5478be67915572); [provenance](docs/dependencies/swiftterm.md) | MIT, `licenses/SwiftTerm-MIT.txt` |
 | libssh2 | 1.11.1 | BSD, `licenses/libssh2-BSD.txt` |
 | OpenSSL | 3.5.9 (Apple build) | Apache-2.0, `licenses/OpenSSL-Apache-2.0.txt` |
 | zlib and SQLite | Apple system libraries | zlib license / public domain |

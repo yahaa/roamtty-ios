@@ -630,6 +630,10 @@ private struct DesktopGestureOverlay: UIViewRepresentable {
         uiView.controller = controller
         uiView.boundsSize = size
     }
+    static func dismantleUIView(_ uiView: DesktopGestureView, coordinator: ()) {
+        uiView.stopTicking()
+        uiView.controller = nil
+    }
 }
 
 final class DesktopGestureView: UIView {
@@ -637,6 +641,11 @@ final class DesktopGestureView: UIView {
     var boundsSize: CGSize = .zero
     private let gestures = DesktopGestures(mode: .touch, density: 1)
     private var timer: CADisplayLink?
+    private final class TickTarget: NSObject {
+        weak var view: DesktopGestureView?
+        init(_ view: DesktopGestureView) { self.view = view }
+        @objc func tick() { view?.tick() }
+    }
     private var twoFingerActive = false
     private var lastPoint: CGPoint = .zero
 
@@ -645,11 +654,21 @@ final class DesktopGestureView: UIView {
         backgroundColor = .clear
         isMultipleTouchEnabled = true
         isUserInteractionEnabled = true
-        timer = CADisplayLink(target: self, selector: #selector(tick))
-        timer?.add(to: .main, forMode: .common)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:)") }
     deinit { timer?.invalidate() }
+
+    private func startTicking() {
+        guard timer == nil else { return }
+        timer = CADisplayLink(target: TickTarget(self), selector: #selector(TickTarget.tick))
+        timer?.add(to: .main, forMode: .common)
+    }
+
+    func stopTicking() {
+        timer?.invalidate(); timer = nil
+        twoFingerActive = false
+        apply(gestures.cancel())
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -742,7 +761,11 @@ final class DesktopGestureView: UIView {
         super.pressesEnded(presses, with: event)
     }
     override var canBecomeFirstResponder: Bool { true }
-    override func didMoveToWindow() { becomeFirstResponder() }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil { startTicking(); becomeFirstResponder() }
+        else { stopTicking() }
+    }
 
     private func show(_ vp: Viewport) {
         gestures.viewport = vp

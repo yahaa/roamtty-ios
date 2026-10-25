@@ -115,7 +115,7 @@
 				"CLANG_CXX_LANGUAGE_STANDARD" = "c++17";
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"DEVELOPMENT_TEAM" = "";
+				"DEVELOPMENT_TEAM" = "8LN388NLF4";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -170,7 +170,7 @@
 				"CLANG_CXX_LANGUAGE_STANDARD" = "c++17";
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"DEVELOPMENT_TEAM" = "";
+				"DEVELOPMENT_TEAM" = "8LN388NLF4";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -314,6 +314,16 @@
 		"1CB14EDEF94FCCA05A1797F7" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "014BC45F59967C01823B86D0";
+		};
+		"888D25239A31B49E2AD6D34C" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyCore/Preview/BoundedImagePool.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"3906F37DA46372CA323D058D" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "888D25239A31B49E2AD6D34C";
 		};
 		"2A62D01C332DFCB74A61A00D" = {
 			"isa" = "PBXFileReference";
@@ -547,6 +557,7 @@
 				"562F181FB651C53CC865F2D8",
 				"51507094103D07E53961CCDF",
 				"1CB14EDEF94FCCA05A1797F7",
+				"3906F37DA46372CA323D058D",
 				"89B85E79BEB64FE36D24740F",
 				"1FEB3F6A48C9E816697D6AD6",
 				"885DE950DB7E52AFB2AB480E",
@@ -598,7 +609,7 @@
 				"CLANG_CXX_LANGUAGE_STANDARD" = "c++17";
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"DEVELOPMENT_TEAM" = "";
+				"DEVELOPMENT_TEAM" = "8LN388NLF4";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -651,7 +662,7 @@
 				"CLANG_CXX_LANGUAGE_STANDARD" = "c++17";
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"DEVELOPMENT_TEAM" = "";
+				"DEVELOPMENT_TEAM" = "8LN388NLF4";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -858,7 +869,7 @@
 				"CLANG_CXX_LANGUAGE_STANDARD" = "c++17";
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"DEVELOPMENT_TEAM" = "";
+				"DEVELOPMENT_TEAM" = "8LN388NLF4";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -911,7 +922,7 @@
 				"CLANG_CXX_LANGUAGE_STANDARD" = "c++17";
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"DEVELOPMENT_TEAM" = "";
+				"DEVELOPMENT_TEAM" = "8LN388NLF4";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -1083,6 +1094,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "C98ABC51B61EF1EC84EED5A2";
 		};
+		"9F8DFDFC2283FA04515B24AF" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/DesktopSampleBuffer.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"BAB24D5F75A21E9F2676D821" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "9F8DFDFC2283FA04515B24AF";
+		};
 		"CE9BA8BA2A37F5CCF917E751" = {
 			"isa" = "PBXFileReference";
 			"path" = "Sources/RoamttyDesktopCore/DesktopSession.swift";
@@ -1234,6 +1255,7 @@
 				"E49242D5611CDF69D504DF56",
 				"758F5AAD9C18F6AF53CA0022",
 				"D26F2BF62D1C7D298BF9465C",
+				"BAB24D5F75A21E9F2676D821",
 				"FBF8E68E4A9AE31D86BAECBD",
 				"A1146D9AF1EF7FB3DB85367C",
 				"0066DC03235B3C8A518732FD",
@@ -1272,7 +1294,7 @@
 				"CLANG_CXX_LANGUAGE_STANDARD" = "c++17";
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"DEVELOPMENT_TEAM" = "";
+				"DEVELOPMENT_TEAM" = "8LN388NLF4";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -1325,7 +1347,7 @@
 				"CLANG_CXX_LANGUAGE_STANDARD" = "c++17";
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"DEVELOPMENT_TEAM" = "";
+				"DEVELOPMENT_TEAM" = "8LN388NLF4";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -1418,6 +1440,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "5840B97A1E2E2F0D654FAFB9";
 		};
+		"404F0694E3CD88C22A958250" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Debug/DesktopMemoryValidation.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"3D844E0D227A8063160AC9D1" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "404F0694E3CD88C22A958250";
+		};
 		"0C1A6AD0AC6F4BD341261786" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/Roamtty/Debug/DeviceValidation.swift";
@@ -1427,6 +1459,16 @@
 		"5F29D1EC30498895BFD1E919" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "0C1A6AD0AC6F4BD341261786";
+		};
+		"C4719BB7A40C69B4BB90949C" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Debug/MemoryValidation.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"9107B4B12E6AE7BF68C39086" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "C4719BB7A40C69B4BB90949C";
 		};
 		"1C0F55BC984A00E2FE1CB0B1" = {
 			"isa" = "PBXFileReference";
@@ -1637,6 +1679,16 @@
 		"E7E9E5D09D1F5784DDFF1857" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "2B29743BE80BD90DF11BEB3D";
+		};
+		"40AA4359756DB6C26027B26A" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Features/Files/MarkdownImagePipeline.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"09B35AFD659A171529340D2D" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "40AA4359756DB6C26027B26A";
 		};
 		"232194980784D32A81AEA7CC" = {
 			"isa" = "PBXFileReference";
@@ -2258,6 +2310,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "275E3DB022CBE6D670178A5A";
 		};
+		"D513F8D4A0521592F6428607" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Shared/ShareInboxWorker.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"35FF0A10D774AB5B8D1DA8B0" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "D513F8D4A0521592F6428607";
+		};
 		"BD51FD0F287C65ECDF9A9F79" = {
 			"isa" = "PBXSourcesBuildPhase";
 			"buildActionMask" = "2147483647";
@@ -2265,7 +2327,9 @@
 				"1A614097A9E46C3DB794D778",
 				"C7716B50DC300605E10A3F99",
 				"DAC524378CE113C35523C793",
+				"3D844E0D227A8063160AC9D1",
 				"5F29D1EC30498895BFD1E919",
+				"9107B4B12E6AE7BF68C39086",
 				"44F479433619B4F5A7468B09",
 				"9699B4480291573D8C2E930D",
 				"179E50ED71330E6075745B84",
@@ -2287,6 +2351,7 @@
 				"60F3BCFA90F9D214839000F7",
 				"B1A91E5F88B13703D0928823",
 				"E7E9E5D09D1F5784DDFF1857",
+				"09B35AFD659A171529340D2D",
 				"6A6E75D9B7D5DEEA9CBBE1CA",
 				"08720E265443354DB99147B5",
 				"297B48B5A7103B1508062E56",
@@ -2349,6 +2414,7 @@
 				"3CA37FF21651889E6D99B981",
 				"F2664F6988963FD8EF5C00F8",
 				"1FC050EFE9B74172005CD96C",
+				"35FF0A10D774AB5B8D1DA8B0",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
 		};
@@ -2722,7 +2788,7 @@
 				"CLANG_CXX_LANGUAGE_STANDARD" = "c++17";
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"DEVELOPMENT_TEAM" = "";
+				"DEVELOPMENT_TEAM" = "8LN388NLF4";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -2781,7 +2847,7 @@
 				"CLANG_CXX_LANGUAGE_STANDARD" = "c++17";
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"DEVELOPMENT_TEAM" = "";
+				"DEVELOPMENT_TEAM" = "8LN388NLF4";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -2934,12 +3000,17 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "275E3DB022CBE6D670178A5A";
 		};
+		"590245E53DF1C285B4345860" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "D513F8D4A0521592F6428607";
+		};
 		"0627D4E20FF9CB2DD9793562" = {
 			"isa" = "PBXSourcesBuildPhase";
 			"buildActionMask" = "2147483647";
 			"files" = (
 				"0E538DDD03368882EBD92FDA",
 				"F6A199ECE7DFDC680FA013F8",
+				"590245E53DF1C285B4345860",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
 		};
@@ -2982,7 +3053,7 @@
 				"CLANG_CXX_LANGUAGE_STANDARD" = "c++17";
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"DEVELOPMENT_TEAM" = "";
+				"DEVELOPMENT_TEAM" = "8LN388NLF4";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -3038,7 +3109,7 @@
 				"CLANG_CXX_LANGUAGE_STANDARD" = "c++17";
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"DEVELOPMENT_TEAM" = "";
+				"DEVELOPMENT_TEAM" = "8LN388NLF4";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -3375,7 +3446,7 @@
 				"CLANG_CXX_LANGUAGE_STANDARD" = "c++17";
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"DEVELOPMENT_TEAM" = "";
+				"DEVELOPMENT_TEAM" = "8LN388NLF4";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -3422,7 +3493,7 @@
 				"CLANG_CXX_LANGUAGE_STANDARD" = "c++17";
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"DEVELOPMENT_TEAM" = "";
+				"DEVELOPMENT_TEAM" = "8LN388NLF4";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -3494,10 +3565,10 @@
 		};
 		"01AC32DF7ED67D23A6DE0B00" = {
 			"isa" = "XCRemoteSwiftPackageReference";
-			"repositoryURL" = "https://github.com/migueldeicaza/SwiftTerm.git";
+			"repositoryURL" = "https://github.com/yahaa/SwiftTerm.git";
 			"requirement" = {
-				"kind" = "exactVersion";
-				"version" = "1.13.0";
+				"kind" = "revision";
+				"revision" = "0a311223749cf1b96294772a2c5478be67915572";
 			};
 		};
 		"A61F807B6AB9E19D98833099" = {
@@ -3533,6 +3604,7 @@
 				"EAF8A5D9A5A4E4D01EDA2F0C",
 				"5911AA64DC51D79AF1D48EE3",
 				"014BC45F59967C01823B86D0",
+				"888D25239A31B49E2AD6D34C",
 				"2A62D01C332DFCB74A61A00D",
 				"479A1910BF014C20FC5AF9DE",
 				"A143104B8ED0BF4DD32C7D4A",
@@ -3570,6 +3642,7 @@
 				"C308B9079A549ACAFE14007B",
 				"3BD9B0D18C05A7BCEF52DF8C",
 				"C98ABC51B61EF1EC84EED5A2",
+				"9F8DFDFC2283FA04515B24AF",
 				"CE9BA8BA2A37F5CCF917E751",
 				"CAB18B1E7042A707B60AC358",
 				"0DE2980E73070D8E0734BE8D",
@@ -3587,7 +3660,9 @@
 				"E253649D0644962204A856CE",
 				"8AADF96DA52A4385487B76A0",
 				"5840B97A1E2E2F0D654FAFB9",
+				"404F0694E3CD88C22A958250",
 				"0C1A6AD0AC6F4BD341261786",
+				"C4719BB7A40C69B4BB90949C",
 				"1C0F55BC984A00E2FE1CB0B1",
 				"9B08EBA3F490BF692ECC1135",
 				"A59D7221C7F9570DE814F76C",
@@ -3609,6 +3684,7 @@
 				"3BE3A7F9849142C8474BB817",
 				"87670F7BED7A11AE57E43EB1",
 				"2B29743BE80BD90DF11BEB3D",
+				"40AA4359756DB6C26027B26A",
 				"232194980784D32A81AEA7CC",
 				"548BBB2D817D5D81219BCB59",
 				"6ABFBDE6C434349A20452FAB",
@@ -3671,6 +3747,7 @@
 				"52C0E61190107DD201A7D211",
 				"07EC1078D64F2213288D559C",
 				"275E3DB022CBE6D670178A5A",
+				"D513F8D4A0521592F6428607",
 				"097A7C2C4390D748BC2209E8",
 				"9053CBB91165E0BCC1465B06",
 				"C479AC4B41C7DE3A2D3F1234",
@@ -3740,7 +3817,7 @@
 				"CLANG_CXX_LANGUAGE_STANDARD" = "c++17";
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"DEVELOPMENT_TEAM" = "";
+				"DEVELOPMENT_TEAM" = "8LN388NLF4";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -3787,7 +3864,7 @@
 				"CLANG_CXX_LANGUAGE_STANDARD" = "c++17";
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"DEVELOPMENT_TEAM" = "";
+				"DEVELOPMENT_TEAM" = "8LN388NLF4";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";

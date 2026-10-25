@@ -1,7 +1,7 @@
 import Foundation
 
-enum SharedInbox {
-    private static var imports: URL {
+@MainActor enum SharedInbox {
+    nonisolated private static var imports: URL {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--ui-testing"),
@@ -13,29 +13,23 @@ enum SharedInbox {
         #endif
         return documents.appendingPathComponent("Imports", isDirectory: true)
     }
-    static func acknowledge(_ urls: [URL]) throws { try ShareImportLedger.acknowledge(urls, in: imports) }
-    static func consume() -> [URL] {
-        _ = ShareInboxStore.consume(into: imports)
-        guard let shared = ShareInboxStore.groupContainer?.appendingPathComponent("Inbox", isDirectory: true), let transactions = try? FileManager.default.contentsOfDirectory(at: shared, includingPropertiesForKeys: nil) else { return ShareImportLedger.pending(in: imports) }
-        for transaction in transactions {
-            guard FileManager.default.fileExists(atPath: transaction.appendingPathComponent(".ready").path), let files = try? FileManager.default.contentsOfDirectory(at: transaction, includingPropertiesForKeys: nil) else { continue }
-            let members = files.filter { $0.lastPathComponent != ".ready" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
-            do {
-                try ShareImportLedger.commit(into: imports, id: transaction.lastPathComponent, names: members.map(\.lastPathComponent)) { stage in
-                    for file in members { try FileManager.default.copyItem(at: file, to: stage.appendingPathComponent(file.lastPathComponent)) }
-                }
-                // Local receipt commits before source cleanup; repeated consumption is idempotent.
-                try? FileManager.default.removeItem(at: transaction)
-            } catch { /* A partial import remains unpublished, and the source remains retryable. */ }
-        }
-        return ShareImportLedger.pending(in: imports)
+    private static let worker = ShareInboxWorker(imports: { imports }, sharedInbox: {
+        ShareInboxStore.groupContainer?.appendingPathComponent("Inbox", isDirectory: true)
+    }, consumeKeychain: { root in
+        var errors: [Error] = []
+        _ = ShareInboxStore.consume(into: root) { errors.append($0) }
+        return errors
+    })
+
+    static func consume(completion: @escaping @MainActor (ShareInboxWorker.Consumption) -> Void) {
+        worker.consume(completion: completion)
     }
-    static func copyIncoming(_ url: URL) throws -> URL {
-        let accessed = url.startAccessingSecurityScopedResource(); defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-        let values = try ShareImportLedger.commit(into: imports, id: UUID().uuidString, names: [url.lastPathComponent]) { stage in
-            try FileManager.default.copyItem(at: url, to: stage.appendingPathComponent(url.lastPathComponent))
+    @discardableResult static func copyIncoming(_ url: URL, completion: @escaping @MainActor (Result<URL, Error>) -> Void) -> ShareInboxCancellation {
+        worker.copyIncoming(url, completion: completion)
+    }
+    static func acknowledge(_ urls: [URL]) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            worker.acknowledge(urls) { continuation.resume(with: $0) }
         }
-        guard let destination = values.first else { throw NSError(domain: "RoamttyShare", code: 1, userInfo: [NSLocalizedDescriptionKey: "Shared file could not be imported"]) }
-        return destination
     }
 }

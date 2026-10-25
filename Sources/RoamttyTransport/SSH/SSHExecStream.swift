@@ -69,16 +69,18 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
             while !connection.isStopped {
                 cond.lock()
                 // Hold back while the reader is far behind (libssh2's window then throttles the host).
-                while incoming.count >= Self.maxIncoming && !closeRequested { cond.wait() }
-                let stop = closeRequested
+                while incoming.count >= Self.maxIncoming && !closeRequested && !connection.isStopped {
+                    _ = cond.wait(until: Date().addingTimeInterval(0.03))
+                }
+                let stop = closeRequested || connection.isStopped
                 let pending = outgoing
                 cond.unlock()
                 if stop { return }
                 var progressed = false
                 if !pending.isEmpty {
-                    let sent = pending.withUnsafeBytes { raw in connection.locked {
-                        libssh2_channel_write_ex(channel, 0, raw.bindMemory(to: CChar.self).baseAddress, pending.count)
-                    } }
+                    let sent = pending.withUnsafeBytes { raw in
+                        connection.writeChannel(channel, 0, raw.bindMemory(to: CChar.self).baseAddress, pending.count)
+                    }
                     if sent > 0 {
                         cond.lock(); outgoing.removeFirst(sent); cond.unlock()
                         progressed = true
@@ -86,8 +88,15 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
                 }
                 for stream in 0...1 {
                     while true {
+                        cond.lock()
+                        let stop = closeRequested || connection.isStopped
+                        let available = stream == 0 ? Self.maxIncoming - incoming.count : buffer.count
+                        cond.unlock()
+                        if stop { return }
+                        let want = min(buffer.count, available)
+                        if want == 0 { break }
                         let count = buffer.withUnsafeMutableBytes { raw in
-                            connection.locked { libssh2_channel_read_ex(channel, Int32(stream), raw.bindMemory(to: CChar.self).baseAddress, raw.count) }
+                            connection.readChannel(channel, Int32(stream), raw.bindMemory(to: CChar.self).baseAddress, want)
                         }
                         if count > 0 {
                             cond.lock()

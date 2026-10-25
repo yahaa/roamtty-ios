@@ -128,7 +128,17 @@ struct FilePreviewScreen: View {
     @ViewBuilder private func documentView(fullscreen: Bool) -> some View {
         if let document {
             if document.language.mode == .markdown && rendered {
-                ScrollView { MarkdownContent(blocks: blocks, connectionTarget: connectionTarget, directory: parentRemotePath(entry.path), fontSize: previewFontSize).padding(16).frame(maxWidth: 840) }.frame(maxWidth: .infinity).accessibilityIdentifier(fullscreen ? "file-markdown-fullscreen" : "file-markdown-preview")
+                GeometryReader { viewport in
+                    ScrollView {
+                        MarkdownContent(blocks: blocks, connectionTarget: connectionTarget,
+                                        directory: parentRemotePath(entry.path), fontSize: previewFontSize,
+                                        viewport: viewport.size, coordinateSpace: fullscreen ? "markdown-fullscreen" : "markdown-normal",
+                                        imagesEnabled: fullscreen || !fullImage)
+                            .padding(16).frame(maxWidth: 840)
+                    }.coordinateSpace(name: fullscreen ? "markdown-fullscreen" : "markdown-normal")
+                        .frame(maxWidth: .infinity)
+                        .accessibilityIdentifier(fullscreen ? "file-markdown-fullscreen" : "file-markdown-preview")
+                }
             } else {
                 CodeTextView(document: document, fontName: model.settings.font, fontSize: previewFontSize, wrap: model.settings.codeWrap, query: query, match: match, matches: matches, identifier: fullscreen ? "file-code-fullscreen" : "file-code-preview").id(reloadID)
             }
@@ -240,16 +250,38 @@ struct MarkdownContent: View {
     let connectionTarget: RemoteConnectionTarget
     let directory: String
     var fontSize: Double = 13
-    var body: some View { VStack(alignment: .leading, spacing: 14) { ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in blockView(block) } }.font(.system(size: fontSize)).frame(maxWidth: .infinity, alignment: .leading) }
+    let viewport: CGSize
+    let coordinateSpace: String
+    let imagesEnabled: Bool
+    // Flatten quotes into rows so one long quote cannot eagerly instantiate all images.
+    private struct Row { let block: MdBlock; let quoteDepth: Int }
+    private func rows(_ blocks: [MdBlock], depth: Int = 0) -> [Row] {
+        blocks.flatMap { block in
+            if case .quote(let children) = block { return rows(children, depth: depth + 1) }
+            return [Row(block: block, quoteDepth: depth)]
+        }
+    }
+    var body: some View {
+        LazyVStack(alignment: .leading, spacing: 14) {
+            ForEach(Array(rows(blocks).enumerated()), id: \.offset) { _, row in
+                blockView(row.block).padding(.leading, CGFloat(row.quoteDepth) * 23)
+                    .overlay(alignment: .leading) {
+                        HStack(spacing: 20) {
+                            ForEach(0..<row.quoteDepth, id: \.self) { _ in Rectangle().fill(Palette.accent).frame(width: 3) }
+                        }.padding(.leading, 8)
+                    }
+            }
+        }.font(.system(size: fontSize)).frame(maxWidth: .infinity, alignment: .leading)
+    }
     private func blockView(_ block: MdBlock) -> AnyView {
         switch block {
         case .heading(let level, let text): return AnyView(inline(text).font(.system(size: fontSize * (level == 1 ? 1.7 : level == 2 ? 1.4 : 1.15), weight: .semibold)).padding(.top, 8))
         case .paragraph(let text): return AnyView(inline(text).textSelection(.enabled))
         case .code(_, let text): return AnyView(ScrollView(.horizontal) { Text(text).font(.system(size: fontSize, design: .monospaced)).textSelection(.enabled).padding(12) }.background(Palette.panel, in: RoundedRectangle(cornerRadius: 10)))
-        case .quote(let blocks): return AnyView(HStack(spacing: 12) { Rectangle().fill(Palette.accent).frame(width: 3); MarkdownContent(blocks: blocks, connectionTarget: connectionTarget, directory: directory, fontSize: fontSize) }.fixedSize(horizontal: false, vertical: true).padding(.leading, 8))
+        case .quote: return AnyView(EmptyView()) // Flattened above.
         case .listItem(let depth, let marker, let checked, let text): return AnyView(HStack(alignment: .top, spacing: 8) { Text(checked.map { $0 ? "☑" : "☐" } ?? marker); inline(text) }.padding(.leading, CGFloat(depth) * 16))
         case .table(let header, _, let rows): return AnyView(ScrollView(.horizontal) { Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 12) { GridRow { ForEach(Array(header.enumerated()), id: \.offset) { _, text in inline(text).bold() } }; Divider(); ForEach(Array(rows.enumerated()), id: \.offset) { _, row in GridRow { ForEach(Array(row.enumerated()), id: \.offset) { _, text in inline(text) } } } }.padding(12).background(Palette.panel, in: RoundedRectangle(cornerRadius: 12)) })
-        case .image(let alt, let path): return AnyView(RemoteMarkdownImage(connectionTarget: connectionTarget, directory: directory, path: path, alt: alt))
+        case .image(let alt, let path): return AnyView(RemoteMarkdownImage(connectionTarget: connectionTarget, directory: directory, path: path, alt: alt, viewport: viewport, coordinateSpace: coordinateSpace, enabled: imagesEnabled))
         case .rule: return AnyView(Divider())
         }
     }
@@ -274,43 +306,66 @@ struct MarkdownContent: View {
         return Text(AttributedString(result))
     }
 }
+private struct MarkdownImageFrameKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
+}
+
 private struct RemoteMarkdownImage: View {
     @EnvironmentObject var model: AppModel
     let connectionTarget: RemoteConnectionTarget
     let directory: String
     let path: String
     let alt: String
-    @State private var image: UIImage?
+    let viewport: CGSize
+    let coordinateSpace: String
+    let enabled: Bool
+    @StateObject private var demand = MarkdownImageDemand()
+    @State private var frame: CGRect = .zero
+    @State private var appeared = false
+    private struct DemandKey: Equatable {
+        let path: String?
+        let generation: UUID
+        let visible: Bool
+    }
+    private var demandKey: DemandKey {
+        let generation: UUID
+        switch connectionTarget {
+        case .host(let id): generation = model.generations.host(id)
+        case .session(let id, _): generation = model.generations.owner(id)
+        }
+        return DemandKey(path: markdownRemoteImagePath(directory: directory, source: path), generation: generation,
+                         visible: appeared && enabled && !frame.isEmpty && frame.intersects(CGRect(origin: .zero, size: viewport)))
+    }
+    private var imageHeight: CGFloat? {
+        guard let size = demand.pixelSize, size.width > 0 else { return nil }
+        return min(480, max(1, frame.width) * size.height / size.width)
+    }
     var body: some View {
         Group {
-            if let image {
-                Image(uiImage: image).resizable().scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: 480)
-                    .clipShape(RoundedRectangle(cornerRadius: 8)).accessibilityLabel(alt)
+            if let display = demand.display {
+                MarkdownImageView(display: display, label: alt)
+                    .accessibilityLabel(alt).accessibilityAddTraits(.isImage)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
             } else if let destination = markdownExternalURL(path) {
                 Link(destination: destination) { placeholder }
                     .buttonStyle(.plain).accessibilityAddTraits(.isLink)
             } else {
                 placeholder
             }
-        }.task(id: path) {
-            image = nil
-            // Remote documents never trigger web image requests; relative files use this SSH connection.
-            guard let resolved = markdownRemoteImagePath(directory: directory, source: path) else { return }
-            let cancellation = TransferCancellation()
-            await withTaskCancellationHandler(operation: {
-                do {
-                    let ssh = try await model.connection(for: connectionTarget)
-                    try Task.checkCancellation()
-                    let data = try await performInBackground { try ssh.readFile(resolved, maxBytes: imagePreviewBytes, cancellation: cancellation) }
-                    guard !data.truncated else { return }
-                    let decoded = try await performInBackground { decodePreviewImage(data.data) }
-                    try Task.checkCancellation()
-                    try model.validate(connectionTarget)
-                    image = decoded?.image
-                } catch { }
-            }, onCancel: { cancellation.cancel() })
-        }
+        }.frame(maxWidth: .infinity, alignment: .leading).frame(height: imageHeight)
+            .background(GeometryReader { geometry in
+                Color.clear.preference(key: MarkdownImageFrameKey.self, value: geometry.frame(in: .named(coordinateSpace)))
+            })
+            .onPreferenceChange(MarkdownImageFrameKey.self) { frame = $0 }
+            .onAppear { appeared = true }
+            .onChange(of: demandKey) { _ in updateDemand() }
+            .onDisappear { appeared = false; demand.stop() }
+    }
+    private func updateDemand() {
+        let key = demandKey
+        if key.visible, let path = key.path { demand.start(model: model, target: connectionTarget, path: path) }
+        else { demand.stop() }
     }
     private var placeholder: some View {
         Label(alt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? String(path.split(separator: "/").last ?? "") : alt, systemImage: "photo")

@@ -292,6 +292,15 @@ final class FilesUITests: RoamttyLiveUITestCase {
         waitUntilGone(app.buttons["transfer-done"])
         XCTAssertTrue(menu("files-options").waitForExistence(timeout: 8))
         app.navigationBars.buttons.element(boundBy: 0).tap()
+        // Verify the receipt stays acknowledged across process restart before
+        // checking the remote bytes, so relaunch cannot rediscover a completed upload.
+        app.terminate(); app.launch()
+        XCTAssertTrue(app.buttons["home-tab-sessions"].waitForExistence(timeout: 10))
+        let incoming = app.navigationBars.matching(NSPredicate(format: "identifier == '共享文件' OR identifier == 'Shared files'")).firstMatch
+        let noRepeatedReceipt = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true"), object: incoming)
+        noRepeatedReceipt.isInverted = true
+        XCTAssertEqual(XCTWaiter.wait(for: [noRepeatedReceipt], timeout: 3), .completed,
+                       "A completed shared upload must remain acknowledged after relaunch")
         let session = homeSessionCards().firstMatch
         XCTAssertTrue(session.waitForExistence(timeout: 8)); session.tap()
         let verified = "UPLOAD_CHECK_" + shortID()

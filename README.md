@@ -80,7 +80,7 @@ swift test
 ./scripts/test-linux.sh
 ```
 
-`./scripts/test-terminal-url.sh` checks the terminal URL finder and the wide cell repair against SwiftTerm 1.13.0 (it clones SwiftTerm into `scripts/terminal-url/SwiftTerm`).
+`./scripts/test-terminal-url.sh` checks terminal URLs, wide cells, scrollback, reset lifecycle and bounded accessibility export against the same commit-pinned [SwiftTerm fork](https://github.com/yahaa/SwiftTerm) as the app. The upstream v1.13.0 base and two downstream patches are documented in [`docs/dependencies/swiftterm.md`](docs/dependencies/swiftterm.md).
 
 The mosh tests exercise wire-format vectors and an installed `mosh-server`, when available. Live SSH tests cover password/interactive/encrypted-key authentication, PTY, concurrent SFTP, no-overwrite and cancellation. Tests requiring unavailable services explicitly skip. XCTest UI tests are in `App/UITests`; sign simulator builds with `CODE_SIGN_IDENTITY=-` and the development entitlements so credential storage is exercised.
 
@@ -124,6 +124,13 @@ The Foundation-only share recovery checks also run on Linux:
 ```sh
 swiftc App/Shared/ShareInboxStore.swift scripts/test-share-inbox.swift -o /tmp/roamtty-share-tests
 /tmp/roamtty-share-tests
+```
+
+The macOS share worker checks exercise background ordering, security-scope lifetime, cancellation, and recovery with real temporary files:
+
+```sh
+swiftc App/Shared/ShareInboxStore.swift App/Shared/ShareInboxWorker.swift App/Roamtty/Services/SharedInbox.swift scripts/test-share-worker.swift -o /tmp/roamtty-share-worker-tests
+/tmp/roamtty-share-worker-tests
 ```
 
 `docs/PLAN.md` records the intended parity scope; `docs/PROGRESS.md` records verification and remaining work. Device and visual checks require Xcode and a paired device. See `THIRD_PARTY_NOTICES.md` for licenses.

@@ -26,11 +26,6 @@ extension SSHConnection {
         try transferCheck(epoch, cancellation)
         return try pointer(operation)
     }
-    /// Cleanup that may fail quietly, unless it is left half-sent: then the connection is no longer usable.
-    @discardableResult private func settle(timeout: TimeInterval, _ operation: () -> Int32) -> Bool {
-        do { try retry(timeout: timeout, operation); return true }
-        catch { if error as? RoamError == .timeout { disconnect() }; return false }
-    }
     /// A remote name or path exactly as its bytes; nil when they are not UTF-8.
     private func remoteString(_ bytes: ArraySlice<CChar>) -> String? {
         String(bytes: bytes.map { UInt8(bitPattern: $0) }, encoding: .utf8)
@@ -147,8 +142,9 @@ extension SSHConnection {
             var closed = false
             do {
                 var count: Int64 = 0; progress(0, size)
-                while let block = try file.read(upToCount: 65536), !block.isEmpty {
+                while try autoreleasepool(invoking: { () throws -> Bool in
                     try transferCheck(epoch, cancellation)
+                    guard let block = try file.read(upToCount: 65536), !block.isEmpty else { return false }
                     var sent = 0
                     while sent < block.count {
                         let n = try block.withUnsafeBytes { raw in
@@ -159,7 +155,8 @@ extension SSHConnection {
                         guard n > 0 else { throw RoamError.transport("Upload made no progress") }
                         sent += Int(n); count += Int64(n); progress(count, size)
                     }
-                }
+                    return true
+                }) { }
                 try transferCheck(epoch, cancellation)
                 if let size, count != size { throw RoamError.transport("上传源文件发生变化 / Upload source changed") }
                 try retry {
@@ -176,7 +173,7 @@ extension SSHConnection {
                 let wasStopped = isStopped
                 if !closed { closeFile(handle) }
                 let cleanup = !isStopped && settle(timeout: 10) { libssh2_sftp_unlink_ex(sftp, temp, UInt32(temp.utf8.count)) }
-                if !cleanup && !wasStopped { throw RoamError.transport("上传失败，远端临时文件未能清理 / Could not remove remote partial upload") }
+                if !cleanup && !wasStopped && error as? RoamError != .cancelled { throw RoamError.transport("上传失败，远端临时文件未能清理 / Could not remove remote partial upload") }
                 throw error
             }
         }
@@ -219,3 +216,8 @@ extension SSHConnection {
         }
     }
 }
+
+#if !canImport(ObjectiveC)
+// Foundation on non-Objective-C platforms releases chunk storage with Swift scope.
+private func autoreleasepool<T>(invoking body: () throws -> T) rethrows -> T { try body() }
+#endif

@@ -149,8 +149,30 @@ import RoamttyTransport
             desktopStore?.live.forEach { $0.resume() }
             startDesktopPathMonitor()
         }
-        let existing = Set(incomingFiles + files.pendingUploadURLs).union(files.activeUploadURLs)
-        incomingFiles.append(contentsOf: SharedInbox.consume().filter { !existing.contains($0) })
+        #if DEBUG
+        // Fixture diagnostics use separate stores and must not consume the user's shared inbox.
+        let diagnostics = ["--device-validation", "--memory-validation", "--desktop-memory-validation"]
+        if ProcessInfo.processInfo.arguments.contains(where: { diagnostics.contains($0) }) { return }
+        #endif
+        SharedInbox.consume { [weak self] result in
+            guard let self else { return }
+            // Use current presentation/upload state, not the state at the foreground request.
+            self.appendIncoming(result.urls)
+            if let error = result.errors.first { self.error = error.localizedDescription }
+        }
+    }
+    func importIncoming(_ url: URL) {
+        SharedInbox.copyIncoming(url) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let imported): self.appendIncoming([imported])
+            case .failure(let error): self.error = error.localizedDescription
+            }
+        }
+    }
+    private func appendIncoming(_ urls: [URL]) {
+        var existing = Set(incomingFiles + files.pendingUploadURLs).union(files.activeUploadURLs)
+        incomingFiles.append(contentsOf: urls.filter { existing.insert($0).inserted })
     }
     /// In the background no login stays in memory and nothing waits for the user.
     func suspend() {

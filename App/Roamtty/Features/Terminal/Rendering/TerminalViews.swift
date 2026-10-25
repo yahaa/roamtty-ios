@@ -105,15 +105,15 @@ struct NativeTerminal: UIViewRepresentable {
         getTerminal().setCursorStyle(.steadyBlock)
         isAccessibilityElement = true; accessibilityLabel = "Terminal"
     }
-    /// The text VoiceOver and UI tests read. Building it walks the whole scrollback, and `.updatesFrequently` has
-    /// it asked for over and over, so it is rebuilt only after output, at most twice a second.
+    /// The text VoiceOver and UI tests read. Export only the needed tail rows, and rebuild
+    /// only after output, at most twice a second, as `.updatesFrequently` requests it often.
     private var spokenText: (text: String, at: TimeInterval)?
     private var spokenTextStale = true
     override var accessibilityValue: String? {
         get {
             let now = ProcessInfo.processInfo.systemUptime
             if let spokenText, !spokenTextStale || now - spokenText.at < 0.5 { return spokenText.text }
-            let text = String(decoding: getTerminal().getBufferAsData().suffix(16_384), as: UTF8.self)
+            let text = String(decoding: getTerminal().getBufferTailAsData(maxBytes: 16_384), as: UTF8.self)
             spokenText = (text, now); spokenTextStale = false
             return text
         }

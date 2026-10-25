@@ -4,15 +4,22 @@ import Security
 #endif
 
 /// Cancellation and publication have one ordering: once cancelled, no ready record can be written.
-final class ShareInboxCancellation {
+final class ShareInboxCancellation: @unchecked Sendable {
     private let lock = NSLock()
     private var cancelled = false
     private var published = false
+    private let onCancel: (() -> Void)?
+    init(onCancel: (() -> Void)? = nil) { self.onCancel = onCancel }
     var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
     @discardableResult func cancel() -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        guard !published else { return false }
-        cancelled = true; return true
+        lock.lock()
+        guard !published else { lock.unlock(); return false }
+        let notify = !cancelled
+        cancelled = true
+        lock.unlock()
+        // Observer cancellation may take another lock; never invoke it while holding ours.
+        if notify { onCancel?() }
+        return true
     }
     func check() throws {
         if isCancelled { throw NSError(domain: "RoamttyShare", code: NSUserCancelledError) }
@@ -40,18 +47,22 @@ enum ShareImportLedger {
         return value
     }
     private static func pending(_ value: Receipt, folder: URL) -> [URL] {
-        value.names.map { folder.appendingPathComponent($0) }.filter { FileManager.default.fileExists(atPath: $0.path) }
+        let folder = folder.standardizedFileURL.resolvingSymlinksInPath()
+        return value.names.map { folder.appendingPathComponent($0) }.filter { FileManager.default.fileExists(atPath: $0.path) }
     }
     static func pending(in root: URL) -> [URL] {
         lock.lock(); defer { lock.unlock() }
+        let root = root.standardizedFileURL.resolvingSymlinksInPath()
         let folders = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
         return folders.sorted { $0.lastPathComponent < $1.lastPathComponent }.flatMap { folder in
             receipt(in: folder).map { pending($0, folder: folder) } ?? []
         }
     }
-    @discardableResult static func commit(into root: URL, id: String, names: [String], writeContents: (URL) throws -> Void) throws -> [URL] {
+    @discardableResult static func commit(into root: URL, id: String, names: [String], cancellation: ShareInboxCancellation? = nil, writeContents: (URL) throws -> Void) throws -> [URL] {
         lock.lock(); defer { lock.unlock() }
+        try cancellation?.check()
         guard UUID(uuidString: id) != nil else { throw failure("Invalid shared transaction") }
+        let root = root.standardizedFileURL.resolvingSymlinksInPath()
         let folder = root.appendingPathComponent(id, isDirectory: true)
         if let existing = receipt(in: folder) { return pending(existing, folder: folder) }
         guard !names.isEmpty, names.count <= 20, names.allSatisfy(safeName), Set(names).count == names.count else { throw failure("Invalid shared file names") }
@@ -76,13 +87,17 @@ enum ShareImportLedger {
         let value = Receipt(id: id, names: names)
         try write(value, in: stage)
         // Same-volume directory rename publishes files and receipt together.
-        try FileManager.default.moveItem(at: stage, to: folder)
+        if let cancellation {
+            try cancellation.publish { try FileManager.default.moveItem(at: stage, to: folder) }
+        } else {
+            try FileManager.default.moveItem(at: stage, to: folder)
+        }
         return pending(value, folder: folder)
     }
     static func acknowledge(_ urls: [URL], in root: URL) throws {
         lock.lock(); defer { lock.unlock() }
-        let base = root.standardizedFileURL
-        let groups = Dictionary(grouping: urls.map(\.standardizedFileURL)) { $0.deletingLastPathComponent() }
+        let base = root.standardizedFileURL.resolvingSymlinksInPath()
+        let groups = Dictionary(grouping: urls.map { $0.standardizedFileURL.resolvingSymlinksInPath() }) { $0.deletingLastPathComponent() }
         for (folder, files) in groups {
             guard folder.deletingLastPathComponent().path == base.path, var value = receipt(in: folder) else { continue }
             let acknowledged = Set(files.map(\.lastPathComponent)).intersection(value.names)
@@ -167,13 +182,15 @@ enum ShareInboxStore {
                 total += size
                 let file = try FileHandle(forReadingFrom: url); defer { try? file.close() }
                 var chunks = 0; var actual = 0
-                while let bytes = try file.read(upToCount: chunkSize), !bytes.isEmpty {
+                while try autoreleasepool(invoking: { () throws -> Bool in
                     try cancellation.check()
+                    guard let bytes = try file.read(upToCount: chunkSize), !bytes.isEmpty else { return false }
                     actual += bytes.count
                     guard actual <= size else { throw failure("Shared file changed while copying") }
                     let account = "\(id)/\(index)/\(chunks)"
                     try write(bytes, account: account); written.append(account); chunks += 1
-                }
+                    return true
+                }) { }
                 guard actual == size else { throw failure("Shared file changed while copying") }
                 items.append(Item(name: url.lastPathComponent, count: chunks, size: size))
             }
@@ -182,13 +199,19 @@ enum ShareInboxStore {
         } catch { for account in written { remove(account) }; throw error }
         return id
     }
-    static func consume(into root: URL) -> [URL] { consume(into: root, transactionID: nil) }
-    private static func consume(into root: URL, transactionID: String?) -> [URL] {
-        guard let records = try? accounts() else { return ShareImportLedger.pending(in: root) }
+    static func consume(into root: URL, reportError: (Error) -> Void = { _ in }) -> [URL] {
+        consume(into: root, transactionID: nil, reportError: reportError)
+    }
+    private static func consume(into root: URL, transactionID: String?, reportError: (Error) -> Void = { _ in }) -> [URL] {
+        let records: [Account]
+        do { records = try accounts() }
+        catch { reportError(error); return ShareImportLedger.pending(in: root) }
         let names = records.map(\.name)
         for account in names where account.hasSuffix("/ready") && (transactionID == nil || account == transactionID! + "/ready") {
-            guard let data = try? read(account), let manifest = try? JSONDecoder().decode(Manifest.self, from: data), UUID(uuidString: manifest.id) != nil, account == manifest.id + "/ready", !manifest.items.isEmpty, manifest.items.count <= 20 else { continue }
             do {
+                let data = try read(account)
+                let manifest = try JSONDecoder().decode(Manifest.self, from: data)
+                guard UUID(uuidString: manifest.id) != nil, account == manifest.id + "/ready", !manifest.items.isEmpty, manifest.items.count <= 20 else { throw failure("Invalid shared transaction") }
                 try ShareImportLedger.commit(into: root, id: manifest.id, names: manifest.items.map(\.name)) { stage in
                     var total = 0
                     for (index, item) in manifest.items.enumerated() {
@@ -210,7 +233,7 @@ enum ShareInboxStore {
                 // Local receipt owns recovery. Removing publication first makes interrupted
                 // source cleanup leave only orphan chunks, never a broken ready entry.
                 if remove(account) { for member in names where member.hasPrefix(manifest.id + "/") && member != account { remove(member) } }
-            } catch { /* Keep the source transaction and any committed import untouched. */ }
+            } catch { reportError(error) /* Keep the source transaction and any committed import untouched. */ }
         }
         if transactionID == nil { cleanupOrphans(records) }
         return ShareImportLedger.pending(in: root)
