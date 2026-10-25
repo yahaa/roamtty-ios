@@ -293,9 +293,7 @@ final class FilesUITests: RoamttyLiveUITestCase {
         XCTAssertTrue(menu("files-options").waitForExistence(timeout: 8))
         app.navigationBars.buttons.element(boundBy: 0).tap()
         // Verify the receipt stays acknowledged across process restart before
-        // checking the remote bytes. This also gives XCTest a fresh animation
-        // tracker after the system share sheet/foreground transition; otherwise
-        // its 60-second idle wait can outlast the terminal ghost's 5-second life.
+        // checking the remote bytes, so relaunch cannot rediscover a completed upload.
         app.terminate(); app.launch()
         XCTAssertTrue(app.buttons["home-tab-sessions"].waitForExistence(timeout: 10))
         let incoming = app.navigationBars.matching(NSPredicate(format: "identifier == '共享文件' OR identifier == 'Shared files'")).firstMatch

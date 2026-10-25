@@ -76,6 +76,12 @@ final class VideoToolboxDisplay: NSObject, DesktopVideoDisplay {
     func cancelVideoReadinessNotification() { layer.stopRequestingMediaData() }
 
     func present(frame: Int64, keyframe: Bool, width: Int, height: Int, annexB: [UInt8], offset: Int, avcc: [UInt8]) {
+        present(frame: frame, keyframe: keyframe, width: width, height: height, annexB: annexB, offset: offset, avcc: avcc) { [weak self] renderedUs in
+            self?.decoder?.didRender(frame: frame, renderedUs: renderedUs)
+        }
+    }
+
+    func present(frame: Int64, keyframe: Bool, width: Int, height: Int, annexB: [UInt8], offset: Int, avcc: [UInt8], rendered: @escaping (Int64) -> Void) {
         if layer.status == .failed { decoder?.reset(); return }
         if keyframe {
             let (s, p) = H264.spsPps(annexB, offset: offset)
@@ -95,7 +101,7 @@ final class VideoToolboxDisplay: NSObject, DesktopVideoDisplay {
         // Older iOS has no per-frame presentation callback. Measure the actual layer enqueue
         // after decoded, as an approximation of scan-out. Main/readiness wait is included
         // in receive-to-decoded latency because conversion starts only when the sink is ready.
-        decoder?.didRender(frame: frame, renderedUs: UdpLink.monotonicUs())
+        rendered(UdpLink.monotonicUs())
     }
 
     func flush() {

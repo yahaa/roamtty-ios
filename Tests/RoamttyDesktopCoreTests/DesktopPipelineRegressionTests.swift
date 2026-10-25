@@ -5,6 +5,8 @@ final class DesktopPipelineRegressionTests: XCTestCase {
     final class Display: DesktopVideoDisplay, @unchecked Sendable {
         private let lock = NSLock()
         private var values: [Int64] = []
+        private var completions: [(Int64) -> Void] = []
+        var renderCompletions: [(Int64) -> Void] { lock.lock(); defer { lock.unlock() }; return completions }
         var onPresent: ((Int64) -> Void)?
         var executor: ((@escaping () -> Void) -> Void)?
         var isReadyForMoreVideo = true
@@ -16,6 +18,10 @@ final class DesktopPipelineRegressionTests: XCTestCase {
         func present(frame: Int64, keyframe: Bool, width: Int, height: Int, annexB: [UInt8], offset: Int, avcc: [UInt8]) {
             lock.lock(); values.append(frame); lock.unlock()
             onPresent?(frame)
+        }
+        func present(frame: Int64, keyframe: Bool, width: Int, height: Int, annexB: [UInt8], offset: Int, avcc: [UInt8], rendered: @escaping (Int64) -> Void) {
+            lock.lock(); completions.append(rendered); lock.unlock()
+            present(frame: frame, keyframe: keyframe, width: width, height: height, annexB: annexB, offset: offset, avcc: avcc)
         }
         func flush() { lock.lock(); values.removeAll(); lock.unlock() }
     }
@@ -245,6 +251,34 @@ final class DesktopPipelineRegressionTests: XCTestCase {
             s.close()
         }
     }
+    // Removing completion generation identity lets the old callback consume the reused frame.
+    func testOldRenderCompletionCannotConsumeReusedFrameAfterReset() throws {
+        let host = FakeHost(probe: FakeHost.probe()) { stream, _ in stream.hello(PluginFrames.hello()) }
+        let s = try session(host), decoder = DesktopVideoDecoder(), display = Display()
+        s.video = decoder; decoder.session = s; decoder.display = display; decoder.attach(name: "test")
+        s.start(); XCTAssertTrue(waitUntil(2) { s.hello != nil })
+        let stream = try XCTUnwrap(host.allStreams.first)
+        let v = Self.video(1, key: true)
+        var b = ByteWriter(); b.u32(1); b.u8(DesktopProtocol.VIDEO_KEY); b.i64(1); b.i64(2); b.u16(100); b.u16(100); b.append(v.data)
+        let packet = DesktopProtocol.frame(DesktopProtocol.VIDEO, b.bytes)
+        // Seed the prior decoder generation directly: the session correctly rejects reused
+        // numbers within one transport stream, independently of decoder completion identity.
+        decoder.submit(v)
+        XCTAssertTrue(waitUntil(1) { display.renderCompletions.count == 1 })
+        let oldCompletion = try XCTUnwrap(display.renderCompletions.first)
+        decoder.reset()
+        stream.feed(packet)
+        XCTAssertTrue(waitUntil(1) { display.renderCompletions.count == 2 })
+        let currentCompletion = try XCTUnwrap(display.renderCompletions.last)
+        let now = UdpLink.monotonicUs()
+        decoder.didRender(frame: 1, renderedUs: now + 2_000_000) // Unbound legacy calls outside present are ignored.
+        oldCompletion(now + 900_000)
+        currentCompletion(now + 150_000)
+        XCTAssertTrue(waitUntil(2) { s.stats.latency?.renderMs != nil })
+        let renderMs = try XCTUnwrap(s.stats.latency?.renderMs)
+        XCTAssertGreaterThanOrEqual(renderMs, 150, "The current completion must still report enqueue latency")
+        XCTAssertLessThan(renderMs, 300, "The old completion must not consume the new generation's reused frame")
+    }
     func testDelayedDisplayCallbackMeasuresEnqueueWaitAndDecodedPrecedesCallback() throws {
         let host = FakeHost(probe: FakeHost.probe()) { stream, _ in stream.hello(PluginFrames.hello()) }
         let s = try session(host), decoder = DesktopVideoDecoder(), display = Display()
@@ -255,9 +289,10 @@ final class DesktopPipelineRegressionTests: XCTestCase {
         let v = Self.video(1, key: true)
         var b = ByteWriter(); b.u32(1); b.u8(DesktopProtocol.VIDEO_KEY); b.i64(1); b.i64(2); b.u16(100); b.u16(100); b.append(v.data)
         stream.feed(DesktopProtocol.frame(DesktopProtocol.VIDEO, b.bytes))
-        XCTAssertTrue(waitUntil(1) { decoder.decodedFrames == 1 })
+        XCTAssertTrue(waitUntil(1) { display.renderCompletions.count == 1 })
         XCTAssertNil(s.stats.latency?.renderMs)
-        decoder.didRender(frame: 1, renderedUs: UdpLink.monotonicUs() + 150_000)
+        let rendered = try XCTUnwrap(display.renderCompletions.first)
+        rendered(UdpLink.monotonicUs() + 150_000)
         XCTAssertTrue(waitUntil(2) { (s.stats.latency?.renderMs ?? 0) >= 150 })
     }
 }
