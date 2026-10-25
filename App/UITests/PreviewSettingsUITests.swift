@@ -95,7 +95,8 @@ final class PreviewSettingsUITests: RoamttyLiveUITestCase {
         let cleaned = "PREVIEW_OPTIONS_CLEANED_" + nonce()
         try runCommand("rm -rf -- " + quote(base) + " && test ! -e " + quote(base) + " && " + emit(cleaned))
         waitForOutput(cleaned, surface: resumed); closeTerminal()
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        // Closing a terminal already returns to the home sessions tab.
+        // openSettings verifies that the home drawer is present before entering it.
         openSettings()
         revealSetting(app.staticTexts["settings-font-size-value"])
         XCTAssertEqual(app.staticTexts["settings-font-size-value"].label, terminalSize, "Preview font changes must not alter terminal font size")

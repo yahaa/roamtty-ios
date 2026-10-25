@@ -315,6 +315,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "014BC45F59967C01823B86D0";
 		};
+		"888D25239A31B49E2AD6D34C" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyCore/Preview/BoundedImagePool.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"3906F37DA46372CA323D058D" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "888D25239A31B49E2AD6D34C";
+		};
 		"2A62D01C332DFCB74A61A00D" = {
 			"isa" = "PBXFileReference";
 			"path" = "Sources/RoamttyCore/Remote/AgentStatus.swift";
@@ -547,6 +557,7 @@
 				"562F181FB651C53CC865F2D8",
 				"51507094103D07E53961CCDF",
 				"1CB14EDEF94FCCA05A1797F7",
+				"3906F37DA46372CA323D058D",
 				"89B85E79BEB64FE36D24740F",
 				"1FEB3F6A48C9E816697D6AD6",
 				"885DE950DB7E52AFB2AB480E",
@@ -1669,6 +1680,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "2B29743BE80BD90DF11BEB3D";
 		};
+		"40AA4359756DB6C26027B26A" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Features/Files/MarkdownImagePipeline.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"09B35AFD659A171529340D2D" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "40AA4359756DB6C26027B26A";
+		};
 		"232194980784D32A81AEA7CC" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/Roamtty/Features/Files/ShareUploadHostPicker.swift";
@@ -2289,6 +2310,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "275E3DB022CBE6D670178A5A";
 		};
+		"D513F8D4A0521592F6428607" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Shared/ShareInboxWorker.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"35FF0A10D774AB5B8D1DA8B0" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "D513F8D4A0521592F6428607";
+		};
 		"BD51FD0F287C65ECDF9A9F79" = {
 			"isa" = "PBXSourcesBuildPhase";
 			"buildActionMask" = "2147483647";
@@ -2320,6 +2351,7 @@
 				"60F3BCFA90F9D214839000F7",
 				"B1A91E5F88B13703D0928823",
 				"E7E9E5D09D1F5784DDFF1857",
+				"09B35AFD659A171529340D2D",
 				"6A6E75D9B7D5DEEA9CBBE1CA",
 				"08720E265443354DB99147B5",
 				"297B48B5A7103B1508062E56",
@@ -2382,6 +2414,7 @@
 				"3CA37FF21651889E6D99B981",
 				"F2664F6988963FD8EF5C00F8",
 				"1FC050EFE9B74172005CD96C",
+				"35FF0A10D774AB5B8D1DA8B0",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
 		};
@@ -2967,12 +3000,17 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "275E3DB022CBE6D670178A5A";
 		};
+		"590245E53DF1C285B4345860" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "D513F8D4A0521592F6428607";
+		};
 		"0627D4E20FF9CB2DD9793562" = {
 			"isa" = "PBXSourcesBuildPhase";
 			"buildActionMask" = "2147483647";
 			"files" = (
 				"0E538DDD03368882EBD92FDA",
 				"F6A199ECE7DFDC680FA013F8",
+				"590245E53DF1C285B4345860",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
 		};
@@ -3562,6 +3600,7 @@
 				"EAF8A5D9A5A4E4D01EDA2F0C",
 				"5911AA64DC51D79AF1D48EE3",
 				"014BC45F59967C01823B86D0",
+				"888D25239A31B49E2AD6D34C",
 				"2A62D01C332DFCB74A61A00D",
 				"479A1910BF014C20FC5AF9DE",
 				"A143104B8ED0BF4DD32C7D4A",
@@ -3641,6 +3680,7 @@
 				"3BE3A7F9849142C8474BB817",
 				"87670F7BED7A11AE57E43EB1",
 				"2B29743BE80BD90DF11BEB3D",
+				"40AA4359756DB6C26027B26A",
 				"232194980784D32A81AEA7CC",
 				"548BBB2D817D5D81219BCB59",
 				"6ABFBDE6C434349A20452FAB",
@@ -3703,6 +3743,7 @@
 				"52C0E61190107DD201A7D211",
 				"07EC1078D64F2213288D559C",
 				"275E3DB022CBE6D670178A5A",
+				"D513F8D4A0521592F6428607",
 				"097A7C2C4390D748BC2209E8",
 				"9053CBB91165E0BCC1465B06",
 				"C479AC4B41C7DE3A2D3F1234",
