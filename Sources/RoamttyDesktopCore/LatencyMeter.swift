@@ -74,7 +74,7 @@ public final class LatencyMeter: @unchecked Sendable {
         }
     }
 
-    /// The frame reached the display (on iOS: the display layer's presentation time); the last step.
+    /// Presentation callback; iOS uses actual display-layer enqueue as an approximation, not scan-out.
     public func onRendered(frame: Int64, renderedUs: Int64) {
         locked {
             guard let t = frames.removeValue(forKey: frame) else { return }

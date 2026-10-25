@@ -15,8 +15,13 @@ public enum DesktopLogin {
 /// back `DesktopSession.decoded`, `rendered` and `needKeyframe`.
 public protocol DesktopVideoSink: AnyObject {
     func submit(_ video: Video)
+    func reset()
     var decoderName: String { get }
     var decodedFrames: Int64 { get }
+}
+
+public extension DesktopVideoSink {
+    func reset() {}
 }
 
 /// The cursor the plugin reports, in native pixels of the selected display; `shape` nil until its image came.
@@ -126,6 +131,15 @@ public final class DesktopSession: @unchecked Sendable {
     private let wake = NSCondition()
     private func sync<T>(_ body: () -> T) -> T { lock.lock(); defer { lock.unlock() }; return body() }
 
+    // Serialize transport media delivery with pause/resume and stream publication. No state
+    // lock is held across a sink callback; synchronous reentry on this executor is supported.
+    private let mediaQueue = DispatchQueue(label: "roamtty.desktop.media")
+    private let mediaKey = DispatchSpecificKey<Bool>()
+    private func mediaSync<T>(_ body: () -> T) -> T {
+        if DispatchQueue.getSpecific(key: mediaKey) == true { return body() }
+        return mediaQueue.sync(execute: body)
+    }
+    private var desiredPaused = false
     private var _phase: DesktopPhase = .idle
     private var _log: [String] = []
     private var _hello: Hello?
@@ -184,6 +198,7 @@ public final class DesktopSession: @unchecked Sendable {
         self.config = config; self.manifest = manifest; self.timings = timings; self.callbackQueue = callbackQueue
         self.login = login; self.fetch = fetch; self.makeUdp = makeUdp
         _fps = config.fps; _quality = config.quality; _lockOnClose = config.lockOnClose; _audio = config.audio
+        mediaQueue.setSpecific(key: mediaKey, value: true)
     }
 
     // MARK: State
@@ -211,8 +226,11 @@ public final class DesktopSession: @unchecked Sendable {
     private func text(_ t: DesktopText) -> String { t.text(english: config.english) }
 
     private func setPhase(_ p: DesktopPhase) {
-        let changed: Bool = sync { if _phase == p { return false }; _phase = p; return true }
-        if changed { callbackQueue.async { self.onPhase?(p) } }
+        sync {
+            let next: DesktopPhase
+            if case .connected(let poor, _) = p { next = .connected(poor: poor, paused: desiredPaused) } else { next = p }
+            if _phase != next { _phase = next; callbackQueue.async { self.onPhase?(next) } }
+        }
         wakeAll()
     }
 
@@ -491,27 +509,27 @@ public final class DesktopSession: @unchecked Sendable {
             return sync({ closing }) ? .closed : .needs
         }
         let queue = OutQueue()
-        let paused: Bool = sync {
-            sessionId = hello.session
-            resumeToken = hello.resumeToken
-            if !hello.displays.indices.contains(_display) { _display = max(0, hello.displays.firstIndex { $0.primary } ?? 0) }
-            outgoing = queue
-            lastVideoFrame = -1
-            brokenUntilKey = false
-            if case .connected(_, let p) = _phase { return p }
-            return false
-        }
         updateStats { $0.encoder = hello.hardware }
-        startUdp(hello, queue)
-        let (display, fps, quality, lockOnClose, viewOnly, audioOn) = sync { (_display, _fps, _quality, _lockOnClose, _viewOnly, _audio) }
         let canAudio = hello.audio.contains("opus")
-        sync { _audioAvailable = canAudio }
+        mediaSync {
+            video?.reset()
+            let first: [String: Any] = sync {
+                sessionId = hello.session; resumeToken = hello.resumeToken
+                if !hello.displays.indices.contains(_display) { _display = max(0, hello.displays.firstIndex { $0.primary } ?? 0) }
+                lastVideoFrame = -1; brokenUntilKey = true
+                _audioAvailable = canAudio
+                var config: [String: Any] = ["display": _display, "fps": _fps, "quality": _quality, "lock_on_close": _lockOnClose]
+                if canAudio && _audio { config["audio"] = true }
+                return config
+            }
+            queue.send(DesktopProtocol.config(first))
+            if sync({ _viewOnly }) { queue.send(DesktopProtocol.req(DesktopProtocol.REQ_VIEW_ONLY_ON)) }
+            if sync({ desiredPaused }) { queue.send(DesktopProtocol.req(DesktopProtocol.REQ_PAUSE)) }
+            // Publication and initial pause intent share the media executor with pause/resume.
+            sync { outgoing = queue }
+        }
+        startUdp(hello, queue)
         callbackQueue.async { self.onAudioAvailable?(canAudio) }
-        var first: [String: Any] = ["display": display, "fps": fps, "quality": quality, "lock_on_close": lockOnClose]
-        if canAudio && audioOn { first["audio"] = true }
-        queue.send(DesktopProtocol.config(first))
-        if viewOnly { queue.send(DesktopProtocol.req(DesktopProtocol.REQ_VIEW_ONLY_ON)) }
-        if paused { queue.send(DesktopProtocol.req(DesktopProtocol.REQ_PAUSE)) }
         if !sync({ everConnected }) { setPhase(.connecting(step: .firstFrame)) }
         sync {
             pingSentUs = 0; pingAnswered = true; pingResetAtUs = 0; missedPings = 0; smoothedRtt = -1; rttSamples = 0
@@ -653,7 +671,15 @@ public final class DesktopSession: @unchecked Sendable {
     /// Frames from either transport; UDP's arrive on its receive thread.
     private func handle(_ m: ServerMessage) {
         switch m {
+        case .video, .audio: mediaSync { handleMediaOrControl(m) }
+        default: handleMediaOrControl(m)
+        }
+    }
+
+    private func handleMediaOrControl(_ m: ServerMessage) {
+        switch m {
         case .video(let v):
+            guard !sync({ desiredPaused || closing }) else { return }
             // Both transports may deliver around a switch: older frames than the newest are stale.
             enum Verdict { case stale, broken, ok }
             let verdict: Verdict = sync {
@@ -709,9 +735,7 @@ public final class DesktopSession: @unchecked Sendable {
             }
         case .audio(let a):
             let play: Bool = sync {
-                guard _audio else { return false }
-                if case .connected(_, true) = _phase { return false }
-                return true
+                _audio && !desiredPaused && !closing
             }
             if play { audio?.submit(a) }
         case .ping(let t1):
@@ -749,10 +773,10 @@ public final class DesktopSession: @unchecked Sendable {
         let up: Bool = sync {
             switch _phase { case .connecting, .recovering: everConnected = true; return true; default: return false }
         }
-        if up { setPhase(.connected(poor: false, paused: false)) }
+        if up { setPhase(.connected(poor: false, paused: sync { desiredPaused })) }
     }
 
-    /// The frame reached the screen at `renderedUs` (monotonic µs).
+    /// Presentation timestamp (monotonic µs); iOS approximates it with actual layer enqueue.
     public func rendered(frame: Int64, renderedUs: Int64) { latency.onRendered(frame: frame, renderedUs: renderedUs) }
 
     // MARK: Page input
@@ -793,10 +817,14 @@ public final class DesktopSession: @unchecked Sendable {
 
     /// The page went away: no pictures, the link kept for the keep-alive time.
     public func pause() {
-        send(DesktopProtocol.req(DesktopProtocol.REQ_PAUSE))
-        audio?.stop()
-        if case .connected(let poor, _) = phase { setPhase(.connected(poor: poor, paused: true)) }
-        let generation: Int = sync { keepAliveGeneration += 1; return keepAliveGeneration }
+        let generation: Int = mediaSync {
+            let generation = sync { desiredPaused = true; keepAliveGeneration += 1; return keepAliveGeneration }
+            send(DesktopProtocol.req(DesktopProtocol.REQ_PAUSE))
+            video?.reset()
+            audio?.stop()
+            if case .connected(let poor, _) = phase { setPhase(.connected(poor: poor, paused: true)) }
+            return generation
+        }
         DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(config.keepAliveMinutes * 60)) { [weak self] in
             guard let self, self.sync({ self.keepAliveGeneration == generation }) else { return }
             self.close()
@@ -804,9 +832,12 @@ public final class DesktopSession: @unchecked Sendable {
     }
 
     public func resume() {
-        sync { keepAliveGeneration += 1 }
-        if case .connected(let poor, _) = phase { setPhase(.connected(poor: poor, paused: false)) }
-        send(DesktopProtocol.req(DesktopProtocol.REQ_RESUME))
+        mediaSync {
+            sync { desiredPaused = false; keepAliveGeneration += 1; brokenUntilKey = true; lastKeyAskMs = 0 }
+            if case .connected(let poor, _) = phase { setPhase(.connected(poor: poor, paused: false)) }
+            send(DesktopProtocol.req(DesktopProtocol.REQ_RESUME))
+            askKeyframe()
+        }
         // Only a desktop that ended quietly (keep-alive over) starts again by itself; a failed one, e.g.
         // taken over by another device, waits for 重试.
         if !sync({ running }), case .idle = phase { start() }
@@ -836,7 +867,7 @@ public final class DesktopSession: @unchecked Sendable {
         s?.close()
         l?.close()
         h?.disconnect()
-        audio?.stop()
+        mediaSync { video?.reset(); audio?.stop() }
         wakeAll()
         if !wasRunning {
             setPhase(.idle)

@@ -12,8 +12,8 @@ import RoamttyDesktopCore
 /// This file is UIKit/VideoToolbox-only and is **not compiled or verified on Linux**.
 final class VideoToolboxDisplay: NSObject, DesktopVideoDisplay {
     let layer = AVSampleBufferDisplayLayer()
+    // All format, layer and snapshot-keyframe access is on the decoder's main executor.
     private var format: CMFormatDescription?
-    private var holders: [AvccHolder] = []
     private var latestKeyframe: ([UInt8], CMFormatDescription)? // accessed only on main
     private let snapshotQueue = DispatchQueue(label: "desktop-snapshot", qos: .utility)
     weak var decoder: DesktopVideoDecoder?
@@ -59,7 +59,24 @@ final class VideoToolboxDisplay: NSObject, DesktopVideoDisplay {
     }
     #endif
 
+    func scheduleVideoWork(_ work: @escaping () -> Void) {
+        DispatchQueue.main.async(execute: work)
+    }
+
+    var isReadyForMoreVideo: Bool { layer.status == .failed || layer.isReadyForMoreMediaData }
+
+    func notifyWhenReadyForVideo(_ work: @escaping () -> Void) {
+        layer.requestMediaDataWhenReady(on: .main) { [weak self] in
+            guard let self else { return }
+            self.layer.stopRequestingMediaData()
+            work()
+        }
+    }
+
+    func cancelVideoReadinessNotification() { layer.stopRequestingMediaData() }
+
     func present(frame: Int64, keyframe: Bool, width: Int, height: Int, annexB: [UInt8], offset: Int, avcc: [UInt8]) {
+        if layer.status == .failed { decoder?.reset(); return }
         if keyframe {
             let (s, p) = H264.spsPps(annexB, offset: offset)
             if let s, let p,
@@ -67,31 +84,24 @@ final class VideoToolboxDisplay: NSObject, DesktopVideoDisplay {
                                        pps: Array(H264.NAL(bytes: p, type: 8).payload)) {
                 format = f
                 onSize?(width, height)
-            }
+            } else { decoder?.reset(); return }
         }
-        guard let format, !avcc.isEmpty else { decoder?.session?.needKeyframe(); return }
-        guard let sample = Self.makeSample(avcc, format: format, frame: frame, store: &holders) else { return }
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            if self.layer.status == .failed {
-                self.layer.flush()
-                self.decoder?.reset()
-                return
-            }
-            if keyframe { self.latestKeyframe = (avcc, format) }
-            self.layer.enqueue(sample)
-            // No per-frame render callback on older iOS; stamp render ≈ enqueue.
-            self.decoder?.didRender(frame: frame, renderedUs: UdpLink.monotonicUs())
-            if self.holders.count > 120 { self.holders.removeFirst(self.holders.count - 60) }
+        guard let format, !avcc.isEmpty,
+              let sample = DesktopSampleBuffer.make(avcc, format: format, frame: frame) else {
+            decoder?.reset(); return
         }
+        if keyframe { latestKeyframe = (avcc, format) }
+        layer.enqueue(sample)
+        // Older iOS has no per-frame presentation callback. Measure the actual layer enqueue
+        // after decoded, as an approximation of scan-out. Main/readiness wait is included
+        // in receive-to-decoded latency because conversion starts only when the sink is ready.
+        decoder?.didRender(frame: frame, renderedUs: UdpLink.monotonicUs())
     }
 
     func flush() {
-        DispatchQueue.main.async {
-            self.layer.flushAndRemoveImage()
-            self.holders.removeAll()
-            self.latestKeyframe = nil
-        }
+        layer.stopRequestingMediaData()
+        layer.flushAndRemoveImage()
+        latestKeyframe = nil
         format = nil
     }
 
@@ -121,15 +131,13 @@ final class VideoToolboxDisplay: NSObject, DesktopVideoDisplay {
             decoderSpecification: nil, imageBufferAttributes: attributes, outputCallback: nil,
             decompressionSessionOut: &session) == noErr, let session else { return nil }
         defer { VTDecompressionSessionInvalidate(session) }
-        var holders: [AvccHolder] = []
-        guard let sample = makeSample(bytes, format: format, frame: 0, store: &holders) else { return nil }
+        guard let sample = DesktopSampleBuffer.make(bytes, format: format, frame: 0) else { return nil }
         var result: CVPixelBuffer?
         let status = VTDecompressionSessionDecodeFrame(session, sampleBuffer: sample, flags: [], infoFlagsOut: nil) {
             status, _, image, _, _ in
             if status == noErr { result = image }
         }
         VTDecompressionSessionWaitForAsynchronousFrames(session)
-        withExtendedLifetime(holders) {}
         return status == noErr ? result : nil
     }
 
@@ -154,43 +162,6 @@ final class VideoToolboxDisplay: NSObject, DesktopVideoDisplay {
         }
         return format
     }
-
-    private static func makeSample(_ avcc: [UInt8], format: CMFormatDescription, frame: Int64,
-                                   store: inout [AvccHolder]) -> CMSampleBuffer? {
-        let holder = AvccHolder(avcc)
-        store.append(holder)
-        var block: CMBlockBuffer?
-        let err: OSStatus = holder.bytes.withUnsafeBytes { raw in
-            CMBlockBufferCreateWithMemoryBlock(
-                allocator: kCFAllocatorDefault,
-                memoryBlock: UnsafeMutableRawPointer(mutating: raw.baseAddress),
-                blockLength: avcc.count,
-                blockAllocator: kCFAllocatorNull,
-                customBlockSource: nil,
-                offsetToData: 0,
-                dataLength: avcc.count,
-                flags: 0,
-                blockBufferOut: &block)
-        }
-        guard err == noErr, let block else { return nil }
-        var sample: CMSampleBuffer?
-        var size = avcc.count
-        var timing = CMSampleTimingInfo(
-            duration: .invalid,
-            presentationTimeStamp: CMTime(value: frame, timescale: 1_000_000),
-            decodeTimeStamp: .invalid)
-        guard CMSampleBufferCreateReady(
-            allocator: kCFAllocatorDefault, dataBuffer: block, formatDescription: format,
-            sampleCount: 1, sampleTimingEntryCount: 1, sampleTimingArray: &timing,
-            sampleSizeEntryCount: 1, sampleSizeArray: &size, sampleBufferOut: &sample) == noErr
-        else { return nil }
-        return sample
-    }
-}
-
-private final class AvccHolder {
-    let bytes: [UInt8]
-    init(_ bytes: [UInt8]) { self.bytes = bytes }
 }
 
 /// Hosts the controller's `AVSampleBufferDisplayLayer`.
