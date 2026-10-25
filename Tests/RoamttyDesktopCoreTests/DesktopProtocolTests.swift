@@ -129,15 +129,15 @@ final class DesktopProtocolTests: XCTestCase {
         XCTAssertEqual("libopenh264-2.6.0-linux64.8.so.bz2", PluginManifest.openh264File(target: "linux-x86_64", version: "2.6.0"))
     }
 
-    /// Verified against the decompressed official v0.9.2 release on 2026-10-25.
+    /// Verified against the decompressed official v0.9.3 release on 2026-10-25.
     func testBundledManifestMatchesVerifiedReleasePin() throws {
         let m = try PluginManifest.bundled()
-        XCTAssertEqual("0.9.2", m.version)
-        XCTAssertEqual("https://github.com/yahaa/roamtty-desktop/releases/download/v0.9.2/", m.baseUrl)
+        XCTAssertEqual("0.9.3", m.version)
+        XCTAssertEqual("https://github.com/yahaa/roamtty-desktop/releases/download/v0.9.3/", m.baseUrl)
         XCTAssertEqual("2.6.0", m.openh264)
         XCTAssertEqual(1...1, m.protoMin...m.protoMax)
         XCTAssertEqual(["linux-aarch64", "linux-x86_64", "macos-universal", "windows-arm64", "windows-x64"], m.targets.keys.sorted())
-        XCTAssertEqual("c82b3a0010d545625f5eff1c4e9dae6e2b19c7de3dd44139a4bfda88317a209d", m.targets["linux-x86_64"]?.sha256)
+        XCTAssertEqual("a5955801c2f831429928c47217d7f6eedb9385bb325e0f89b2d44d8f039dad14", m.targets["linux-x86_64"]?.sha256)
         XCTAssertEqual(1860816, m.targets["linux-x86_64"]?.size)
         XCTAssertTrue(DesktopProtocol.supported.contains(m.protoMin))
     }

@@ -87,9 +87,9 @@ final class DesktopSessionTests: XCTestCase {
         wait(s, "connected", Self.connected)
         XCTAssertTrue(seen.contains(.connecting(step: .install)))
         XCTAssertTrue(host.allScripts.contains { $0.contains(#"mkdir -p "$HOME/.roamtty/bin" "$HOME/.roamtty/desktop""#) })
-        XCTAssertTrue(host.allScripts.contains { $0.contains("roamtty-desktop/releases/download/v0.9.2/linux-x86_64.gz") })
+        XCTAssertTrue(host.allScripts.contains { $0.contains("roamtty-desktop/releases/download/v0.9.3/linux-x86_64.gz") })
         XCTAssertTrue(host.allScripts.contains { $0.contains(#""$HOME/.roamtty/bin/roamtty-desktop" install"#) }, "OpenH264")
-        XCTAssertEqual(Array(s.log.prefix(4)), ["安装桌面插件 0.9.2（linux-x86_64）", "主机直接下载…", "获取 Cisco OpenH264 编码器…", "注册插件…"])
+        XCTAssertEqual(Array(s.log.prefix(4)), ["安装桌面插件 0.9.3（linux-x86_64）", "主机直接下载…", "获取 Cisco OpenH264 编码器…", "注册插件…"])
     }
 
     func testMissingBinaryExit127Installs() {
@@ -101,7 +101,7 @@ final class DesktopSessionTests: XCTestCase {
         wait(s, "connected", Self.connected)
         XCTAssertEqual(host.allStreams.count, 2)
         XCTAssertTrue(s.log.contains("sh: roamtty-desktop: not found"))
-        XCTAssertTrue(s.log.contains("安装桌面插件 0.9.2（linux-x86_64）"))
+        XCTAssertTrue(s.log.contains("安装桌面插件 0.9.3（linux-x86_64）"))
     }
 
     func testOtherExitStatusFails() {
