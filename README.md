@@ -126,6 +126,13 @@ swiftc App/Shared/ShareInboxStore.swift scripts/test-share-inbox.swift -o /tmp/r
 /tmp/roamtty-share-tests
 ```
 
+The macOS share worker checks exercise background ordering, security-scope lifetime, cancellation, and recovery with real temporary files:
+
+```sh
+swiftc App/Shared/ShareInboxStore.swift App/Shared/ShareInboxWorker.swift App/Roamtty/Services/SharedInbox.swift scripts/test-share-worker.swift -o /tmp/roamtty-share-worker-tests
+/tmp/roamtty-share-worker-tests
+```
+
 `docs/PLAN.md` records the intended parity scope; `docs/PROGRESS.md` records verification and remaining work. Device and visual checks require Xcode and a paired device. See `THIRD_PARTY_NOTICES.md` for licenses.
 
 ## Data and lifecycle

@@ -26,10 +26,7 @@ import RoamttyCore
                 .overlay { if splash { StartupSplash { withAnimation(.easeOut(duration: 0.3)) { splash = false } }.transition(.opacity) } }
                 .onOpenURL { url in
                     if url.isFileURL {
-                        do {
-                            let imported = try SharedInbox.copyIncoming(url)
-                            if !model.incomingFiles.contains(imported) { model.incomingFiles.append(imported) }
-                        } catch { model.error = error.localizedDescription }
+                        model.importIncoming(url)
                     } else if url.scheme == "roamtty" { model.resume() }
                 }
         }

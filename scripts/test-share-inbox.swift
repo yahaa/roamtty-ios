@@ -8,6 +8,21 @@ import Foundation
     static func main() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("share-ledger-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
+        // A symlinked container path (including /var vs /private/var on macOS) must
+        // identify the same committed files and acknowledgement receipts.
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let alias = root.deletingLastPathComponent().appendingPathComponent("share-alias-" + UUID().uuidString)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: root)
+        defer { try? FileManager.default.removeItem(at: alias) }
+        let aliasID = UUID().uuidString
+        let aliased = try ShareImportLedger.commit(into: alias, id: aliasID, names: ["alias.txt"]) { stage in
+            try Data("alias".utf8).write(to: stage.appendingPathComponent("alias.txt"))
+        }
+        try expect(aliased == ShareImportLedger.pending(in: root), "Commit through a container alias must return the rediscovered canonical identity")
+        let aliasFile = alias.appendingPathComponent(aliasID).appendingPathComponent("alias.txt")
+        try ShareImportLedger.acknowledge([aliasFile], in: root)
+        try expect(ShareImportLedger.pending(in: alias).isEmpty, "Acknowledgement through a file alias must update the canonical receipt")
+        try expect(!FileManager.default.fileExists(atPath: aliasFile.path), "Acknowledgement through a file alias must remove the private copy")
         let id = UUID().uuidString
         let first = try ShareImportLedger.commit(into: root, id: id, names: ["a.txt", "b.txt"]) { stage in
             try Data("alpha".utf8).write(to: stage.appendingPathComponent("a.txt"))
@@ -40,6 +55,18 @@ import Foundation
         } catch let error as Failed where error.message == "Interrupted source read" { }
         try expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(failedID).path), "A failed import must never publish its destination")
         try expect(ShareImportLedger.pending(in: root).isEmpty, "Partial imports must stay invisible")
+
+        let copyCancellation = ShareInboxCancellation()
+        let cancelledID = UUID().uuidString
+        do {
+            _ = try ShareImportLedger.commit(into: root, id: cancelledID, names: ["cancelled.txt"], cancellation: copyCancellation) { stage in
+                try Data("copied before cancellation".utf8).write(to: stage.appendingPathComponent("cancelled.txt"))
+                copyCancellation.cancel()
+            }
+            throw Failed(message: "Cancellation during copying must stop transaction publication")
+        } catch let error as NSError where error.code == NSUserCancelledError { }
+        try expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(cancelledID).path), "Cancelled imports must not publish a destination")
+        try expect(try !FileManager.default.contentsOfDirectory(atPath: root.path).contains(where: { $0.hasPrefix(".staging-") }), "Cancelled imports must remove staging directories")
 
         let protectedID = UUID().uuidString
         let protectedFolder = root.appendingPathComponent(protectedID)
