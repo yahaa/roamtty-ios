@@ -80,7 +80,7 @@ swift test
 ./scripts/test-linux.sh
 ```
 
-`./scripts/test-terminal-url.sh` checks the terminal URL finder and the wide cell repair against SwiftTerm 1.13.0 (it clones SwiftTerm into `scripts/terminal-url/SwiftTerm`).
+`./scripts/test-terminal-url.sh` checks terminal URLs, wide cells, scrollback, reset lifecycle and bounded accessibility export against the same local SwiftTerm 1.13.0 package as the app. The pinned source and minimal downstream patches are documented in [`ThirdParty/SwiftTerm/UPSTREAM.md`](ThirdParty/SwiftTerm/UPSTREAM.md).
 
 The mosh tests exercise wire-format vectors and an installed `mosh-server`, when available. Live SSH tests cover password/interactive/encrypted-key authentication, PTY, concurrent SFTP, no-overwrite and cancellation. Tests requiring unavailable services explicitly skip. XCTest UI tests are in `App/UITests`; sign simulator builds with `CODE_SIGN_IDENTITY=-` and the development entitlements so credential storage is exercised.
 
