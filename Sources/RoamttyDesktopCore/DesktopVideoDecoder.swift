@@ -29,7 +29,8 @@ public extension DesktopVideoDisplay {
 /// A bounded inbox precedes conversion AND display scheduling. At most four access units and
 /// 8 MiB of Annex-B data (including the currently converting unit) are retained. Only one drain
 /// runs at a time; incoming SSH/UDP calls never queue another conversion closure per frame.
-/// Overload invalidates the entire dependent GOP and waits for a fresh keyframe.
+/// Overload invalidates the entire dependent GOP and waits for a fresh keyframe, keeping the
+/// last picture on screen: only reset/detach flush the display.
 public final class DesktopVideoDecoder: DesktopVideoSink, @unchecked Sendable {
     public weak var session: DesktopSession?
     public weak var display: DesktopVideoDisplay?
@@ -78,7 +79,8 @@ public final class DesktopVideoDecoder: DesktopVideoSink, @unchecked Sendable {
         locked {
             guard ready else { return }
             if pending.count + (active ? 1 : 0) >= frameLimit || pendingBytes + activeBytes + video.data.count > byteLimit {
-                invalidate(); ask = true
+                // Drop frames, not the picture: flushing here blanks the screen on every main-thread stall.
+                invalidate(flush: false); ask = true
             }
             guard activeBytes + video.data.count <= byteLimit else { return }
             if size == (0, 0) || (video.keyframe && size != (video.width, video.height)) {

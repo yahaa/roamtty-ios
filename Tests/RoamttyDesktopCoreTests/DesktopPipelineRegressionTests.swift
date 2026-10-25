@@ -23,7 +23,9 @@ final class DesktopPipelineRegressionTests: XCTestCase {
             lock.lock(); completions.append(rendered); lock.unlock()
             present(frame: frame, keyframe: keyframe, width: width, height: height, annexB: annexB, offset: offset, avcc: avcc)
         }
-        func flush() { lock.lock(); values.removeAll(); lock.unlock() }
+        private var flushed = 0
+        var flushes: Int { lock.lock(); defer { lock.unlock() }; return flushed }
+        func flush() { lock.lock(); values.removeAll(); flushed += 1; lock.unlock() }
     }
     static func video(_ n: Int64, key: Bool = false, bytes: Int = 0) -> Video {
         var data: [UInt8] = key ? [0,0,0,1,0x67,0x42,0,0,0,1,0x68,0xCE,0,0,0,1,0x65] : [0,0,0,1,0x41]
@@ -72,6 +74,7 @@ final class DesktopPipelineRegressionTests: XCTestCase {
             decoder.submit(Self.video(20, key: true)); decoder.submit(Self.video(21))
         }
         XCTAssertEqual(output?.frames, [20, 21])
+        XCTAssertEqual(output?.flushes, 0, "overload keeps the last picture on screen")
     }
     func testByteOverloadDiscardsGOPBeforeConversion() {
         var output: Display?
@@ -81,6 +84,7 @@ final class DesktopPipelineRegressionTests: XCTestCase {
             decoder.submit(Self.video(3)); decoder.submit(Self.video(4, key: true))
         }
         XCTAssertEqual(output?.frames, [4])
+        XCTAssertEqual(output?.flushes, 0, "overload keeps the last picture on screen")
     }
     func testDisplayCanResetReentrantly() {
         let decoder = DesktopVideoDecoder(), display = Display()
