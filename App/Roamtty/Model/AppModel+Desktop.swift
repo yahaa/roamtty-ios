@@ -216,8 +216,6 @@ import RoamttyDesktopCore
 extension AppModel {
     /// The button state for a host's session / host card (Android `DesktopButton.derive`).
     func desktopButton(for host: Host, sessionConnected: Bool, preserveOffline: Bool = false) -> DesktopButton {
-        // Cold path (session list): do not touch the plugin resource while the flag is off.
-        guard settings.desktopEnabled else { return .hidden }
         guard let manifest = try? PluginManifest.bundled() else { return .hidden }
         let phase = desktops[host.id]?.phase ?? .idle
         let offline: Bool = {
@@ -225,7 +223,6 @@ extension AppModel {
             return false
         }()
         return DesktopButton.derive(
-            enabled: settings.desktopEnabled,
             hostOnline: preserveOffline || !offline,
             sessionConnected: sessionConnected,
             os: DesktopSupport.buttonOS(host.system),
@@ -257,7 +254,6 @@ extension AppModel {
     #endif
 
     func desktopSupported(_ host: Host) -> Bool {
-        guard settings.desktopEnabled else { return false }
         return (try? PluginManifest.bundled()).map { DesktopSupport.osSupported(host.system, manifest: $0) } ?? false
     }
 
@@ -265,10 +261,6 @@ extension AppModel {
     func openDesktop(_ host: Host) { Task { await openDesktopAsync(host) } }
 
     func openDesktopAsync(_ host: Host) async {
-        guard settings.desktopEnabled else {
-            self.error = text("请先在设置 › 实验功能中开启远程桌面", "Enable remote desktop under Settings › Experimental first")
-            return
-        }
         if let existing = desktops[host.id],
            existing.host.hasSameLoginIdentity(as: host), existing.active {
             if !path.contains(.desktop(host.id)) { path.append(.desktop(host.id)) }
@@ -385,7 +377,6 @@ extension AppModel {
 
     /// Read-only desktop probe over the host's shared connection (host page / session connect).
     func refreshDesktopProbe(_ host: Host) async {
-        guard settings.desktopEnabled else { return }
         do {
             let ssh = try await connection(for: host.id)
             let found = try await performInBackground { DesktopProbeScript.probe(SSHDesktopHost(connection: ssh)) }
@@ -394,11 +385,6 @@ extension AppModel {
     }
 
     func startDesktopPathMonitor() {
-        guard settings.desktopEnabled else {
-            desktopPathMonitor?.cancel()
-            desktopPathMonitor = nil
-            return
-        }
         // Already running.
         if desktopPathMonitor != nil { return }
         let monitor = NWPathMonitor()

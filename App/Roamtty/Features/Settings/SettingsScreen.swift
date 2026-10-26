@@ -47,21 +47,20 @@ struct SettingsScreen: View {
                         Toggle(model.text("固定工具箱", "Keep toolbox open"), isOn: $model.settings.toolboxPinned).padding(16).accessibilityIdentifier("settings-toolbox-pinned")
                     }
 
-                    Panel(title: model.text("实验功能", "Experimental")) {
-                        Toggle(model.text("远程桌面", "Remote desktop"), isOn: $model.settings.desktopEnabled)
-                            .padding(16).panelDivider()
-                            .accessibilityIdentifier("settings-desktop-enabled")
-                        Text(model.text("在会话卡片和主机页显示桌面入口；默认关闭。", "Show desktop entry points on session cards and the host page; off by default."))
-                            .font(.footnote).foregroundStyle(Palette.secondary).padding(.horizontal, 16).padding(.bottom, 8)
-                        if model.settings.desktopEnabled {
+                    Panel(title: model.text("远程桌面", "Remote desktop")) {
+                        HStack {
+                            Text(model.text("离开后保持", "Keep link after leaving"))
+                            Spacer()
                             Picker(model.text("离开后保持", "Keep link after leaving"), selection: $model.settings.desktopKeepAliveMinutes) {
                                 Text(model.text("5 分钟", "5 minutes")).tag(5)
                                 Text(model.text("10 分钟", "10 minutes")).tag(10)
                                 Text(model.text("30 分钟", "30 minutes")).tag(30)
-                            }.padding(16).panelDivider().accessibilityIdentifier("settings-desktop-keepalive")
-                            Toggle(model.text("显示网络状态", "Show network stats"), isOn: $model.settings.desktopShowStats)
-                                .padding(16).accessibilityIdentifier("settings-desktop-stats")
-                        }
+                            }.labelsHidden().accessibilityIdentifier("settings-desktop-keepalive")
+                        }.padding(16).panelDivider()
+                        Toggle(model.text("显示网络状态", "Show network stats"), isOn: $model.settings.desktopShowStats)
+                            .padding(16).panelDivider().accessibilityIdentifier("settings-desktop-stats")
+                        Text(model.text("能开桌面的主机会在会话卡片和主机页显示桌面入口。首次打开会在主机上安装桌面插件。", "Hosts with a desktop show a desktop entry on their session cards and host page. The first open installs the desktop plugin on the host."))
+                            .font(.footnote).foregroundStyle(Palette.secondary).padding(.horizontal, 16).padding(.vertical, 8)
                     }
                     Panel(title: model.text("文件", "Files")) {
                         Toggle(model.text("显示隐藏文件", "Show hidden files"), isOn: $model.settings.showHiddenFiles).padding(16).panelDivider().accessibilityIdentifier("settings-hidden-files")

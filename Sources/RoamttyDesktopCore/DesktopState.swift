@@ -31,7 +31,7 @@ public enum DesktopButton: Equatable, Sendable {
 
     /// §4.3 of the plan. `osSupported`: the pinned plugin has a build for the host's system.
     /// Linux hosts show the button only once a probe found a desktop; macOS and Windows show it unprobed.
-    public static func derive(enabled: Bool, hostOnline: Bool, sessionConnected: Bool, os: String, osSupported: Bool,
+    public static func derive(hostOnline: Bool, sessionConnected: Bool, os: String, osSupported: Bool,
                               probe: DesktopProbe?, probedAt: Int64?, now: Int64, phase: DesktopPhase) -> DesktopButton {
         // A desktop already open keeps its button whatever the session or probe say now.
         switch phase {
@@ -41,7 +41,7 @@ public enum DesktopButton: Equatable, Sendable {
         case .needsAction: return .needsAction
         case .idle, .failed: break
         }
-        if !enabled || !hostOnline || !sessionConnected || !osSupported { return .hidden }
+        if !hostOnline || !sessionConnected || !osSupported { return .hidden }
         let fresh: DesktopProbe? = (probedAt.map { now - $0 < DesktopProbe.cacheMs } ?? false) ? probe : nil
         switch fresh {
         case .no?: return .hidden

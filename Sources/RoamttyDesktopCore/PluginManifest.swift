@@ -50,7 +50,11 @@ public struct PluginManifest: Equatable, Sendable {
     }
 
     /// The manifest shipped with the app (app bundle root, or the SwiftPM module bundle in tests).
-    public static func bundled() throws -> PluginManifest {
+    /// Session rows ask on every render, so the resource is read once.
+    public static func bundled() throws -> PluginManifest { try bundledOnce.get() }
+    private static let bundledOnce = Result { try readBundled() }
+
+    private static func readBundled() throws -> PluginManifest {
         var candidates: [Bundle] = [.main]
         #if SWIFT_PACKAGE
         candidates.insert(Bundle.module, at: 0)
