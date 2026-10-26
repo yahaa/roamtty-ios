@@ -265,9 +265,9 @@ struct TerminalScreen: View {
         settingsMenu
     }
     private var dockControlCount: Int { 5 + (showDesktopDock ? 1 : 0) }
-    /// Android: only when desktopEnabled && desktopSupported && probe == YES.
+    /// Android: only when desktopSupported && probe == YES.
     private var showDesktopDock: Bool {
-        guard model.settings.desktopEnabled, let host = model.host(runtime.record.hostID), model.desktopSupported(host) else { return false }
+        guard let host = model.host(runtime.record.hostID), model.desktopSupported(host) else { return false }
         return DesktopProbe.decode(host.desktop) == .yes
     }
     private var collapseButton: some View {

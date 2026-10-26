@@ -43,7 +43,7 @@ for store_name, theme in (("HostCardParity-dark", "dark"), ("HostCardParity-ligh
                         plugins=["tmux", "mosh"], desktop=desktop, desktopProbedAt=int(time.time() * 1000))
             db.execute("INSERT OR REPLACE INTO hosts VALUES (?, ?)", (host_id, json.dumps(host).encode()))
         db.execute("INSERT OR REPLACE INTO settings VALUES (1, ?)",
-                   (json.dumps(dict(theme=theme, desktopEnabled=True)).encode(),))
+                   (json.dumps(dict(theme=theme)).encode(),))
     thumbs = folder / "desktop-thumbs"
     thumbs.mkdir(exist_ok=True)
     # UIImage identifies the format from its bytes, independently of the cache's .jpg suffix.

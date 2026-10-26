@@ -163,7 +163,7 @@ struct SessionRow: View {
 
 
     @ViewBuilder private func desktopButton(host: Host?, connected: Bool) -> some View {
-        if model.settings.desktopEnabled, let host {
+        if let host {
             let button = model.desktopButton(for: host, sessionConnected: connected)
             DesktopCardButton(state: button, accessibilityID: "home-session-desktop-\(record.id)") {
                 model.openDesktop(host)

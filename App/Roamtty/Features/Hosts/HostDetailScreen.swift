@@ -23,7 +23,7 @@ struct HostDetailScreen: View {
                             Button { model.sheet = .launch(host, true) } label: { actionLabel("AI Agent", "ic_agent") }.buttonStyle(RoamButtonStyle(filled: true)).accessibilityIdentifier("host-detail-agent")
                             Button { model.sheet = .launch(host, false) } label: { actionLabel(model.text("终端", "Terminal"), "ic_sessions") }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-terminal")
                             Button { model.path.append(.files(hostID)) } label: { actionLabel(model.text("文件", "Files"), "ic_folder") }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-files")
-                            if model.settings.desktopEnabled && model.desktopSupported(host) {
+                            if model.desktopSupported(host) {
                                 Button { model.openDesktop(host) } label: { actionLabel(model.text("桌面", "Desktop"), "ic_desktop") }
                                     .buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-desktop")
                             }

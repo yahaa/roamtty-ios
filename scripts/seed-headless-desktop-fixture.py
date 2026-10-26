@@ -39,7 +39,7 @@ with sqlite3.connect(database) as db:
     host.update(system="UBUNTU", desktop="yes", desktopProbedAt=int(time.time() * 1000))
     db.execute("UPDATE hosts SET json=? WHERE id='ui-live-host'", (json.dumps(host).encode(),))
     db.execute("INSERT OR REPLACE INTO settings VALUES (1, ?)",
-               (json.dumps(dict(theme="dark", language="zh-Hans", desktopEnabled=True)).encode(),))
+               (json.dumps(dict(theme="dark", language="zh-Hans")).encode(),))
     endpoint = f'[{str(fixture["host"]).lower().rstrip(".")}]:{fixture["port"]}'
     db.execute("INSERT OR REPLACE INTO pins VALUES (?, ?, ?)", (endpoint, key[1], base64.b64decode(key[2])))
 print("Seeded isolated headless desktop regression store; credentials remain private")

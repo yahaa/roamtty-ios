@@ -4,11 +4,11 @@ import XCTest
 /// Every row of the plan's §4.3 button table; mirrors Android's DesktopStateTest.
 final class DesktopStateTests: XCTestCase {
     private let now = 10 * DesktopProbe.cacheMs
-    private func derive(enabled: Bool = true, online: Bool = true, connected: Bool = true, os: String = "LINUX",
+    private func derive(online: Bool = true, connected: Bool = true, os: String = "LINUX",
                         supported: Bool = true, probe: DesktopProbe? = .yes, at: Int64?? = .none,
                         phase: DesktopPhase = .idle) -> DesktopButton {
         let probedAt: Int64? = at ?? (now - 1000)
-        return DesktopButton.derive(enabled: enabled, hostOnline: online, sessionConnected: connected, os: os, osSupported: supported,
+        return DesktopButton.derive(hostOnline: online, sessionConnected: connected, os: os, osSupported: supported,
                                     probe: probe, probedAt: probedAt, now: now, phase: phase)
     }
 
@@ -16,7 +16,6 @@ final class DesktopStateTests: XCTestCase {
         XCTAssertEqual(.hidden, derive(online: false))
         XCTAssertEqual(.hidden, derive(connected: false))
         XCTAssertEqual(.hidden, derive(probe: .no))
-        XCTAssertEqual(.hidden, derive(enabled: false))
         XCTAssertEqual(.hidden, derive(supported: false))
         // Linux waits for a probe; a stale probe counts as none.
         XCTAssertEqual(.hidden, derive(probe: nil, at: .some(nil)))

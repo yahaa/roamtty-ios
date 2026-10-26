@@ -19,7 +19,7 @@ Xcode / a device; **todo** = not implemented yet; **n/a** = Android-only, iOS eq
 | 2 (done) | Plugin install / probe / serve over the existing SSH (`RoamttyTransport`) and SFTP layers; UDP upgrade/fallback; resume token (30 s); take-over | yes (fake host, local shell, real 0.8.0 plugin on Xvfb, OpenSSH fixture) |
 | 3 (done in source) | H.264 Annex-B helpers, `DesktopVideoDecoder` (queue / keyframe gating / AVCC), `DesktopStatsText` + LatencyMeter plumbing; VideoToolbox `AVSampleBufferDisplayLayer` path in the app | pure logic yes; **VT path unverified on Linux / needs Xcode + device** |
 | 4 (done in source) | Desktop page UI (SwiftUI): rail / tab bar, 操作 / 键盘 panels, virtual mouse, local cursor, stats overlay, status card, gestures via `DesktopGestures`, hardware keyboard | `DesktopPageModel` yes; UIKit/SwiftUI **unverified** (compile-guarded / app target) |
-| 5 (done in source) | Pause-and-keep 5/10/30 min, `NWPathMonitor` → `networkChanged`, resume on foreground; entry points; Settings › 实验功能 › 远程桌面 (**default off**); probe storage on `Host` | session keep-alive / button derive yes; scene + UIKit hooks **unverified on device** |
+| 5 (done in source) | Pause-and-keep 5/10/30 min, `NWPathMonitor` → `networkChanged`, resume on foreground; entry points; Settings › 远程桌面 (keep-alive, stats; always on since 2026-10-26); probe storage on `Host` | session keep-alive / button derive yes; scene + UIKit hooks **unverified on device** |
 
 ## Android ↔ iOS parity
 
@@ -87,14 +87,14 @@ Xcode / a device; **todo** = not implemented yet; **n/a** = Android-only, iOS eq
 | Host page 「桌面」 | `HostDetailScreen` | done (unverified) |
 | Terminal dock 「打开桌面」 (before files; sticky clear + hide keyboard; menu item removed) | `TerminalScreen` dock `terminal-desktop` | done (unverified) |
 | Floating dock 5 s auto-hide + collapse countdown ring | `TerminalToolboxState.dockHideSeconds` + collapse ring | done (unverified) |
-| 设置 › 实验功能 › 远程桌面, **off by default** | `SettingsScreen` + `AppSettings.desktopEnabled` default `false` | done |
+| 设置 › 远程桌面 (no switch: on for everyone since 2026-10-26) | `SettingsScreen` | done |
 | Per-host prefs (mode/quality/fps/lock); global showStats | `DesktopHostSettings` in `AppSettings.desktopHosts` | done |
 | Android notification row | Live Activity optional | n/a |
 | Back gesture excluded over the picture | Edge swipe still enabled (system back); 操作 › 退出 keeps the link | done with deviation (no edge exclusion zone yet) |
 
 ## Launch crash fix (post phases 3–5)
 
-Cold launch no longer constructs `DesktopStore` or starts `NWPathMonitor` unless 设置 › 实验功能 › 远程桌面 is on.
+Cold launch does not construct `DesktopStore` or start `NWPathMonitor`; both wait for the first desktop opened.
 `AppSettings` desktop keys decode best-effort so a corrupt value cannot fail the whole settings blob.
 Session cards skip desktop work entirely while the flag is off. Regenerated `Roamtty.xcodeproj` includes the new App/DesktopCore sources.
 
@@ -125,7 +125,7 @@ Not verified (needs Xcode on a Mac, a simulator/device, or real hosts):
 - Keep-alive timer actually tearing down after 5/10/30 minutes in the background.
 
 Suggested check on a Mac: `python3 scripts/generate-project.py && xcodebuild -scheme Roamtty -destination 'generic/platform=iOS Simulator' build`,
-then enable 设置 › 实验功能 › 远程桌面 and open a desktop from a session card / host list / host page / terminal dock.
+then open a desktop from a session card / host list / host page / terminal dock.
 
 ## Remaining gaps vs #218 (source-complete with caveats)
 

@@ -144,8 +144,8 @@ import RoamttyTransport
         // reconnect then; it does now.
         if case .terminal(let id)? = path.last, let record = records.first(where: { $0.id == id }) { Task { await reconnectOnOpen(record) } }
         restartVisibleMonitor()
-        // Desktop is experimental and off by default: never create the store or NWPathMonitor on cold launch.
-        if settings.desktopEnabled {
+        // Cold launch never creates the store or NWPathMonitor: both wait for the first desktop opened.
+        if desktopStore != nil {
             desktopStore?.live.forEach { $0.resume() }
             startDesktopPathMonitor()
         }

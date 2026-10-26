@@ -156,8 +156,6 @@ public struct AppSettings: Codable, Equatable {
     public var fileSortDescending = false
     public var codeWrap = false
     public var codeFontSize = 13.0
-    /// Experimental remote desktop (Android `desktop.enabled`); **off by default**.
-    public var desktopEnabled = false
     /// How long a left desktop stays connected: 5, 10 or 30 minutes.
     public var desktopKeepAliveMinutes = 10
     /// Show the network stats overlay (also toggled in 操作).
@@ -171,7 +169,7 @@ public struct AppSettings: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case theme, language, font, fontSize, showHiddenFiles, toolboxPinned, downloadBookmark
         case fileSort, fileSortDescending, codeWrap, codeFontSize
-        case desktopEnabled, desktopKeepAliveMinutes, desktopShowStats, desktopHosts, desktopPluginBaseUrl
+        case desktopKeepAliveMinutes, desktopShowStats, desktopHosts, desktopPluginBaseUrl
     }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -187,7 +185,6 @@ public struct AppSettings: Codable, Equatable {
         codeWrap = try values.decodeIfPresent(Bool.self, forKey: .codeWrap) ?? false
         codeFontSize = min(22, max(9, try values.decodeIfPresent(Double.self, forKey: .codeFontSize) ?? 13))
         // Desktop keys are best-effort: a bad value must not fail the whole settings blob (launch path).
-        desktopEnabled = (try? values.decodeIfPresent(Bool.self, forKey: .desktopEnabled)) ?? false
         let keep = (try? values.decodeIfPresent(Int.self, forKey: .desktopKeepAliveMinutes)) ?? 10
         desktopKeepAliveMinutes = [5, 10, 30].contains(keep) ? keep : 10
         desktopShowStats = (try? values.decodeIfPresent(Bool.self, forKey: .desktopShowStats)) ?? false
@@ -208,7 +205,6 @@ public struct AppSettings: Codable, Equatable {
         try values.encode(fileSortDescending, forKey: .fileSortDescending)
         try values.encode(codeWrap, forKey: .codeWrap)
         try values.encode(codeFontSize, forKey: .codeFontSize)
-        try values.encode(desktopEnabled, forKey: .desktopEnabled)
         try values.encode(desktopKeepAliveMinutes, forKey: .desktopKeepAliveMinutes)
         try values.encode(desktopShowStats, forKey: .desktopShowStats)
         try values.encode(desktopHosts, forKey: .desktopHosts)
