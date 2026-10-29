@@ -16,6 +16,8 @@ final class VideoToolboxDisplay: NSObject, DesktopVideoDisplay {
     private var format: CMFormatDescription?
     private var latestKeyframe: ([UInt8], CMFormatDescription)? // accessed only on main
     private let snapshotQueue = DispatchQueue(label: "desktop-snapshot", qos: .utility)
+    /// Annex-B → AVCC conversion runs here, so the main thread only enqueues finished samples.
+    private let conversionQueue = DispatchQueue(label: "desktop-video-convert", qos: .userInteractive)
     /// Creating a Core Image context is costly; one serves every snapshot (it is thread-safe).
     private static let snapshotContext = CIContext()
     weak var decoder: DesktopVideoDecoder?
@@ -65,6 +67,10 @@ final class VideoToolboxDisplay: NSObject, DesktopVideoDisplay {
         DispatchQueue.main.async(execute: work)
     }
 
+    func scheduleConversionWork(_ work: @escaping () -> Void) {
+        conversionQueue.async(execute: work)
+    }
+
     var isReadyForMoreVideo: Bool { layer.status == .failed || layer.isReadyForMoreMediaData }
 
     func notifyWhenReadyForVideo(_ work: @escaping () -> Void) {
@@ -96,7 +102,7 @@ final class VideoToolboxDisplay: NSObject, DesktopVideoDisplay {
         layer.enqueue(sample)
         // Older iOS has no per-frame presentation callback. Measure the actual layer enqueue
         // after decoded, as an approximation of scan-out. Main/readiness wait is included
-        // in receive-to-decoded latency because conversion starts only when the sink is ready.
+        // in receive-to-decoded latency: the decoder stamps decoded on main, once the sink is ready.
         rendered(UdpLink.monotonicUs())
     }
 
