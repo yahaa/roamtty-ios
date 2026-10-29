@@ -9,14 +9,18 @@ final class DesktopPipelineRegressionTests: XCTestCase {
         var renderCompletions: [(Int64) -> Void] { lock.lock(); defer { lock.unlock() }; return completions }
         var onPresent: ((Int64) -> Void)?
         var executor: ((@escaping () -> Void) -> Void)?
+        var conversionExecutor: ((@escaping () -> Void) -> Void)?
+        private var avccs: [Int64: [UInt8]] = [:]
+        func avcc(_ frame: Int64) -> [UInt8]? { lock.lock(); defer { lock.unlock() }; return avccs[frame] }
         var isReadyForMoreVideo = true
         var readyCallback: (() -> Void)?
         func scheduleVideoWork(_ work: @escaping () -> Void) { if let executor { executor(work) } else { work() } }
+        func scheduleConversionWork(_ work: @escaping () -> Void) { if let conversionExecutor { conversionExecutor(work) } else { work() } }
         func notifyWhenReadyForVideo(_ work: @escaping () -> Void) { readyCallback = work }
         func cancelVideoReadinessNotification() { readyCallback = nil }
         var frames: [Int64] { lock.lock(); defer { lock.unlock() }; return values }
         func present(frame: Int64, keyframe: Bool, width: Int, height: Int, annexB: [UInt8], offset: Int, avcc: [UInt8], rendered: @escaping (Int64) -> Void) {
-            lock.lock(); completions.append(rendered); values.append(frame); lock.unlock()
+            lock.lock(); completions.append(rendered); values.append(frame); avccs[frame] = avcc; lock.unlock()
             onPresent?(frame)
         }
         private var flushed = 0
@@ -153,6 +157,61 @@ final class DesktopPipelineRegressionTests: XCTestCase {
         XCTAssertEqual(scheduled.count, 1)
         while !scheduled.isEmpty { scheduled.removeFirst()() }
         XCTAssertEqual(display.frames, Array(1...10).map(Int64.init))
+    }
+    func testConversionRunsOnItsOwnExecutorBeforePresentation() {
+        let decoder = DesktopVideoDecoder(), display = Display()
+        var conversions: [() -> Void] = [], presentations: [() -> Void] = []
+        display.conversionExecutor = { conversions.append($0) }
+        display.executor = { presentations.append($0) }
+        var converted: [Int64] = []
+        decoder.makeAvcc = { bytes, offset in converted.append(Int64(bytes.last!)); return H264.avcc(bytes, offset: offset) }
+        decoder.display = display; decoder.attach(name: "test")
+        decoder.submit(Self.video(1, key: true)); decoder.submit(Self.video(2))
+        XCTAssertEqual(conversions.count, 1, "one pass converts the queue")
+        XCTAssertTrue(presentations.isEmpty, "nothing is presented before it is converted")
+        conversions.removeFirst()()
+        XCTAssertEqual(converted, [1, 2])
+        XCTAssertEqual(display.frames, [], "conversion never presents by itself")
+        XCTAssertEqual(presentations.count, 1, "converted units coalesce into one drain")
+        presentations.removeFirst()()
+        XCTAssertEqual(display.frames, [1, 2])
+        XCTAssertEqual(display.avcc(2), H264.avcc(Self.video(2).data))
+    }
+    func testResetDiscardsAConversionStillRunningInTheBackground() {
+        let decoder = DesktopVideoDecoder(), display = Display()
+        let queue = DispatchQueue(label: "test-convert"), entered = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+        display.conversionExecutor = { queue.async(execute: $0) }
+        decoder.makeAvcc = { bytes, offset in
+            if bytes.last == 1 { entered.signal(); _ = release.wait(timeout: .now() + 5) }
+            return H264.avcc(bytes, offset: offset)
+        }
+        decoder.display = display; decoder.attach(name: "test")
+        decoder.submit(Self.video(1, key: true))
+        XCTAssertEqual(entered.wait(timeout: .now() + 2), .success)
+        decoder.reset(); decoder.submit(Self.video(2, key: true))
+        release.signal()
+        XCTAssertTrue(waitUntil(2) { display.frames == [2] })
+        queue.sync {}
+        XCTAssertEqual(display.frames, [2], "the stale conversion of 1 is never presented")
+    }
+    func testBackgroundConversionKeepsOrderAndContentUnderLoad() {
+        let decoder = DesktopVideoDecoder(), display = Display()
+        let convert = DispatchQueue(label: "test-convert"), main = DispatchQueue(label: "test-main")
+        display.conversionExecutor = { convert.async(execute: $0) }
+        display.executor = { main.async(execute: $0) }
+        decoder.display = display; decoder.attach(name: "test")
+        for n in 1...300 { decoder.submit(Self.video(Int64(n), key: n % 10 == 1, bytes: n % 7 * 300)) }
+        // Overload may drop whole GOPs on the way; a keyframe after the burst must still come through.
+        decoder.submit(Self.video(301, key: true))
+        XCTAssertTrue(waitUntil(3) { display.frames.last == 301 })
+        let frames = display.frames
+        XCTAssertFalse(frames.isEmpty)
+        XCTAssertEqual(frames, frames.sorted(), "units are presented in submission order")
+        XCTAssertEqual(Set(frames).count, frames.count)
+        for frame in frames {
+            let n = Int(frame)
+            XCTAssertEqual(display.avcc(frame), H264.avcc(Self.video(frame, key: n % 10 == 1, bytes: n % 7 * 300).data), "frame \(frame)")
+        }
     }
     func testImmediateExecutorsDoNotAccumulateRecursiveDrains() {
         let decoder = DesktopVideoDecoder(), display = Display()

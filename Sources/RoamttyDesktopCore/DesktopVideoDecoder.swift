@@ -1,13 +1,17 @@
 import Foundation
 
-/// A synchronous presentation sink. The decoder serializes all calls on the sink's executor.
-/// Existing sinks can keep the default immediate executor and unconditional readiness.
+/// A synchronous presentation sink. The decoder serializes all presentation calls on the sink's
+/// video executor, and all AVCC conversions on its conversion executor (off the UI thread on iOS).
+/// Existing sinks can keep the default immediate executors and unconditional readiness.
 public protocol DesktopVideoDisplay: AnyObject {
     /// `rendered` belongs to this submission, including its decoder generation. Call it only
     /// after a successful enqueue; retaining the closure does not make `present` asynchronous.
     func present(frame: Int64, keyframe: Bool, width: Int, height: Int, annexB: [UInt8], offset: Int, avcc: [UInt8], rendered: @escaping (Int64) -> Void)
     func flush()
     func scheduleVideoWork(_ work: @escaping () -> Void)
+    /// Runs one conversion pass. A serial background queue keeps Annex-B parsing and copying off the
+    /// presentation executor; passes never overlap, as the decoder starts the next only after one ends.
+    func scheduleConversionWork(_ work: @escaping () -> Void)
     var isReadyForMoreVideo: Bool { get }
     func notifyWhenReadyForVideo(_ work: @escaping () -> Void)
     func cancelVideoReadinessNotification()
@@ -15,24 +19,38 @@ public protocol DesktopVideoDisplay: AnyObject {
 
 public extension DesktopVideoDisplay {
     func scheduleVideoWork(_ work: @escaping () -> Void) { work() }
+    func scheduleConversionWork(_ work: @escaping () -> Void) { work() }
     var isReadyForMoreVideo: Bool { true }
     func notifyWhenReadyForVideo(_ work: @escaping () -> Void) { work() }
     func cancelVideoReadinessNotification() {}
 }
 
 /// A bounded inbox precedes conversion AND display scheduling. At most four access units and
-/// 8 MiB of Annex-B data (including the currently converting unit) are retained. Only one drain
-/// runs at a time; incoming SSH/UDP calls never queue another conversion closure per frame.
+/// 8 MiB of Annex-B data (including the units converting and presenting) are retained. Units are
+/// converted in submission order by one conversion pass at a time, then presented in that order by
+/// one drain at a time; incoming SSH/UDP calls never queue a closure per frame.
 /// Overload invalidates the entire dependent GOP and waits for a fresh keyframe, keeping the
 /// last picture on screen: only reset/detach flush the display.
 public final class DesktopVideoDecoder: DesktopVideoSink, @unchecked Sendable {
     public weak var session: DesktopSession?
     public weak var display: DesktopVideoDisplay?
+    /// A submitted unit, until it is presented; `avcc` is set once it is converted.
+    private struct Entry {
+        let id: UInt64
+        let video: Video
+        var avcc: [UInt8]?
+    }
     private let lock = NSLock()
-    private var pending: [Video] = []
+    private var pending: [Entry] = []
+    private var nextID: UInt64 = 0
     private var pendingBytes = 0, activeBytes = 0
     private var active = false, scheduled = false, draining = false, waiting = false
     private var scheduling = false
+    /// The unit a conversion pass is working on, and whether an invalidation dropped it from `pending`
+    /// while it converts: its bytes still count against the limits until the pass lets go of it.
+    private var converting: (id: UInt64, bytes: Int)?
+    private var convertingDetached = false
+    private var conversionRunning = false
     private var flushNeeded = false
     private var generation: UInt64 = 0
     private var awaitingRender: [Int64: UInt64] = [:]
@@ -40,7 +58,7 @@ public final class DesktopVideoDecoder: DesktopVideoSink, @unchecked Sendable {
     private var ready = false
     private var _name = ""
     private var _decoded: Int64 = 0
-    /// Configure before attaching. Runs on the display executor, never concurrently.
+    /// Configure before attaching. Runs on the conversion executor, never concurrently.
     public var makeAvcc: (([UInt8], Int) -> [UInt8])? = H264.avcc
     private let frameLimit = 4, byteLimit = 8 * 1024 * 1024
 
@@ -58,34 +76,70 @@ public final class DesktopVideoDecoder: DesktopVideoSink, @unchecked Sendable {
         locked { ready = false; invalidate() }
         kick()
     }
-    /// Called only while holding the state lock. The active conversion checks its generation
-    /// before submission; a reset during a callback is drained as a flush before the next frame.
+    /// Called only while holding the state lock. The active conversion and presentation check their
+    /// generation before use; a reset during a callback is drained as a flush before the next frame.
     private func invalidate(flush: Bool = true) {
         generation &+= 1
         size = (0, 0); pending.removeAll(); pendingBytes = 0
+        if converting != nil { convertingDetached = true }
         awaitingRender.removeAll(); waiting = false
         flushNeeded = flushNeeded || flush
+    }
+    /// Units retained and their bytes, including a conversion that no longer belongs to `pending`.
+    private var retained: (count: Int, bytes: Int) {
+        let detached = convertingDetached ? (converting?.bytes ?? 0) : 0
+        return (pending.count + (active ? 1 : 0) + (convertingDetached ? 1 : 0), pendingBytes + activeBytes + detached)
     }
 
     public func submit(_ video: Video) {
         var ask = false
         locked {
             guard ready else { return }
-            if pending.count + (active ? 1 : 0) >= frameLimit || pendingBytes + activeBytes + video.data.count > byteLimit {
+            if retained.count >= frameLimit || retained.bytes + video.data.count > byteLimit {
                 // Drop frames, not the picture: flushing here blanks the screen on every main-thread stall.
                 invalidate(flush: false); ask = true
             }
-            guard activeBytes + video.data.count <= byteLimit else { return }
+            guard retained.bytes + video.data.count <= byteLimit else { return }
             if size == (0, 0) || (video.keyframe && size != (video.width, video.height)) {
                 guard video.keyframe else { return }
                 let headers = H264.spsPps(video.data, offset: video.offset)
                 guard headers.sps != nil, headers.pps != nil else { ask = true; return }
                 size = (video.width, video.height)
             }
-            pending.append(video); pendingBytes += video.data.count
+            pending.append(Entry(id: nextID, video: video)); nextID &+= 1; pendingBytes += video.data.count
         }
         if ask { session?.needKeyframe() }
+        convert()
         kick()
+    }
+
+    /// Starts a conversion pass unless one runs. A pass converts every unconverted unit in order, then
+    /// hands each to the drain; the pass that sees nothing left to do is the one that clears the flag.
+    private func convert() {
+        let start = locked { () -> Bool in
+            guard !conversionRunning, pending.contains(where: { $0.avcc == nil }) else { return false }
+            conversionRunning = true; return true
+        }
+        guard start else { return }
+        let pass: () -> Void = { [weak self] in self?.conversionPass() }
+        if let display { display.scheduleConversionWork(pass) } else { pass() }
+    }
+
+    private func conversionPass() {
+        while true {
+            let job: (id: UInt64, video: Video)? = locked {
+                guard let entry = pending.first(where: { $0.avcc == nil }) else { conversionRunning = false; return nil }
+                converting = (entry.id, entry.video.data.count); convertingDetached = false
+                return (entry.id, entry.video)
+            }
+            guard let job else { return }
+            let avcc = makeAvcc?(job.video.data, job.video.offset) ?? []
+            locked {
+                if let index = pending.firstIndex(where: { $0.id == job.id }) { pending[index].avcc = avcc }
+                converting = nil; convertingDetached = false
+            }
+            kick()
+        }
     }
 
     private func kick() {
@@ -98,7 +152,7 @@ public final class DesktopVideoDecoder: DesktopVideoSink, @unchecked Sendable {
         // batch inline, but must not accumulate stack frames under continuous input.
         while true {
             let go = locked { () -> Bool in
-                guard !scheduled, !draining, !waiting, flushNeeded || !pending.isEmpty else {
+                guard !scheduled, !draining, !waiting, flushNeeded || pending.first?.avcc != nil else {
                     scheduling = false; return false
                 }
                 scheduled = true; return true
@@ -118,7 +172,7 @@ public final class DesktopVideoDecoder: DesktopVideoSink, @unchecked Sendable {
                 if flushNeeded { flushNeeded = false; return true }; return false
             }
             if flush { display?.cancelVideoReadinessNotification(); display?.flush() }
-            let hasWork = locked { !pending.isEmpty }
+            let hasWork = locked { pending.first?.avcc != nil }
             if hasWork, let display, !display.isReadyForMoreVideo {
                 locked { waiting = true; draining = false }
                 display.notifyWhenReadyForVideo { [weak self] in
@@ -133,18 +187,18 @@ public final class DesktopVideoDecoder: DesktopVideoSink, @unchecked Sendable {
                 if reset { kick() }
                 return
             }
-            let next: (Video, UInt64)? = locked {
+            // The next unit in order, once converted; an unconverted one ends the drain until its pass kicks it.
+            let next: (Video, [UInt8], UInt64)? = locked {
                 if flushNeeded { return nil }
-                guard !pending.isEmpty else { draining = false; return nil }
-                let v = pending.removeFirst(); pendingBytes -= v.data.count
-                active = true; activeBytes = v.data.count
-                return (v, generation)
+                guard let entry = pending.first, let avcc = entry.avcc else { draining = false; return nil }
+                pending.removeFirst(); pendingBytes -= entry.video.data.count
+                active = true; activeBytes = entry.video.data.count
+                return (entry.video, avcc, generation)
             }
-            guard let (v, token) = next else {
+            guard let (v, avcc, token) = next else {
                 if locked({ draining }) { continue }
                 kick(); return
             }
-            let avcc = makeAvcc?(v.data, v.offset) ?? []
             let valid = locked { () -> Bool in
                 guard ready, generation == token else { return false }
                 _decoded += 1
@@ -172,7 +226,7 @@ public final class DesktopVideoDecoder: DesktopVideoSink, @unchecked Sendable {
             processed += 1
             if processed == frameLimit {
                 locked { draining = false }
-                kick() // At most four conversions before yielding the UI executor.
+                kick() // At most four presentations before yielding the UI executor.
                 return
             }
         }
