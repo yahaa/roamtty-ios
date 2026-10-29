@@ -23,6 +23,8 @@ struct DesktopPage: View {
     /// Landscape: the Dynamic Island (or notch) is on the leading edge, beside the picture.
     @State private var islandLeading = true
     @State private var railWidth: CGFloat = 0
+    /// Portrait: how tall the bottom rail stands, from the screen's bottom edge.
+    @State private var railHeight: CGFloat = 0
     /// How deep a rail button is across the rail, the same standing up or lying down.
     private let railDepth: CGFloat = 54
 
@@ -59,7 +61,10 @@ struct DesktopPage: View {
                 } else {
                     VStack(spacing: 0) {
                         desktopWorkspace(landscape: false, bottomInset: max(0, keyboardOverlap - geo.safeAreaInsets.bottom))
-                        if panel != .keyboard { controlRail(landscape: false, bottomInset: geo.safeAreaInsets.bottom) }
+                        if panel != .keyboard {
+                            controlRail(landscape: false, bottomInset: geo.safeAreaInsets.bottom)
+                                .background(GeometryReader { rail in Color.clear.preference(key: RailHeightKey.self, value: rail.size.height) })
+                        }
                     }
                     // The rail takes most of the home indicator's inset; the keyboard panel keeps it all.
                     .ignoresSafeArea(.container, edges: panel == .keyboard ? [] : .bottom)
@@ -74,14 +79,17 @@ struct DesktopPage: View {
                 #endif
                 if panel == .operations {
                     // The panel opens just beside the rail, which reaches past the safe area.
+                    // Portrait: it stands on the bottom rail, which stays visible and live.
                     operationsPanel(size: geo.size, landscape: landscape,
-                                    trailing: max(8, railWidth + 8 - geo.safeAreaInsets.trailing))
+                                    trailing: max(8, railWidth + 8 - geo.safeAreaInsets.trailing),
+                                    bottom: landscape ? 0 : max(0, railHeight - geo.safeAreaInsets.bottom))
                         .transition(.move(edge: landscape ? .trailing : .bottom))
                 }
 
             }
             .animation(.easeOut(duration: 0.2), value: panel)
             .onPreferenceChange(RailWidthKey.self) { railWidth = $0 }
+            .onPreferenceChange(RailHeightKey.self) { railHeight = $0 }
         }
         // UIKit's hidden IME can include an input-assistant row that SwiftUI's automatic
         // avoidance misses after rotation. Reserve the entire keyboard frame explicitly.
@@ -230,9 +238,10 @@ struct DesktopPage: View {
         }.buttonStyle(.plain).accessibilityLabel(title)
     }
 
-    private func operationsPanel(size: CGSize, landscape: Bool, trailing: CGFloat) -> some View {
+    private func operationsPanel(size: CGSize, landscape: Bool, trailing: CGFloat, bottom: CGFloat) -> some View {
         ZStack(alignment: landscape ? .trailing : .bottom) {
-            Color.black.opacity(0.4).ignoresSafeArea().onTapGesture { dismissPanel() }
+            Color.black.opacity(0.4).ignoresSafeArea(edges: bottom > 0 ? [.top, .horizontal] : .all)
+                .onTapGesture { dismissPanel() }
             VStack(spacing: 0) {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
@@ -306,20 +315,21 @@ struct DesktopPage: View {
                         toggleRow(model.text("断开后锁定电脑", "Lock after disconnect"), model.text("断开连接时锁屏，返回不算", "Lock on disconnect, not when going back"), value: Binding(get: { controller.lockOnClose }, set: { controller.setLockOnClose($0) }))
                         Button(role: .destructive) { showDisconnect = true } label: {
                             HStack(spacing: 8) {
-                                AppIcon("ic_power", size: 18)
-                                Text(model.text("断开连接", "Disconnect")).font(.system(size: 14))
+                                AppIcon("ic_power", size: 20)
+                                Text(model.text("断开连接", "Disconnect")).font(.system(size: 15, weight: .medium))
                             }.foregroundStyle(Palette.danger).frame(maxWidth: .infinity).padding(.vertical, 12)
                                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.danger.opacity(0.6), lineWidth: 1))
                         }.buttonStyle(.plain)
                     }.padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 16)
                 }.accessibilityIdentifier("desktop-operations-scroll")
             }
-            .frame(width: landscape ? min(340, max(0, size.width - 80)) : size.width, height: size.height * (landscape ? 0.92 : 0.7))
+            .frame(width: landscape ? min(340, max(0, size.width - 80)) : size.width,
+                   height: landscape ? size.height * 0.92 : min(size.height * 0.7, size.height - bottom))
             .background(panelColor, in: RoundedRectangle(cornerRadius: 18))
             .clipShape(RoundedRectangle(cornerRadius: 18))
             .padding(.trailing, landscape ? trailing : 0)
-
         }
+        .padding(.bottom, bottom)
     }
 
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -329,24 +339,27 @@ struct DesktopPage: View {
         }
     }
 
+    /// Sized to match the toggle rows below: 15pt titles, 26pt icons, at least 72pt tall (84 with a caption).
     private func panelButton(_ icon: String, _ title: String, caption: String? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 4) {
-                AppIcon(icon, size: 20)
-                Text(title).font(.system(size: 12)).lineLimit(2)
-                if let caption { Text(caption).font(.system(size: 10)).foregroundStyle(inkDim).lineLimit(1) }
+            VStack(spacing: 6) {
+                AppIcon(icon, size: 26)
+                Text(title).font(.system(size: 15, weight: .medium)).lineLimit(2).minimumScaleFactor(0.85)
+                if let caption { Text(caption).font(.system(size: 12)).foregroundStyle(inkDim).lineLimit(1) }
             }.foregroundStyle(ink).multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity).padding(.horizontal, 6).padding(.vertical, 10)
-                .background(Color.white.opacity(20/255), in: RoundedRectangle(cornerRadius: 12))
+                .frame(maxWidth: .infinity, minHeight: caption == nil ? 72 : 84).padding(.horizontal, 8).padding(.vertical, 12)
+                .background(Color.white.opacity(20/255), in: RoundedRectangle(cornerRadius: 14))
+                .contentShape(RoundedRectangle(cornerRadius: 14))
         }.buttonStyle(.plain)
     }
 
     private func choice(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title).font(.system(size: 13)).lineLimit(1).minimumScaleFactor(0.8)
-                .foregroundStyle(selected ? accent : ink).padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity)
-                .background(selected ? accent.opacity(0.22) : Color.white.opacity(20/255), in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? accent : .clear, lineWidth: 1))
+            Text(title).font(.system(size: 15, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8)
+                .foregroundStyle(selected ? accent : ink).padding(.horizontal, 10).frame(maxWidth: .infinity, minHeight: 44)
+                .background(selected ? accent.opacity(0.22) : Color.white.opacity(20/255), in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? accent : .clear, lineWidth: 1))
+                .contentShape(RoundedRectangle(cornerRadius: 12))
         }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
     }
 
@@ -914,6 +927,10 @@ private struct VirtualMousePad: View {
                 .background(Color.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
         }.buttonStyle(.plain)
     }
+}
+private struct RailHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 private struct RailWidthKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
