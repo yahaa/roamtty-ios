@@ -122,9 +122,9 @@ struct LaunchScreen: View {
             model.launch(host, mode: sessionMode, directory: normalized, agent: launch, mosh: moshExplicit ? mosh : nil)
         } label: {
             HStack(spacing: 8) {
-                if forAgent { AppIcon("ic_agent", size: 18) }
+                if forAgent { AppIcon(agent.iconName, size: 18) }
                 Text(launchTitle).lineLimit(1)
-            }.font(.subheadline.weight(.medium)).frame(maxWidth: .infinity).frame(minHeight: 48)
+            }.font(.subheadline.weight(.medium)).padding(.horizontal, 16).frame(maxWidth: .infinity).frame(minHeight: 48)
                 .foregroundStyle(launchReady ? (yolo ? Palette.adaptive(0xFFFFFF, 0x5E1C17) : Palette.onAccent) : Palette.foreground.opacity(0.38))
                 .background(launchReady ? (yolo ? Palette.danger : Palette.accent) : Palette.foreground.opacity(0.12), in: Capsule())
                 .animation(.easeInOut(duration: 0.2), value: yolo)
@@ -159,8 +159,10 @@ struct LaunchScreen: View {
             guard attachReady, let name = tmuxSelection else { return }
             model.attachExisting(host, name: name, mosh: moshExplicit ? mosh : nil)
         } label: {
-            Text(tmuxSelection.map { model.text("打开 tmux 会话 \($0)", "Open tmux session \($0)") } ?? model.text("选择一个 tmux 会话", "Pick a tmux session")).lineLimit(1)
-                .font(.subheadline.weight(.medium)).frame(maxWidth: .infinity).frame(minHeight: 48)
+            // In landscape the card above names the session, so the button only says what it does.
+            Text(tmuxSelection.map { verticalSizeClass == .compact ? model.text("打开会话", "Open session") : model.text("打开 tmux 会话 \($0)", "Open tmux session \($0)") }
+                ?? model.text("选择一个 tmux 会话", "Pick a tmux session")).lineLimit(1).truncationMode(.middle)
+                .font(.subheadline.weight(.medium)).padding(.horizontal, 16).frame(maxWidth: .infinity).frame(minHeight: 48)
                 .foregroundStyle(attachReady ? Palette.onAccent : Palette.foreground.opacity(0.38))
                 .background(attachReady ? Palette.accent : Palette.foreground.opacity(0.12), in: Capsule())
         }.buttonStyle(.plain).disabled(!attachReady).accessibilityIdentifier("launch-attach")
@@ -260,9 +262,9 @@ struct LaunchScreen: View {
     @ViewBuilder private var agentPickers: some View {
             Menu {
                 Picker("", selection: $agent) {
-                    ForEach(CodingAgent.allCases) { option in Text(option.shortLabel + "  ·  " + option.command).tag(option) }
+                    ForEach(CodingAgent.allCases) { option in Label { Text(option.shortLabel + "  ·  " + option.command) } icon: { Image(option.iconName) }.tag(option) }
                 }
-            } label: { pickerField { AgentBadge(agent: agent, size: 20); Text(agent.shortLabel).font(.subheadline.weight(.medium)).lineLimit(1) } }
+            } label: { pickerField { AgentIcon(agent: agent, size: 28); Text(agent.shortLabel).font(.subheadline.weight(.medium)).lineLimit(1) } }
                 .accessibilityIdentifier("launch-agent")
             Menu {
                 Picker("", selection: $agentMode) {
@@ -315,6 +317,10 @@ struct LaunchScreen: View {
                 if source == .folder && forAgent {
                     sideLabel("Agent")
                     agentPickers
+                }
+                if source == .tmux, let session = tmuxSessions?.first(where: { $0.name == tmuxSelection }) {
+                    sideLabel(model.text("已选择", "Selected"))
+                    TmuxSessionCard(hostID: host.id, session: session, home: homeDirectory)
                 }
                 if source == .tmux { attachButton } else { launchButton }
             }.frame(width: 250)

@@ -234,25 +234,3 @@ struct MetaTag: View {
             .padding(.horizontal, 6).padding(.vertical, 2).background(Palette.foreground.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
     }
 }
-
-/// Android `AgentBadge`: a small tile in each agent's own colour.
-struct AgentBadge: View {
-    @Environment(\.colorScheme) private var scheme
-    let agent: CodingAgent
-    let size: CGFloat
-    var body: some View {
-        let (colors, glyphColor): ([Color], Color) = {
-            switch agent {
-            case .claude: return ([Color(uiColor: UIColor(hex: 0xE08A68)), Color(uiColor: UIColor(hex: 0xC96442))], .white)
-            case .codex: return ([Color(uiColor: UIColor(hex: 0x7C83FD)), Color(uiColor: UIColor(hex: 0x3D6DF2))], .white)
-            case .grok: return scheme == .dark ? ([Color(uiColor: UIColor(hex: 0xF5F5F5)), Color(uiColor: UIColor(hex: 0xD9D9D9))], .black)
-                : ([Color(uiColor: UIColor(hex: 0x2A2A2A)), Color(uiColor: UIColor(hex: 0x050505))], .white)
-            }
-        }()
-        let glyph = agent == .claude ? "✻" : agent == .codex ? ">_" : "G"
-        Text(glyph).font(.system(size: size * (agent == .claude ? 0.56 : 0.42), weight: .bold, design: agent == .codex ? .monospaced : .default))
-            .foregroundStyle(glyphColor).frame(width: size, height: size)
-            .background(LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: size * 0.28))
-            .accessibilityHidden(true)
-    }
-}
