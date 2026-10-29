@@ -15,13 +15,9 @@ final class DesktopPipelineRegressionTests: XCTestCase {
         func notifyWhenReadyForVideo(_ work: @escaping () -> Void) { readyCallback = work }
         func cancelVideoReadinessNotification() { readyCallback = nil }
         var frames: [Int64] { lock.lock(); defer { lock.unlock() }; return values }
-        func present(frame: Int64, keyframe: Bool, width: Int, height: Int, annexB: [UInt8], offset: Int, avcc: [UInt8]) {
-            lock.lock(); values.append(frame); lock.unlock()
-            onPresent?(frame)
-        }
         func present(frame: Int64, keyframe: Bool, width: Int, height: Int, annexB: [UInt8], offset: Int, avcc: [UInt8], rendered: @escaping (Int64) -> Void) {
-            lock.lock(); completions.append(rendered); lock.unlock()
-            present(frame: frame, keyframe: keyframe, width: width, height: height, annexB: annexB, offset: offset, avcc: avcc)
+            lock.lock(); completions.append(rendered); values.append(frame); lock.unlock()
+            onPresent?(frame)
         }
         private var flushed = 0
         var flushes: Int { lock.lock(); defer { lock.unlock() }; return flushed }
@@ -275,7 +271,6 @@ final class DesktopPipelineRegressionTests: XCTestCase {
         XCTAssertTrue(waitUntil(1) { display.renderCompletions.count == 2 })
         let currentCompletion = try XCTUnwrap(display.renderCompletions.last)
         let now = UdpLink.monotonicUs()
-        decoder.didRender(frame: 1, renderedUs: now + 2_000_000) // Unbound legacy calls outside present are ignored.
         oldCompletion(now + 900_000)
         currentCompletion(now + 150_000)
         XCTAssertTrue(waitUntil(2) { s.stats.latency?.renderMs != nil })

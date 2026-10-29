@@ -782,7 +782,8 @@ public final class DesktopSession: @unchecked Sendable {
         latency.onDecoded(frame: frame, decodedUs: decodedUs)
         let recv: Int64 = sync {
             let r = received.removeValue(forKey: frame) ?? decodedUs
-            received = received.filter { $0.key >= frame - 120 }
+            // Frames that never decode are forgotten in batches, not by rebuilding the table for every frame.
+            if received.count > 240 { received = received.filter { $0.key >= frame - 120 } }
             return r
         }
         send(DesktopProtocol.ack(frame: frame, recvUs: recv, decodedUs: decodedUs))
@@ -911,5 +912,5 @@ public final class DesktopSession: @unchecked Sendable {
     }
 
     /// Test only: drop this share of UDP datagrams on the phone side (1.0 blocks UDP).
-    public func testUdpDrop(_ rate: Double) { sync { link }?.dropRate = rate }
+    func testUdpDrop(_ rate: Double) { sync { link }?.dropRate = rate }
 }

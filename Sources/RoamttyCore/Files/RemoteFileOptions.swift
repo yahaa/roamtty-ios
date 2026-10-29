@@ -33,10 +33,6 @@ public enum RemoteFileSort: String, Codable, CaseIterable, Sendable {
     }
 }
 
-public func sortRemoteEntries(_ entries: [RemoteEntry], sort: RemoteFileSort, descending: Bool) -> [RemoteEntry] {
-    entries.sorted { sort.orders($0, before: $1, descending: descending) }
-}
-
 public extension AppSettings {
     mutating func chooseFileSort(_ value: RemoteFileSort) {
         fileSortDescending = value == fileSort ? !fileSortDescending : value == .modified || value == .size

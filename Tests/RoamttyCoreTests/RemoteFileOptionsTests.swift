@@ -15,7 +15,7 @@ final class RemoteFileOptionsTests: XCTestCase {
     func testAndroidSortFixturesAndDirectoriesFirstInEveryDirection() {
         for sort in RemoteFileSort.allCases {
             for descending in [false, true] {
-                XCTAssertEqual(sortRemoteEntries(entries, sort: sort, descending: descending).map(\.isDirectory), [true, true, false, false, false])
+                XCTAssertEqual(sorted(entries, sort: sort, descending: descending).map(\.isDirectory), [true, true, false, false, false])
             }
         }
         XCTAssertEqual(names(.name), ["alpha", "zeta", "A.md", "b.txt", "c.kt"])
@@ -28,17 +28,17 @@ final class RemoteFileOptionsTests: XCTestCase {
     func testDescendingPrimaryTiesStillUseAscendingCaseInsensitiveNames() {
         let tied = ["z.txt", "B.TXT", "a.txt"].map { RemoteEntry(name: $0, path: "/" + $0, isDirectory: false, size: 20, mtime: 300) }
         for sort in [RemoteFileSort.size, .modified, .type] {
-            XCTAssertEqual(sortRemoteEntries(tied, sort: sort, descending: true).map(\.name), ["a.txt", "B.TXT", "z.txt"])
+            XCTAssertEqual(sorted(tied, sort: sort, descending: true).map(\.name), ["a.txt", "B.TXT", "z.txt"])
         }
         let noNaturalOrdering = ["file2", "file10"].map { RemoteEntry(name: $0, path: "/" + $0, isDirectory: false) }
-        XCTAssertEqual(sortRemoteEntries(noNaturalOrdering, sort: .name, descending: false).map(\.name), ["file10", "file2"])
+        XCTAssertEqual(sorted(noNaturalOrdering, sort: .name, descending: false).map(\.name), ["file10", "file2"])
     }
 
     func testTypeUsesLastDotIncludingDotfilesAndDirectorySizeIsZero() {
         let values = ["z.tar.gz", ".profile", "b", "A.", "c.GZ"].map { RemoteEntry(name: $0, path: "/" + $0, isDirectory: false) }
-        XCTAssertEqual(sortRemoteEntries(values, sort: .type, descending: false).map(\.name), ["A.", "b", "c.GZ", "z.tar.gz", ".profile"])
+        XCTAssertEqual(sorted(values, sort: .type, descending: false).map(\.name), ["A.", "b", "c.GZ", "z.tar.gz", ".profile"])
         let folders = [RemoteEntry(name: "z", path: "/z", isDirectory: true, size: 999), RemoteEntry(name: "a", path: "/a", isDirectory: true, size: 1)]
-        XCTAssertEqual(sortRemoteEntries(folders, sort: .size, descending: true).map(\.name), ["a", "z"])
+        XCTAssertEqual(sorted(folders, sort: .size, descending: true).map(\.name), ["a", "z"])
     }
 
     func testSortSelectionDefaultsAndRepeatedSelectionMatchAndroid() {
@@ -56,6 +56,10 @@ final class RemoteFileOptionsTests: XCTestCase {
     }
 
     private func names(_ sort: RemoteFileSort, _ descending: Bool = false) -> [String] {
-        sortRemoteEntries(entries, sort: sort, descending: descending).map(\.name)
+        sorted(entries, sort: sort, descending: descending).map(\.name)
+    }
+    /// How the file list orders entries (`FileBrowserScreen.shown` sorts with `RemoteFileSort.orders`).
+    private func sorted(_ entries: [RemoteEntry], sort: RemoteFileSort, descending: Bool) -> [RemoteEntry] {
+        entries.sorted { sort.orders($0, before: $1, descending: descending) }
     }
 }

@@ -16,6 +16,8 @@ final class VideoToolboxDisplay: NSObject, DesktopVideoDisplay {
     private var format: CMFormatDescription?
     private var latestKeyframe: ([UInt8], CMFormatDescription)? // accessed only on main
     private let snapshotQueue = DispatchQueue(label: "desktop-snapshot", qos: .utility)
+    /// Creating a Core Image context is costly; one serves every snapshot (it is thread-safe).
+    private static let snapshotContext = CIContext()
     weak var decoder: DesktopVideoDecoder?
     var onSize: ((Int, Int) -> Void)?
 
@@ -75,12 +77,6 @@ final class VideoToolboxDisplay: NSObject, DesktopVideoDisplay {
 
     func cancelVideoReadinessNotification() { layer.stopRequestingMediaData() }
 
-    func present(frame: Int64, keyframe: Bool, width: Int, height: Int, annexB: [UInt8], offset: Int, avcc: [UInt8]) {
-        present(frame: frame, keyframe: keyframe, width: width, height: height, annexB: annexB, offset: offset, avcc: avcc) { [weak self] renderedUs in
-            self?.decoder?.didRender(frame: frame, renderedUs: renderedUs)
-        }
-    }
-
     func present(frame: Int64, keyframe: Bool, width: Int, height: Int, annexB: [UInt8], offset: Int, avcc: [UInt8], rendered: @escaping (Int64) -> Void) {
         if layer.status == .failed { decoder?.reset(); return }
         if keyframe {
@@ -124,7 +120,7 @@ final class VideoToolboxDisplay: NSObject, DesktopVideoDisplay {
             let buffer = pixel ?? keyframe.flatMap { Self.decodeSnapshot($0.0, format: $0.1) }
             let image = buffer.flatMap { buffer -> UIImage? in
                 let ci = CIImage(cvPixelBuffer: buffer)
-                return CIContext().createCGImage(ci, from: ci.extent).map { UIImage(cgImage: $0) }
+                return Self.snapshotContext.createCGImage(ci, from: ci.extent).map { UIImage(cgImage: $0) }
             }
             Task { @MainActor in completion(image) }
         }

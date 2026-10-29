@@ -108,13 +108,12 @@ final class RemoteCommandsTests: XCTestCase {
         XCTAssertEqual(stale.map(\.agent), [nil, nil]); XCTAssertEqual(stale.map(\.idleShell), [true, false])
     }
 
-    func testPluginInstallerUsesUserHomebrewOnDarwinAndRejectsUnknownPackages() throws {
+    func testPluginInstallerUsesUserHomebrewOnDarwin() throws {
         try withCommands(["uname": "printf Darwin", "brew": "printf 'brew:'; printf '%s|' \"$@\""]) { environment in
-            let result = try run(RemoteCommands.installPlugin("mosh"), environment: environment)
+            let result = try run(HostPluginInstaller.script(plugin: .mosh, sudoPassword: nil), environment: environment)
             XCTAssertEqual(result.0, 0)
             XCTAssertTrue(result.1.contains("brew:install|mosh|"))
             XCTAssertEqual(HostPluginInstaller.classify(exitStatus: Int(result.0), output: result.1), .installed)
-            XCTAssertNotEqual(try run(RemoteCommands.installPlugin("tmux; echo nope"), environment: environment).0, 0)
         }
     }
 

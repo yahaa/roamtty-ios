@@ -90,7 +90,7 @@ struct FilePreviewScreen: View {
                     let textResult = result.data.count <= textPreviewBytes ? result : RemoteFileContent(data: Data(result.data.prefix(textPreviewBytes)), size: result.size, truncated: true)
                     if let text = textResult.text {
                         content = textResult; previewLimit = textPreviewBytes
-                        let language = Languages.detect(fileName: entry.name, firstLine: text.components(separatedBy: .newlines).first ?? "")
+                        let language = Languages.detect(fileName: entry.name, firstLine: String(text.prefix { !$0.isNewline }))
                         let highlighted = try await performInBackground { SyntaxHighlighter.highlight(text, language) }
                         let parsed = language.mode == .markdown ? try await performInBackground { MarkdownParser.parse(text) } : []
                         try Task.checkCancellation()
@@ -183,10 +183,13 @@ struct CodeTextView: UIViewRepresentable {
         return view
     }
     func updateUIView(_ view: UITextView, context: Context) {
-        let key = "\(document.lineCount)-\(document.maxColumns)-\(fontName)-\(fontSize)-\(wrap)-\(query)-\(scheme)"
-        if context.coordinator.key != key || context.coordinator.sourceMatches != matches {
-            context.coordinator.key = key
-            context.coordinator.sourceMatches = matches
+        let coordinator = context.coordinator
+        // The highlighted text is built once per document and look; a search only repaints its matches.
+        let key = "\(document.lineCount)-\(document.maxColumns)-\(fontName)-\(fontSize)-\(wrap)-\(scheme)"
+        if coordinator.key != key || coordinator.document != document.lines {
+            coordinator.key = key
+            coordinator.document = document.lines
+            coordinator.sourceMatches = []; coordinator.matches = []
             let font = FontCatalog.shared.font(selection: fontName, size: fontSize)
             let output = NSMutableAttributedString()
             let digits = String(document.lineCount).count
@@ -203,23 +206,35 @@ struct CodeTextView: UIViewRepresentable {
                     output.addAttribute(.foregroundColor, value: tokenColor(TokenType(rawValue: line.spans[index + 2])), range: NSRange(location: offset + start, length: end - start))
                 }
             }
-            context.coordinator.matches = []
-            for found in matches where rowOffsets.indices.contains(found.row) {
-                let range = NSRange(location: rowOffsets[found.row] + found.start, length: found.end - found.start)
-                context.coordinator.matches.append(range)
-                output.addAttribute(.backgroundColor, value: UIColor.systemYellow.withAlphaComponent(0.25), range: range)
-            }
+            coordinator.rowOffsets = rowOffsets
             view.attributedText = output
             view.textContainer.widthTracksTextView = wrap
             view.textContainer.size = CGSize(width: wrap ? max(1, view.bounds.width - 20) : max(1000, CGFloat(document.maxColumns + digits + 4) * font.pointSize * 0.65), height: .greatestFiniteMagnitude)
         }
-        if context.coordinator.lastMatch != match || context.coordinator.lastQuery != query {
-            context.coordinator.lastMatch = match; context.coordinator.lastQuery = query
-            if !context.coordinator.matches.isEmpty { let range = context.coordinator.matches[match % context.coordinator.matches.count]; view.selectedRange = range; view.scrollRangeToVisible(range) }
+        if coordinator.sourceMatches != matches {
+            coordinator.sourceMatches = matches
+            let storage = view.textStorage
+            storage.beginEditing()
+            for range in coordinator.matches where NSMaxRange(range) <= storage.length { storage.removeAttribute(.backgroundColor, range: range) }
+            coordinator.matches = []
+            for found in matches where coordinator.rowOffsets.indices.contains(found.row) {
+                let range = NSRange(location: coordinator.rowOffsets[found.row] + found.start, length: found.end - found.start)
+                guard NSMaxRange(range) <= storage.length else { continue }
+                coordinator.matches.append(range)
+                storage.addAttribute(.backgroundColor, value: UIColor.systemYellow.withAlphaComponent(0.25), range: range)
+            }
+            storage.endEditing()
+        }
+        if coordinator.lastMatch != match || coordinator.lastQuery != query {
+            coordinator.lastMatch = match; coordinator.lastQuery = query
+            if !coordinator.matches.isEmpty { let range = coordinator.matches[match % coordinator.matches.count]; view.selectedRange = range; view.scrollRangeToVisible(range) }
         }
     }
     func makeCoordinator() -> Coordinator { Coordinator() }
-    final class Coordinator { var key = ""; var sourceMatches: [CodeMatch] = []; var matches: [NSRange] = []; var lastMatch = -1; var lastQuery = "" }
+    final class Coordinator {
+        var key = ""; var document: [CodeLine] = []; var rowOffsets: [Int] = []
+        var sourceMatches: [CodeMatch] = []; var matches: [NSRange] = []; var lastMatch = -1; var lastQuery = ""
+    }
     private func tokenColor(_ token: TokenType?) -> UIColor {
         switch token {
         case .keyword, .constant: return UIColor.systemPurple

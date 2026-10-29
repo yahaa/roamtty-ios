@@ -76,6 +76,23 @@ public final class MoshTransport {
             }
         }
 
+        /// One datagram from the server; true once the server shut the session down.
+        func handle(_ packet: Data) throws -> Bool {
+            guard let plain = crypto.open(packet), plain.count >= 14 else { return false }
+            let base = plain.startIndex
+            let timestamp = UInt16(plain[base]) << 8 | UInt16(plain[base + 1])
+            let reply = UInt16(plain[base + 2]) << 8 | UInt16(plain[base + 3])
+            let receivedAt = moshNow()
+            let packetSequence = Mosh.readBigEndian(packet.prefix(8)) & 0x7fff_ffff_ffff_ffff
+            state.heard(at: receivedAt, timestamp: timestamp, reply: reply, sequence: packetSequence)
+            guard let payload = assembly.add(plain.dropFirst(4)) else { return false }
+            let instruction = try Mosh.Instruction.decode(Mosh.decompress(payload))
+            let accepted = try state.receive(instruction, at: receivedAt)
+            release(bytes: accepted.releasedBytes, writes: accepted.releasedWrites)
+            for output in accepted.output { onOutput(output) }
+            return accepted.serverShutdown
+        }
+
         defer {
             if !shutdownByServer {
                 for _ in 0..<2 { try? send(moshNow(), shutdown: true) }
@@ -94,7 +111,7 @@ public final class MoshTransport {
                 state.enqueue(.keys(bytes), at: now)
                 bytes.resetBytes(in: 0..<bytes.count)
             }
-            // A turn takes at most a short poll plus delivering output, so a long gap means iOS froze the worker.
+            // A turn takes at most a one-second wait plus delivering output, so a long gap means iOS froze the worker.
             let frozen = now - lastTurn
             let thawed = frozen > 5
             lastTurn = now
@@ -118,28 +135,31 @@ public final class MoshTransport {
             }
             if state.nextSendAt(now) <= now { try send(now) }
 
-            // A short poll bounds cancellation and avoids closing a descriptor from a competing
-            // thread; new input, a resize, a probe or a close wake it at once.
-            let delay = max(0, min(0.05, state.nextSendAt(moshNow()) - moshNow()))
-            guard let packet = socket.receive(wait: delay, wake: wake), let plain = crypto.open(packet), plain.count >= 14 else { continue }
-            let bytes = Array(plain)
-            let timestamp = UInt16(bytes[0]) << 8 | UInt16(bytes[1])
-            let reply = UInt16(bytes[2]) << 8 | UInt16(bytes[3])
-            let receivedAt = moshNow()
-            let packetSequence = Mosh.readBigEndian(packet.prefix(8)) & 0x7fff_ffff_ffff_ffff
-            state.heard(at: receivedAt, timestamp: timestamp, reply: reply, sequence: packetSequence)
-            guard let payload = assembly.add(Data(bytes.dropFirst(4))) else { continue }
-            let instruction = try Mosh.Instruction.decode(Mosh.decompress(payload))
-            let accepted = try state.receive(instruction, at: receivedAt)
-            release(bytes: accepted.releasedBytes, writes: accepted.releasedWrites)
-            for output in accepted.output { onOutput(output) }
-            if accepted.serverShutdown {
-                shutdownByServer = true
-                for _ in 0..<3 { try send(moshNow(), shutdown: true) }
-                return
+            // The wait ends at the next send or timeout, and at most a second on: new input, a resize, a probe or a
+            // close wake it at once, so an idle session does not spin. The worker alone closes the descriptor.
+            let waitStart = moshNow()
+            let deadline = min(state.nextSendAt(waitStart),
+                               state.nextTimeoutAt(firstContact: firstContactTimeout, silence: silenceTimeout, stall: stallTimeout) + 0.001)
+            let delay = max(0, min(Self.idleWait, deadline - waitStart))
+            guard var packet = socket.receive(wait: delay, wake: wake) else { continue }
+            // A burst is read in one turn instead of one datagram per pass through the whole loop.
+            var read = 1
+            while true {
+                if try handle(packet) {
+                    shutdownByServer = true
+                    for _ in 0..<3 { try send(moshNow(), shutdown: true) }
+                    return
+                }
+                guard read < Self.burstPackets, let next = socket.receiveReady() else { break }
+                packet = next; read += 1
             }
         }
     }
+
+    /// The longest network wait of an idle session.
+    static let idleWait: TimeInterval = 1
+    /// Datagrams read in one turn before the loop sends, checks timeouts and takes input again.
+    static let burstPackets = 64
 
     /// False means the caller must retain or reject the input; it was not queued.
     @discardableResult
@@ -224,6 +244,8 @@ private final class MoshDatagram {
     }
     let endpoint: Endpoint
     private let descriptor: Int32
+    /// Reused by every receive: the worker owns this socket alone.
+    private var buffer = [UInt8](repeating: 0, count: 65_535)
 
     init(endpoint: Endpoint) throws {
         self.endpoint = endpoint
@@ -281,10 +303,14 @@ private final class MoshDatagram {
     /// nil after the timeout, or as soon as `wake` is signalled.
     func receive(wait seconds: TimeInterval, wake: WorkerWake) -> Data? {
         guard wake.poll(descriptor, events: Int16(POLLIN), timeout: Int32(max(1, seconds * 1000))) == 1 else { return nil }
-        var buffer = [UInt8](repeating: 0, count: 65_535)
-        let count = recv(self.descriptor, &buffer, buffer.count, 0)
+        return receiveReady()
+    }
+
+    /// A datagram already waiting on the non-blocking socket; nil when there is none.
+    func receiveReady() -> Data? {
+        let count = buffer.withUnsafeMutableBytes { recv(descriptor, $0.baseAddress, $0.count, 0) }
         guard count > 0 else { return nil }
-        return Data(buffer.prefix(count))
+        return Data(buffer[0..<count])
     }
 }
 
@@ -326,15 +352,22 @@ final class WorkerWake {
     }
 }
 
+#if !os(Linux)
+/// Seconds per `mach_continuous_time` tick; the timebase never changes while the process runs.
+private let moshTickSeconds: TimeInterval = {
+    var info = mach_timebase_info_data_t()
+    mach_timebase_info(&info)
+    return TimeInterval(info.numer) / TimeInterval(info.denom) / 1_000_000_000
+}()
+#endif
+
 private func moshNow() -> TimeInterval {
     #if os(Linux)
     var value = timespec()
     clock_gettime(CLOCK_BOOTTIME, &value)
     return TimeInterval(value.tv_sec) + TimeInterval(value.tv_nsec) / 1_000_000_000
     #else
-    var info = mach_timebase_info_data_t()
-    mach_timebase_info(&info)
-    return TimeInterval(mach_continuous_time()) * TimeInterval(info.numer) / TimeInterval(info.denom) / 1_000_000_000
+    return TimeInterval(mach_continuous_time()) * moshTickSeconds
     #endif
 }
 

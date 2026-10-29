@@ -14,13 +14,21 @@ enum Mosh {
         let key: String
     }
 
+    /// The ports `mosh-server new` picks from when none is asked for.
+    static let serverPorts = 60000...61000
+
+    /// The `MOSH CONNECT <port> <key>` line of `mosh-server new`: a line of exactly those four fields, a port of
+    /// `serverPorts` and a 22-character base64 key.
     static func parseConnect(_ output: String) -> Connect? {
-        let expression = try! NSRegularExpression(pattern: #"MOSH CONNECT (\d{1,5}) ([A-Za-z0-9/+]{22})(?:\s|$)"#)
-        guard let match = expression.firstMatch(in: output, range: NSRange(output.startIndex..., in: output)),
-              let portRange = Range(match.range(at: 1), in: output),
-              let keyRange = Range(match.range(at: 2), in: output),
-              let port = Int(output[portRange]), (1...65535).contains(port) else { return nil }
-        return Connect(port: port, key: String(output[keyRange]))
+        for line in output.components(separatedBy: .newlines) {
+            let fields = line.split(whereSeparator: \.isWhitespace)
+            guard fields.count == 4, fields[0] == "MOSH", fields[1] == "CONNECT",
+                  let port = Int(fields[2]), serverPorts.contains(port) else { continue }
+            let key = fields[3]
+            guard key.utf8.count == 22, key.unicodeScalars.allSatisfy({ $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "/" || $0 == "+") }) else { continue }
+            return Connect(port: port, key: String(key))
+        }
+        return nil
     }
 
     /// OCB is provided by the OpenSSL bridge, never by a local AES implementation.

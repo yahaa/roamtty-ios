@@ -88,10 +88,6 @@ public enum RemoteCommands {
         let target = "=" + sanitizeSessionName(name) + ":"
         return "/bin/sh -c " + shellQuote(pathSetup + "; tmux display-message -p -t " + shellQuote(target) + " '#{alternate_on}'")
     }
-    public static func installPlugin(_ name: String) -> String {
-        guard let plugin = HostPlugin(rawValue: name) else { return "printf '%s\\n' 'Unsupported plugin' >&2; exit 2" }
-        return HostPluginInstaller.script(plugin: plugin, sudoPassword: nil)
-    }
 }
 
 public enum CodingAgent: String, Codable, CaseIterable, Identifiable, Sendable {

@@ -4,6 +4,9 @@ import RoamttyCore
 
 extension SSHConnection {
     private func withSFTP<T>(cancellation: TransferCancellation? = nil, _ body: (OpaquePointer, Int) throws -> T) throws -> T {
+        try asOtherWork { try runSFTP(cancellation: cancellation, body) }
+    }
+    private func runSFTP<T>(cancellation: TransferCancellation?, _ body: (OpaquePointer, Int) throws -> T) throws -> T {
         let epoch = transferEpoch()
         try transferCheck(epoch, cancellation)
         let sftp = try openSFTP(cancelled: { epoch != self.transferEpoch() || cancellation?.isCancelled == true })
@@ -49,35 +52,39 @@ extension SSHConnection {
     private func closeFile(_ handle: OpaquePointer) { settle(timeout: 10) { libssh2_sftp_close_handle(handle) } }
     public func listDirectory(_ path: String, cancellation: TransferCancellation? = nil) throws -> RemoteDirectory {
         try validatePath(path, allowEmpty: true)
-        return try withSFTP(cancellation: cancellation) { sftp, epoch in
-            let requested = path.isEmpty ? "." : path
-            var realBuffer = [CChar](repeating: 0, count: 16385)
-            let length = try request(epoch, cancellation) { libssh2_sftp_symlink_ex(sftp, requested, UInt32(requested.utf8.count), &realBuffer, UInt32(realBuffer.count - 1), LIBSSH2_SFTP_REALPATH) }
-            guard let real = remoteString(realBuffer.prefix(Int(length))) else { throw RoamError.invalid("远端路径不是 UTF-8 编码，无法打开 / The remote path is not UTF-8") }
-            let handle = try requestHandle(epoch, cancellation) { libssh2_sftp_open_ex(sftp, real, UInt32(real.utf8.count), 0, 0, LIBSSH2_SFTP_OPENDIR) }
-            defer { closeFile(handle) }
-            var entries: [RemoteEntry] = []; var unreadable = 0
-            while true {
-                try transferCheck(epoch, cancellation)
-                var attrs = LIBSSH2_SFTP_ATTRIBUTES(); var bytes = [CChar](repeating: 0, count: 16385)
-                let n = try request(epoch, cancellation) { libssh2_sftp_readdir_ex(handle, &bytes, bytes.count - 1, nil, 0, &attrs) }
-                if n == 0 { break }
-                // A lossy decode maps distinct names to one path, so the entry's actions would reach another file.
-                guard let name = remoteString(bytes.prefix(Int(n))) else { unreadable += 1; continue }
-                guard name != ".", name != "..", !name.contains("/"), !name.contains("\0") else { continue }
-                let full = joinRemotePath(directory: real, name: name)
-                let symlink = attrs.permissions & UInt(LIBSSH2_SFTP_S_IFMT) == UInt(LIBSSH2_SFTP_S_IFLNK)
-                if symlink {
-                    // A dangling link keeps its own attributes; a stat left half-sent ends the listing.
-                    do { attrs = try sftpStat(sftp, full) } catch { if error as? RoamError == .timeout { throw error } }
-                }
-                entries.append(RemoteEntry(name: name, path: full,
-                    isDirectory: attrs.permissions & UInt(LIBSSH2_SFTP_S_IFMT) == UInt(LIBSSH2_SFTP_S_IFDIR),
-                    isSymlink: symlink, size: attrs.flags & UInt(LIBSSH2_SFTP_ATTR_SIZE) == 0 ? nil : Int64(clamping: attrs.filesize),
-                    mtime: Int64(clamping: attrs.mtime), permissions: UInt32(truncatingIfNeeded: attrs.permissions)))
+        return try withSFTP(cancellation: cancellation) { sftp, epoch in try listDirectory(path, sftp: sftp, epoch: epoch, cancellation: cancellation) }
+    }
+    fileprivate func listDirectory(_ path: String, sftp: OpaquePointer, epoch: Int, cancellation: TransferCancellation?) throws -> RemoteDirectory {
+        try validatePath(path, allowEmpty: true)
+        let requested = path.isEmpty ? "." : path
+        var realBuffer = [CChar](repeating: 0, count: 16385)
+        let length = try request(epoch, cancellation) { libssh2_sftp_symlink_ex(sftp, requested, UInt32(requested.utf8.count), &realBuffer, UInt32(realBuffer.count - 1), LIBSSH2_SFTP_REALPATH) }
+        guard let real = remoteString(realBuffer.prefix(Int(length))) else { throw RoamError.invalid("远端路径不是 UTF-8 编码，无法打开 / The remote path is not UTF-8") }
+        let handle = try requestHandle(epoch, cancellation) { libssh2_sftp_open_ex(sftp, real, UInt32(real.utf8.count), 0, 0, LIBSSH2_SFTP_OPENDIR) }
+        defer { closeFile(handle) }
+        var entries: [RemoteEntry] = []; var unreadable = 0
+        // One name buffer for the whole listing: a large folder would otherwise allocate 16 KiB per entry.
+        var bytes = [CChar](repeating: 0, count: 16385)
+        while true {
+            try transferCheck(epoch, cancellation)
+            var attrs = LIBSSH2_SFTP_ATTRIBUTES()
+            let n = try request(epoch, cancellation) { libssh2_sftp_readdir_ex(handle, &bytes, bytes.count - 1, nil, 0, &attrs) }
+            if n == 0 { break }
+            // A lossy decode maps distinct names to one path, so the entry's actions would reach another file.
+            guard let name = remoteString(bytes.prefix(Int(n))) else { unreadable += 1; continue }
+            guard name != ".", name != "..", !name.contains("/"), !name.contains("\0") else { continue }
+            let full = joinRemotePath(directory: real, name: name)
+            let symlink = attrs.permissions & UInt(LIBSSH2_SFTP_S_IFMT) == UInt(LIBSSH2_SFTP_S_IFLNK)
+            if symlink {
+                // A dangling link keeps its own attributes; a stat left half-sent ends the listing.
+                do { attrs = try sftpStat(sftp, full) } catch { if error as? RoamError == .timeout { throw error } }
             }
-            return RemoteDirectory(path: real, entries: entries.sorted(by: remoteEntryPrecedes), unreadableNames: unreadable)
+            entries.append(RemoteEntry(name: name, path: full,
+                isDirectory: attrs.permissions & UInt(LIBSSH2_SFTP_S_IFMT) == UInt(LIBSSH2_SFTP_S_IFDIR),
+                isSymlink: symlink, size: attrs.flags & UInt(LIBSSH2_SFTP_ATTR_SIZE) == 0 ? nil : Int64(clamping: attrs.filesize),
+                mtime: Int64(clamping: attrs.mtime), permissions: UInt32(truncatingIfNeeded: attrs.permissions)))
         }
+        return RemoteDirectory(path: real, entries: entries.sorted(by: remoteEntryPrecedes), unreadableNames: unreadable)
     }
     public func readFile(_ path: String, maxBytes: Int = 2_097_152, cancellation: TransferCancellation? = nil) throws -> RemoteFileContent {
         try validatePath(path)
@@ -103,11 +110,17 @@ extension SSHConnection {
     }
     public func download(_ path: String, to url: URL, progress: @escaping (Int64, Int64?) -> Void, cancellation: TransferCancellation? = nil) throws {
         try validatePath(path)
+        try download(path, to: url, progress: progress, cancellation: cancellation) { body in try withSFTP(cancellation: cancellation, body) }
+    }
+    /// `session` runs the transfer on an SFTP session: a new one, or one a batch already holds.
+    fileprivate func download(_ path: String, to url: URL, progress: @escaping (Int64, Int64?) -> Void, cancellation: TransferCancellation?,
+                              session: ((OpaquePointer, Int) throws -> Void) throws -> Void) throws {
+        try validatePath(path)
         // withoutOverwriting prevents a second task from truncating a selected file.
         try Data().write(to: url, options: .withoutOverwriting)
         do {
             let file = try FileHandle(forWritingTo: url); defer { try? file.close() }
-            try withSFTP(cancellation: cancellation) { sftp, epoch in
+            try session { sftp, epoch in
                 let handle = try requestHandle(epoch, cancellation) { libssh2_sftp_open_ex(sftp, path, UInt32(path.utf8.count), UInt(LIBSSH2_FXF_READ), 0, LIBSSH2_SFTP_OPENFILE) }
                 defer { closeFile(handle) }
                 var attrs = LIBSSH2_SFTP_ATTRIBUTES()
@@ -134,9 +147,14 @@ extension SSHConnection {
     }
     public func upload(_ url: URL, to path: String, progress: @escaping (Int64, Int64?) -> Void, cancellation: TransferCancellation? = nil) throws {
         try validatePath(path)
+        try upload(url, to: path, progress: progress, cancellation: cancellation) { body in try withSFTP(cancellation: cancellation, body) }
+    }
+    fileprivate func upload(_ url: URL, to path: String, progress: @escaping (Int64, Int64?) -> Void, cancellation: TransferCancellation?,
+                            session: ((OpaquePointer, Int) throws -> Void) throws -> Void) throws {
+        try validatePath(path)
         let file = try FileHandle(forReadingFrom: url); defer { try? file.close() }
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map { Int64($0) }
-        try withSFTP(cancellation: cancellation) { sftp, epoch in
+        try session { sftp, epoch in
             let temp = joinRemotePath(directory: parentRemotePath(path), name: ".roamtty-" + UUID().uuidString + ".part")
             let handle = try requestHandle(epoch, cancellation) { libssh2_sftp_open_ex(sftp, temp, UInt32(temp.utf8.count), UInt(LIBSSH2_FXF_WRITE | LIBSSH2_FXF_CREAT | LIBSSH2_FXF_EXCL), 0o600, LIBSSH2_SFTP_OPENFILE) }
             var closed = false
@@ -188,10 +206,13 @@ extension SSHConnection {
     public func createDirectory(_ path: String, cancellation: TransferCancellation? = nil) throws {
         try validatePath(path)
         guard isSafeRemoteDeletePath(path) else { throw RoamError.invalid("无效的文件夹路径 / Invalid directory path") }
-        _ = try withSFTP(cancellation: cancellation) { sftp, epoch in
-            try request(epoch, cancellation) {
-                libssh2_sftp_mkdir_ex(sftp, path, UInt32(path.utf8.count), 0o755)
-            }
+        try withSFTP(cancellation: cancellation) { sftp, epoch in try createDirectory(path, sftp: sftp, epoch: epoch, cancellation: cancellation) }
+    }
+    fileprivate func createDirectory(_ path: String, sftp: OpaquePointer, epoch: Int, cancellation: TransferCancellation?) throws {
+        try validatePath(path)
+        guard isSafeRemoteDeletePath(path) else { throw RoamError.invalid("无效的文件夹路径 / Invalid directory path") }
+        try request(epoch, cancellation) {
+            libssh2_sftp_mkdir_ex(sftp, path, UInt32(path.utf8.count), 0o755)
         }
     }
     public func remove(_ path: String, recursive: Bool = false, cancellation: TransferCancellation? = nil) throws {
@@ -204,7 +225,8 @@ extension SSHConnection {
                 let attrs = try sftpStat(sftp, item, follow: false)
                 if attrs.permissions & UInt(LIBSSH2_SFTP_S_IFMT) == UInt(LIBSSH2_SFTP_S_IFDIR) {
                     if recursive {
-                        let directory = try listDirectory(item, cancellation: cancellation)
+                        // The listing shares this session: a new SFTP subsystem per folder costs several round trips.
+                        let directory = try listDirectory(item, sftp: sftp, epoch: epoch, cancellation: cancellation)
                         // Those entries cannot be named, so the folder could never be emptied; touch nothing in it.
                         guard directory.unreadableNames == 0 else { throw RoamError.invalid("文件夹中有无法识别的文件名（非 UTF-8），未删除 / The folder holds names that are not UTF-8; nothing was deleted") }
                         for entry in directory.entries { try removeOne(entry.path, depth: depth + 1) }
@@ -213,6 +235,37 @@ extension SSHConnection {
                 } else { try request(epoch, cancellation) { libssh2_sftp_unlink_ex(sftp, item, UInt32(item.utf8.count)) } }
             }
             try removeOne(path, depth: 0)
+        }
+    }
+}
+
+/// One SFTP session for a run of operations, such as a folder transfer: opening the subsystem per file or folder
+/// costs a channel and several round trips each. Valid only inside `SSHConnection.withSFTPSession`.
+public struct SFTPSession {
+    fileprivate let connection: SSHConnection
+    fileprivate let sftp: OpaquePointer
+    fileprivate let epoch: Int
+    fileprivate let cancellation: TransferCancellation?
+
+    public func listDirectory(_ path: String) throws -> RemoteDirectory {
+        try connection.listDirectory(path, sftp: sftp, epoch: epoch, cancellation: cancellation)
+    }
+    public func createDirectory(_ path: String) throws {
+        try connection.createDirectory(path, sftp: sftp, epoch: epoch, cancellation: cancellation)
+    }
+    public func download(_ path: String, to url: URL, progress: @escaping (Int64, Int64?) -> Void) throws {
+        try connection.download(path, to: url, progress: progress, cancellation: cancellation) { body in try body(sftp, epoch) }
+    }
+    public func upload(_ url: URL, to path: String, progress: @escaping (Int64, Int64?) -> Void) throws {
+        try connection.upload(url, to: path, progress: progress, cancellation: cancellation) { body in try body(sftp, epoch) }
+    }
+}
+
+extension SSHConnection {
+    /// Runs `body` with one SFTP session that every operation in it shares.
+    public func withSFTPSession<T>(cancellation: TransferCancellation? = nil, _ body: (SFTPSession) throws -> T) throws -> T {
+        try withSFTP(cancellation: cancellation) { sftp, epoch in
+            try body(SFTPSession(connection: self, sftp: sftp, epoch: epoch, cancellation: cancellation))
         }
     }
 }
