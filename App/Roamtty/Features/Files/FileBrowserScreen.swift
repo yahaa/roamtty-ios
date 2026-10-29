@@ -347,9 +347,13 @@ struct FileBrowserScreen: View {
         do {
             try await Task.sleep(nanoseconds: 200_000_000)
             let ssh = try await model.connection(for: connectionTarget)
+            try model.validate(connectionTarget)
+            // One SFTP session for every folder the search reads, instead of a new subsystem per folder.
+            let sftp = try await performInBackground { try ssh.holdSFTPSession() }
+            defer { DispatchQueue.global(qos: .utility).async { sftp.close() } }
             let result = try await resolveRemoteSearchDirectories(directory: request.directory, prefix: request.prefix, showHidden: request.hidden) { path in
                 try model.validate(connectionTarget)
-                return try await performInBackground { try ssh.listDirectory(path) }
+                return try await performInBackground { try sftp.listDirectory(path) }
             }
             try Task.checkCancellation()
             try model.validate(connectionTarget)

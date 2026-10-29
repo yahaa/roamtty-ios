@@ -104,11 +104,19 @@ public final class SSHConnection: @unchecked Sendable {
     }
     /// libssh2 work outside the loops: parked loops switch to short waits until it ends.
     func asOtherWork<T>(_ body: () throws -> T) rethrows -> T {
+        beginOtherWork()
+        defer { endOtherWork() }
+        return try body()
+    }
+    /// The two halves of `asOtherWork`, for work that outlives one call (a held SFTP session).
+    func beginOtherWork() {
         stateLock.lock(); otherWork += 1; let loops = otherWork == 1 ? Array(waitingLoops.values) : []; stateLock.unlock()
         wakeLoops(loops)
+    }
+    func endOtherWork() {
         // Its last call may have left a loop's packets in libssh2's buffer: each loop reads once more before waiting long.
-        defer { stateLock.lock(); otherWork -= 1; let loops = otherWork == 0 ? Array(waitingLoops.values) : []; stateLock.unlock(); wakeLoops(loops) }
-        return try body()
+        stateLock.lock(); otherWork -= 1; let loops = otherWork == 0 ? Array(waitingLoops.values) : []; stateLock.unlock()
+        wakeLoops(loops)
     }
     @discardableResult
     func retry(timeout: TimeInterval = 20, cancelled: () -> Bool = { false }, _ operation: () -> Int32) throws -> Int32 {

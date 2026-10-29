@@ -261,7 +261,54 @@ public struct SFTPSession {
     }
 }
 
+/// An SFTP session that stays open across calls, for work that awaits between operations: a path search
+/// checks its connection target on the main actor between folder reads. Operations run one at a time;
+/// `close` waits for one in flight and then shuts the session down. Close it on a background thread.
+public final class HeldSFTPSession: @unchecked Sendable {
+    private let connection: SSHConnection
+    private let session: SFTPSession
+    private let lock = NSLock()
+    private var closed = false
+
+    fileprivate init(connection: SSHConnection, session: SFTPSession) { self.connection = connection; self.session = session }
+    deinit { close() }
+
+    public func listDirectory(_ path: String) throws -> RemoteDirectory {
+        lock.lock(); defer { lock.unlock() }
+        guard !closed else { throw RoamError.cancelled }
+        do { return try session.listDirectory(path) }
+        catch {
+            // As in `withSFTP`: a request that timed out still holds libssh2's shared send slot.
+            if error as? RoamError == .timeout { connection.disconnect() }
+            throw error
+        }
+    }
+
+    public func close() {
+        lock.lock(); defer { lock.unlock() }
+        guard !closed else { return }
+        closed = true
+        connection.closeSFTP(session.sftp)
+    }
+}
+
 extension SSHConnection {
+    /// Opens an SFTP session the caller closes (see `HeldSFTPSession`).
+    public func holdSFTPSession(cancellation: TransferCancellation? = nil) throws -> HeldSFTPSession {
+        beginOtherWork()
+        do {
+            let epoch = transferEpoch()
+            try transferCheck(epoch, cancellation)
+            let sftp = try openSFTP(cancelled: { epoch != self.transferEpoch() || cancellation?.isCancelled == true })
+            return HeldSFTPSession(connection: self, session: SFTPSession(connection: self, sftp: sftp, epoch: epoch, cancellation: cancellation))
+        } catch { endOtherWork(); throw error }
+    }
+    /// Shuts down a held session and ends the work it counted as.
+    fileprivate func closeSFTP(_ sftp: OpaquePointer) {
+        settle(timeout: 10) { libssh2_sftp_shutdown(sftp) }
+        endOtherWork()
+    }
+
     /// Runs `body` with one SFTP session that every operation in it shares.
     public func withSFTPSession<T>(cancellation: TransferCancellation? = nil, _ body: (SFTPSession) throws -> T) throws -> T {
         try withSFTP(cancellation: cancellation) { sftp, epoch in
