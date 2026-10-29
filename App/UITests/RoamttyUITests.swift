@@ -23,7 +23,7 @@ final class RoamttyUITests: RoamttyLiveUITestCase {
         XCTAssertTrue(app.buttons["host-detail-agent"].exists)
     }
     /// In landscape the host page has one flat bar like home's: back, the 概览 · 进程 · 信息 tabs and the actions on a
-    /// single line, and the tabs switch what is below it.
+    /// single line, over one scrolling page whose position the tabs follow.
     func testHostDetailLandscapeBar() {
         XCTAssertTrue(addHostButton.waitForExistence(timeout: 5)); addHostButton.tap()
         for (field, text) in [("host-name", "Landscape"), ("host-address", "example.invalid"), ("host-username", "developer")] {
@@ -48,9 +48,19 @@ final class RoamttyUITests: RoamttyLiveUITestCase {
         }
         XCTAssertTrue(app.staticTexts["Landscape"].exists, "概览 names the host")
         capture("Host detail — landscape overview")
+        // One page: tapping a tab scrolls to its section, and scrolling moves the tab.
         app.buttons["host-tab-info"].tap()
         XCTAssertTrue(app.staticTexts["developer"].waitForExistence(timeout: 3))
+        sleep(1)
         XCTAssertTrue(app.buttons["host-tab-info"].isSelected)
+        XCTAssertTrue(app.staticTexts["developer"].isHittable, "信息 scrolled into view")
+        let scroll = app.scrollViews["host-detail-scroll"]
+        for _ in 0..<3 { scroll.swipeDown() }
+        sleep(1)
+        XCTAssertTrue(app.buttons["host-tab-overview"].isSelected, "Scrolling back to the top selects 概览")
+        for _ in 0..<3 { scroll.swipeUp() }
+        sleep(1)
+        XCTAssertTrue(app.buttons["host-tab-info"].isSelected, "Scrolling to the end selects 信息")
         capture("Host detail — landscape info")
         back.tap()
         XCTAssertTrue(app.buttons["add-host"].waitForExistence(timeout: 3))

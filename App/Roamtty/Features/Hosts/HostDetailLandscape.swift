@@ -1,35 +1,63 @@
 import SwiftUI
 import RoamttyCore
 
-/// The landscape host page's tabs.
+/// The landscape host page's sections, each with its tab.
 enum HostDetailTab: Hashable { case overview, processes, info }
 
+/// Where each landscape section sits in the page's scroll.
+struct HostSectionFrames: PreferenceKey {
+    static var defaultValue: [HostDetailTab: CGRect] = [:]
+    static func reduce(value: inout [HostDetailTab: CGRect], nextValue: () -> [HostDetailTab: CGRect]) { value.merge(nextValue()) { $1 } }
+}
+
 /// The host page in landscape, built like the home page there: one flat 48-point bar with back, the 概览 · 进程 · 信息
-/// tabs and the four actions, and below it the tab in view, each laid out to fit one short screen. Swiping moves
-/// between the tabs.
+/// tabs and the four actions, and below it the whole page in one scroll. The tabs follow the scroll: the one whose
+/// section is under the bar is selected, and tapping one scrolls to its section.
 extension HostDetailScreen {
     func landscape(_ host: Host) -> some View {
-        VStack(spacing: 0) {
-            landscapeBar(host)
-            TabView(selection: $landscapeTab) {
-                ScrollView { overview(host).padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 16) }.tag(HostDetailTab.overview)
-                ScrollView { processes.padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 16) }.tag(HostDetailTab.processes)
-                ScrollView { information(host).padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 16) }.tag(HostDetailTab.info)
-            }.tabViewStyle(.page(indexDisplayMode: .never)).accessibilityIdentifier("host-detail-pager")
+        ScrollViewReader { proxy in
+            VStack(spacing: 0) {
+                landscapeBar(host, proxy)
+                GeometryReader { viewport in
+                    ScrollView {
+                        VStack(spacing: 24) {
+                            section(.overview) { overview(host) }
+                            section(.processes) { processes }
+                            section(.info) { information(host) }
+                        }.padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 16)
+                    }.coordinateSpace(name: Self.scrollSpace).accessibilityIdentifier("host-detail-scroll")
+                        .onPreferenceChange(HostSectionFrames.self) { frames in follow(frames, height: viewport.size.height) }
+                }
+            }
         }.pageBackground().toolbar(.hidden, for: .navigationBar)
+    }
+    private static var scrollSpace: String { "host-detail-scroll" }
+    private func section<Content: View>(_ tab: HostDetailTab, @ViewBuilder content: () -> Content) -> some View {
+        content().frame(maxWidth: .infinity).id(tab)
+            .background(GeometryReader { geo in Color.clear.preference(key: HostSectionFrames.self, value: [tab: geo.frame(in: .named(Self.scrollSpace))]) })
+    }
+    /// Selects the last section whose top has passed the upper third of the screen, or 信息 once the page is scrolled
+    /// to its end, since the last section may be too short to ever reach the top.
+    private func follow(_ frames: [HostDetailTab: CGRect], height: CGFloat) {
+        guard !tabScrolling, let overview = frames[.overview] else { return }
+        let scrolled = overview.minY < -1
+        let atEnd = frames[.info].map { $0.maxY <= height + 1 } ?? false
+        let current: HostDetailTab = scrolled && atEnd ? .info
+            : [HostDetailTab.info, .processes].first { (frames[$0]?.minY ?? .infinity) <= height / 3 } ?? .overview
+        if current != landscapeTab { withAnimation(.easeInOut(duration: 0.2)) { landscapeTab = current } }
     }
 
     // MARK: Bar
 
-    private func landscapeBar(_ host: Host) -> some View {
+    private func landscapeBar(_ host: Host, _ proxy: ScrollViewProxy) -> some View {
         HStack(spacing: 0) {
             Button { if !model.path.isEmpty { model.path.removeLast() } } label: {
                 AppIcon("ic_chevron_left", size: 24).foregroundStyle(Palette.foreground).frame(width: 44, height: 44).contentShape(Rectangle())
             }.accessibilityLabel(model.text("返回", "Back")).accessibilityIdentifier("host-detail-back")
             HStack(spacing: 0) {
-                tab(model.text("概览", "Overview"), count: nil, .overview, id: "host-tab-overview")
-                tab(model.text("进程", "Processes"), count: model.metrics[hostID].map { $0.processes.count }, .processes, id: "host-tab-processes")
-                tab(model.text("信息", "Info"), count: nil, .info, id: "host-tab-info")
+                tab(model.text("概览", "Overview"), count: nil, .overview, proxy, id: "host-tab-overview")
+                tab(model.text("进程", "Processes"), count: model.metrics[hostID].map { $0.processes.count }, .processes, proxy, id: "host-tab-processes")
+                tab(model.text("信息", "Info"), count: nil, .info, proxy, id: "host-tab-info")
             }.padding(3).background(Palette.foreground.opacity(0.07), in: Capsule()).fixedSize()
             Spacer(minLength: 8)
             // Every action carries its name when the bar has room (Chinese always does); otherwise only Agent keeps it.
@@ -40,9 +68,15 @@ extension HostDetailScreen {
             moreMenu(host) { AppIcon("ic_more", size: 24).foregroundStyle(Palette.foreground).frame(width: 44, height: 44).contentShape(Rectangle()) }
         }.buttonStyle(.plain).padding(.horizontal, 6).frame(height: 48)
     }
-    private func tab(_ title: String, count: Int?, _ value: HostDetailTab, id: String) -> some View {
+    private func tab(_ title: String, count: Int?, _ value: HostDetailTab, _ proxy: ScrollViewProxy, id: String) -> some View {
         let active = landscapeTab == value
-        return Button { withAnimation(.easeInOut(duration: 0.25)) { landscapeTab = value } } label: {
+        return Button {
+            // The scroll passes the sections in between; the tab stays on the one tapped until it has arrived.
+            tabScrolling = true
+            withAnimation(.easeInOut(duration: 0.25)) { landscapeTab = value }
+            withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(value, anchor: .top) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { tabScrolling = false }
+        } label: {
             HStack(spacing: 5) {
                 Text(title).font(.system(size: 15, weight: active ? .semibold : .regular))
                 if let count, count > 0 { Text("\(count)").font(.system(size: 15, weight: .semibold)).opacity(0.7) }
@@ -180,8 +214,9 @@ extension HostDetailScreen {
         if let metrics = model.metrics[hostID] {
             MetricsPanel(metrics: metrics, series: model.metricSeries[hostID] ?? HostMetricSeries(), layout: .processes)
         } else {
-            Text(model.text("连接后可查看进程", "Connect to see processes")).font(.subheadline).foregroundStyle(Palette.secondary)
-                .frame(maxWidth: .infinity).padding(.top, 40)
+            Panel(title: model.text("进程", "Processes")) {
+                InfoRow(title: model.text("连接后可查看进程", "Connect to see processes"))
+            }
         }
     }
 

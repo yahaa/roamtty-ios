@@ -5,7 +5,7 @@ struct MetricsPanel: View {
     @EnvironmentObject var model: AppModel
     let metrics: HostMetrics
     let series: HostMetricSeries
-    /// Portrait shows everything in one column; landscape's 进程 tab shows only the processes beside the GPUs.
+    /// Portrait shows everything in one column; landscape's 进程 section shows only the processes beside the GPUs.
     var layout: Layout = .full
     enum Layout { case full, processes }
     var body: some View {
@@ -40,8 +40,7 @@ struct MetricsPanel: View {
     private var processColumns: some View {
         HStack(alignment: .top, spacing: 12) {
             if metrics.processes.isEmpty && metrics.gpus.isEmpty && metrics.gpuProcesses.isEmpty {
-                Text(model.text("暂无进程数据", "No process data yet")).font(.subheadline).foregroundStyle(Palette.secondary)
-                    .frame(maxWidth: .infinity).padding(.top, 40)
+                Panel(title: model.text("进程", "Processes")) { InfoRow(title: model.text("暂无进程数据", "No process data yet")) }
             } else {
                 if !metrics.processes.isEmpty { processPanel.frame(maxWidth: .infinity) }
                 if !metrics.gpus.isEmpty || !metrics.gpuProcesses.isEmpty { VStack(spacing: 16) { gpuPanels }.frame(maxWidth: .infinity) }

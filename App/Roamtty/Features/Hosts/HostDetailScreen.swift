@@ -7,8 +7,10 @@ struct HostDetailScreen: View {
     @State var deleteConfirm = false
     var host: Host? { model.host(hostID) }
     @Environment(\.verticalSizeClass) private var verticalSizeClass
-    /// The landscape page's tab, kept while the phone turns.
+    /// The landscape page's tab, following its scroll.
     @State var landscapeTab: HostDetailTab = .overview
+    /// A tab was tapped and the page is scrolling to it, so the scroll does not move the tab meanwhile.
+    @State var tabScrolling = false
     var body: some View {
         Group {
             if let host {
