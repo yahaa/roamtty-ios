@@ -4,59 +4,19 @@ import RoamttyCore
 struct HostDetailScreen: View {
     @EnvironmentObject var model: AppModel
     let hostID: String
-    @State private var deleteConfirm = false
+    @State var deleteConfirm = false
     var host: Host? { model.host(hostID) }
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    /// The landscape page's tab, following its scroll.
+    @State var landscapeTab: HostDetailTab = .overview
+    /// A tab was tapped and the page is scrolling to it, so the scroll does not move the tab meanwhile.
+    @State var tabScrolling = false
     var body: some View {
         Group {
             if let host {
-                ScrollView {
-                    VStack(spacing: 24) {
-                        HStack(spacing: 16) {
-                            HostSystemMark(system: host.system).frame(width: 56, height: 56)
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("\(host.username)@\(host.address):\(String(host.port))").font(.subheadline).textSelection(.enabled)
-                                Text(model.metrics[hostID]?.os ?? host.system).font(.subheadline).foregroundStyle(Palette.secondary)
-                                ReachabilityLabel(state: model.reachability[hostID] ?? .checking)
-                            }.frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        HStack(spacing: 8) {
-                            Button { model.sheet = .launch(host, true) } label: { actionLabel("AI Agent", "ic_agent") }.buttonStyle(RoamButtonStyle(filled: true)).accessibilityIdentifier("host-detail-agent")
-                            Button { model.sheet = .launch(host, false) } label: { actionLabel(model.text("终端", "Terminal"), "ic_sessions") }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-terminal")
-                            Button { model.path.append(.files(hostID)) } label: { actionLabel(model.text("文件", "Files"), "ic_folder") }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-files")
-                            if model.desktopSupported(host) {
-                                Button { model.openDesktop(host) } label: { actionLabel(model.text("桌面", "Desktop"), "ic_desktop") }
-                                    .buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-desktop")
-                            }
-                        }
-                        monitorStatus(host)
-                        if let metrics = model.metrics[hostID] { MetricsPanel(metrics: metrics, series: model.metricSeries[hostID] ?? HostMetricSeries()) }
-                        Panel(title: model.text("主机信息", "Host information")) {
-                            InfoRow(title: model.text("地址", "Address"), value: host.address).panelDivider()
-                            InfoRow(title: model.text("端口", "Port"), value: String(host.port)).panelDivider()
-                            InfoRow(title: model.text("用户名", "Username"), value: host.username).panelDivider()
-                            InfoRow(title: model.text("认证方式", "Authentication"), value: authenticationLabel(host.auth)).panelDivider()
-                            InfoRow(title: model.text("新会话", "New sessions"), value: host.mode == .tmux ? model.text("tmux · 可恢复", "tmux · resumable") : model.text("普通 SSH", "Plain SSH")).panelDivider()
-                            InfoRow(title: model.text("插件", "Plugins"), value: host.plugins.map { $0.isEmpty ? model.text("未安装", "None installed") : $0.joined(separator: " · ") } ?? model.text("未检测", "Not detected"))
-                            if let metrics = model.metrics[hostID] {
-                                if let hostname = metrics.hostname { InfoRow(title: model.text("主机名", "Hostname"), value: hostname).panelDivider() }
-                                InfoRow(title: model.text("内核", "Kernel"), value: metrics.kernel).panelDivider()
-                                InfoRow(title: model.text("架构", "Architecture"), value: metrics.arch).panelDivider()
-                                if let processor = metrics.cpuModel { InfoRow(title: model.text("处理器", "Processor"), value: processor) }
-                            }
-                        }
-                    }.padding(16).frame(maxWidth: 720)
-                }.frame(maxWidth: .infinity).pageBackground().navigationTitle(host.name).navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        // Plugins, edit and delete all live behind the one overflow button, keeping the bar to a single icon.
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            Menu {
-                                Button { model.sheet = .plugins(host) } label: { Label { Text(model.text("安装插件", "Install plugins")) } icon: { Image("ic_plugin") } }.accessibilityIdentifier("host-detail-plugins")
-                                Button { model.sheet = .editor(host) } label: { Label { Text(model.text("编辑主机", "Edit host")) } icon: { Image("ic_edit") } }.accessibilityIdentifier("host-detail-edit")
-                                Divider()
-                                Button(role: .destructive) { deleteConfirm = true } label: { Label { Text(model.text("删除主机", "Delete host")) } icon: { Image("ic_delete") } }.accessibilityIdentifier("host-delete")
-                            } label: { AppIcon("ic_more", size: 24) }.accessibilityLabel(model.text("更多", "More")).accessibilityIdentifier("host-detail-menu")
-                        }
-                    }
+                Group {
+                    if verticalSizeClass == .compact { landscape(host) } else { portrait(host) }
+                }
                     .onAppear { model.startMonitor(host); Task { await model.refreshDesktopProbe(host) } }
                     .task(id: host.address + ":" + String(host.port)) { while !Task.isCancelled { await model.probeHosts([host]); do { try await Task.sleep(nanoseconds: 15_000_000_000) } catch { break } } }
                     .onDisappear { model.stopMonitor(hostID) }
@@ -66,7 +26,65 @@ struct HostDetailScreen: View {
             }
         }
     }
-    private func authenticationLabel(_ method: AuthMethod) -> String {
+    private func portrait(_ host: Host) -> some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                HStack(spacing: 16) {
+                    HostSystemMark(system: host.system).frame(width: 56, height: 56)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("\(host.username)@\(host.address):\(String(host.port))").font(.subheadline).textSelection(.enabled)
+                        Text(model.metrics[hostID]?.os ?? host.system).font(.subheadline).foregroundStyle(Palette.secondary)
+                        ReachabilityLabel(state: model.reachability[hostID] ?? .checking)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
+                HStack(spacing: 8) {
+                    Button { model.sheet = .launch(host, true) } label: { actionLabel("Agent", "ic_agent") }.buttonStyle(RoamButtonStyle(filled: true)).accessibilityIdentifier("host-detail-agent")
+                    Button { model.sheet = .launch(host, false) } label: { actionLabel(model.text("终端", "Terminal"), "ic_sessions") }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-terminal")
+                    Button { model.path.append(.files(hostID)) } label: { actionLabel(model.text("文件", "Files"), "ic_folder") }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-files")
+                    if model.desktopSupported(host) {
+                        Button { model.openDesktop(host) } label: { actionLabel(model.text("桌面", "Desktop"), "ic_desktop") }
+                            .buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-desktop")
+                    }
+                }
+                monitorStatus(host)
+                if let metrics = model.metrics[hostID] { MetricsPanel(metrics: metrics, series: model.metricSeries[hostID] ?? HostMetricSeries()) }
+                Panel(title: model.text("主机信息", "Host information")) {
+                    connectionRows(host)
+                    if let metrics = model.metrics[hostID] { systemRows(metrics) }
+                }
+            }.padding(16).frame(maxWidth: 720)
+        }.frame(maxWidth: .infinity).pageBackground().navigationTitle(host.name).navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                // Plugins, edit and delete all live behind the one overflow button, keeping the bar to a single icon.
+                ToolbarItem(placement: .navigationBarTrailing) { moreMenu(host) { AppIcon("ic_more", size: 24) } }
+            }
+    }
+    func moreMenu<Icon: View>(_ host: Host, @ViewBuilder label: () -> Icon) -> some View {
+        Menu {
+            Button { model.sheet = .plugins(host) } label: { Label { Text(model.text("安装插件", "Install plugins")) } icon: { Image("ic_plugin") } }.accessibilityIdentifier("host-detail-plugins")
+            Button { model.sheet = .editor(host) } label: { Label { Text(model.text("编辑主机", "Edit host")) } icon: { Image("ic_edit") } }.accessibilityIdentifier("host-detail-edit")
+            Divider()
+            Button(role: .destructive) { deleteConfirm = true } label: { Label { Text(model.text("删除主机", "Delete host")) } icon: { Image("ic_delete") } }.accessibilityIdentifier("host-delete")
+        } label: { label() }
+            .accessibilityLabel(model.text("更多", "More")).accessibilityIdentifier("host-detail-menu")
+    }
+    /// How the app reaches the host: address, sign-in and what new sessions run in.
+    @ViewBuilder func connectionRows(_ host: Host) -> some View {
+        InfoRow(title: model.text("地址", "Address"), value: host.address).panelDivider()
+        InfoRow(title: model.text("端口", "Port"), value: String(host.port)).panelDivider()
+        InfoRow(title: model.text("用户名", "Username"), value: host.username).panelDivider()
+        InfoRow(title: model.text("认证方式", "Authentication"), value: authenticationLabel(host.auth)).panelDivider()
+        InfoRow(title: model.text("新会话", "New sessions"), value: host.mode == .tmux ? model.text("tmux · 可恢复", "tmux · resumable") : model.text("普通 SSH", "Plain SSH")).panelDivider()
+        InfoRow(title: model.text("插件", "Plugins"), value: host.plugins.map { $0.isEmpty ? model.text("未安装", "None installed") : $0.joined(separator: " · ") } ?? model.text("未检测", "Not detected"))
+    }
+    /// What the monitor read about the machine itself.
+    @ViewBuilder func systemRows(_ metrics: HostMetrics) -> some View {
+        if let hostname = metrics.hostname { InfoRow(title: model.text("主机名", "Hostname"), value: hostname).panelDivider() }
+        InfoRow(title: model.text("内核", "Kernel"), value: metrics.kernel).panelDivider()
+        InfoRow(title: model.text("架构", "Architecture"), value: metrics.arch).panelDivider()
+        if let processor = metrics.cpuModel { InfoRow(title: model.text("处理器", "Processor"), value: processor) }
+    }
+    func authenticationLabel(_ method: AuthMethod) -> String {
         switch method {
         case .password: return model.text("密码", "Password")
         case .key: return model.text("私钥", "Private key")
@@ -76,8 +94,10 @@ struct HostDetailScreen: View {
     private func actionLabel(_ title: String, _ icon: String) -> some View {
         HStack(spacing: 8) { AppIcon(icon, size: 18); Text(title) }
     }
+    /// The monitor is connected and reading, so its numbers are current.
+    var monitorLive: Bool { model.monitorStates[hostID].map { $0.phase == .connected && $0.sampled && !$0.reconnecting && !$0.samplingFailed } ?? false }
     private func monitorStatus(_ host: Host) -> some View {
-        let live = model.monitorStates[hostID].map { $0.phase == .connected && $0.sampled && !$0.reconnecting && !$0.samplingFailed } ?? false
+        let live = monitorLive
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Text(model.text("实时监控", "Live monitor")).font(.subheadline.weight(.medium)).foregroundStyle(Palette.secondary)
@@ -90,7 +110,7 @@ struct HostDetailScreen: View {
             if !live { monitorPanel(host) }
         }
     }
-    private func monitorPanel(_ host: Host) -> some View {
+    func monitorPanel(_ host: Host) -> some View {
         Panel {
             if let state = model.monitorStates[hostID], state.samplingFailed {
                 VStack(alignment: .leading, spacing: 10) {

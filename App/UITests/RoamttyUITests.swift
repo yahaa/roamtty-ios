@@ -22,6 +22,49 @@ final class RoamttyUITests: RoamttyLiveUITestCase {
         XCTAssertTrue(app.buttons["host-detail-files"].exists)
         XCTAssertTrue(app.buttons["host-detail-agent"].exists)
     }
+    /// In landscape the host page has one flat bar like home's: back, the 概览 · 进程 · 信息 tabs and the actions on a
+    /// single line, over one scrolling page whose position the tabs follow.
+    func testHostDetailLandscapeBar() {
+        XCTAssertTrue(addHostButton.waitForExistence(timeout: 5)); addHostButton.tap()
+        for (field, text) in [("host-name", "Landscape"), ("host-address", "example.invalid"), ("host-username", "developer")] {
+            app.textFields[field].tap(); app.textFields[field].typeText(text)
+        }
+        app.buttons["save-host"].tap()
+        XCTAssertTrue(app.buttons["host-Landscape"].waitForExistence(timeout: 3)); app.buttons["host-Landscape"].tap()
+        XCTAssertTrue(app.buttons["host-detail-terminal"].waitForExistence(timeout: 3))
+        // The host keeps no password, so the monitor asks for one; this case only looks at the layout.
+        if app.buttons["auth-cancel"].waitForExistence(timeout: 5) { app.buttons["auth-cancel"].tap() }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let back = app.buttons["host-detail-back"]
+        XCTAssertTrue(back.waitForExistence(timeout: 5))
+        sleep(1)
+        XCTAssertLessThanOrEqual(back.frame.height, 48)
+        XCTAssertFalse(app.navigationBars.firstMatch.exists, "The system bar is hidden in landscape")
+        for id in ["host-tab-overview", "host-tab-processes", "host-tab-info", "host-detail-agent", "host-detail-terminal", "host-detail-files", "host-detail-menu"] {
+            let item = app.descendants(matching: .any)[id].firstMatch
+            XCTAssertTrue(item.exists, id)
+            XCTAssertEqual(item.frame.midY, back.frame.midY, accuracy: 2, id)
+        }
+        XCTAssertTrue(app.staticTexts["Landscape"].exists, "概览 names the host")
+        capture("Host detail — landscape overview")
+        // One page: tapping a tab scrolls to its section, and scrolling moves the tab.
+        app.buttons["host-tab-info"].tap()
+        XCTAssertTrue(app.staticTexts["developer"].waitForExistence(timeout: 3))
+        sleep(1)
+        XCTAssertTrue(app.buttons["host-tab-info"].isSelected)
+        XCTAssertTrue(app.staticTexts["developer"].isHittable, "信息 scrolled into view")
+        let scroll = app.scrollViews["host-detail-scroll"]
+        for _ in 0..<3 { scroll.swipeDown() }
+        sleep(1)
+        XCTAssertTrue(app.buttons["host-tab-overview"].isSelected, "Scrolling back to the top selects 概览")
+        for _ in 0..<3 { scroll.swipeUp() }
+        sleep(1)
+        XCTAssertTrue(app.buttons["host-tab-info"].isSelected, "Scrolling to the end selects 信息")
+        capture("Host detail — landscape info")
+        back.tap()
+        XCTAssertTrue(app.buttons["add-host"].waitForExistence(timeout: 3))
+    }
     func testLiveTrustTerminalOutputAndSFTPPreview() throws { try openLivePreview(preferMosh: false) }
     func testShareExtensionQueuesDownloadedFile() throws {
         try openLivePreview(preferMosh: true)
