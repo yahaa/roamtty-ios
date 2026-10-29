@@ -47,14 +47,15 @@ struct DesktopPage: View {
                     // Only the island's side keeps its safe inset: the picture and the rail use the other.
                     let insets = geo.safeAreaInsets
                     HStack(spacing: 0) {
-                        desktopWorkspace(landscape: true, bottomInset: max(0, keyboardOverlap - insets.bottom),
+                        // The picture always runs to the bottom edge, so the keyboard is measured from there.
+                        desktopWorkspace(landscape: true, bottomInset: keyboardPage == .ime ? keyboardOverlap : insets.bottom,
                                          bleed: islandLeading ? 0 : insets.leading)
                             .padding(.leading, islandLeading ? insets.leading : 0)
                         controlRail(landscape: true, edgeInset: insets.trailing, edgeClearance: islandLeading ? 0 : min(insets.trailing, 50))
                             .background(GeometryReader { rail in Color.clear.preference(key: RailWidthKey.self, value: rail.size.width) })
                     }
-                    // The picture runs under the home indicator too; the keyboard panel keeps clear of it.
-                    .ignoresSafeArea(.container, edges: panel == .keyboard ? .horizontal : [.horizontal, .bottom])
+                    // The picture runs under the home indicator too; the keyboard panel floats clear of it.
+                    .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
                 } else {
                     VStack(spacing: 0) {
                         desktopWorkspace(landscape: false, bottomInset: max(0, keyboardOverlap - geo.safeAreaInsets.bottom))
@@ -136,12 +137,27 @@ struct DesktopPage: View {
         } message: { Text(controller.notice ?? "") }
     }
 
-    /// Keep the video and its gesture viewport in the same unobscured rectangle. Only this
-    /// column resizes for input; the landscape rail retains its full-height touch targets.
+    /// Portrait: keep the video and its gesture viewport in the same unobscured rectangle, so only this
+    /// column resizes for input. Landscape: the picture is short already, so it keeps its full size and
+    /// the keyboard panel floats over its lower part; the rail retains its full-height touch targets.
     /// `bleed`: how far the picture runs past the leading safe area, where the stats stay clear of the corner.
+    @ViewBuilder
     private func desktopWorkspace(landscape: Bool, bottomInset: CGFloat, bleed: CGFloat = 0) -> some View {
+        if landscape {
+            ZStack(alignment: .bottom) {
+                desktopPicture(landscape: true, bleed: bleed)
+                if panel == .keyboard {
+                    keyboardPanel.fixedSize(horizontal: false, vertical: true).padding(.bottom, bottomInset)
+                }
+            }
+        } else {
+            portraitWorkspace(bottomInset: bottomInset)
+        }
+    }
+
+    private func portraitWorkspace(bottomInset: CGFloat) -> some View {
         VStack(spacing: 0) {
-            desktopPicture(landscape: landscape, bleed: bleed)
+            desktopPicture(landscape: false, bleed: 0)
             if panel == .keyboard {
                 keyboardPanel.fixedSize(horizontal: false, vertical: true)
             }
