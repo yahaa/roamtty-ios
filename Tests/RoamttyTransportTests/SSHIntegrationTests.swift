@@ -283,6 +283,40 @@ final class SSHIntegrationTests: XCTestCase {
         XCTAssertNotEqual(try client.exec("test -e " + remote).status, 0)
         XCTAssertTrue(client.isConnected)
     }
+    /// A path search reads every folder through one held session, across awaits, then closes it.
+    func testHeldSFTPSessionServesAPathSearchAndEndsWhenClosed() async throws {
+        let client = try connect(); defer { client.disconnect() }
+        let remote = "/tmp/roamtty-ios-search-" + UUID().uuidString
+        XCTAssertEqual(try client.exec("mkdir -p \(remote)/alpha/one \(remote)/alpha/two \(remote)/beta && touch \(remote)/alpha/one/f.txt").status, 0)
+        defer { _ = try? client.exec("rm -rf -- " + remote) }
+        let sftp = try client.holdSFTPSession()
+        var reads: [String] = []
+        let result = try await resolveRemoteSearchDirectories(directory: remote, prefix: "al/on", showHidden: false) { path in
+            reads.append(path)
+            return try sftp.listDirectory(path)
+        }
+        XCTAssertEqual(reads.count, 3, "the base folder, alpha, then one")
+        XCTAssertEqual(result.directories.map(\.path), [remote + "/alpha/one"])
+        XCTAssertEqual(result.directories.first?.entries.map(\.name), ["f.txt"])
+        XCTAssertThrowsError(try sftp.listDirectory(remote + "/missing"), "a failed read leaves the session usable")
+        XCTAssertEqual(try sftp.listDirectory(remote).entries.map(\.name), ["alpha", "beta"])
+        // While it is held, a terminal loop on this connection waits briefly; closing it restores the long wait.
+        let loop = try XCTUnwrap(WorkerWake())
+        client.asWaitingLoop(loop) { XCTAssertEqual(client.waitMilliseconds(for: loop), SSHConnection.sharedWaitMs) }
+        sftp.close(); sftp.close()
+        client.asWaitingLoop(loop) { XCTAssertEqual(client.waitMilliseconds(for: loop), SSHConnection.idleWaitMs) }
+        XCTAssertThrowsError(try sftp.listDirectory(remote)) { XCTAssertEqual($0 as? RoamError, .cancelled) }
+        XCTAssertEqual(try client.listDirectory(remote).entries.map(\.name), ["alpha", "beta"])
+        XCTAssertTrue(client.isConnected)
+    }
+    func testHeldSFTPSessionRefusesACancelledRequest() throws {
+        let client = try connect(); defer { client.disconnect() }
+        let token = TransferCancellation(); token.cancel()
+        XCTAssertThrowsError(try client.holdSFTPSession(cancellation: token)) { XCTAssertEqual($0 as? RoamError, .cancelled) }
+        let loop = try XCTUnwrap(WorkerWake())
+        client.asWaitingLoop(loop) { XCTAssertEqual(client.waitMilliseconds(for: loop), SSHConnection.idleWaitMs, "a refused open ends its work") }
+        XCTAssertEqual(try client.exec("printf ok").output, Data("ok".utf8))
+    }
     func testPTYInputAndResize() throws {
         let client = try connect(); defer { client.disconnect() }
         try client.openTerminal(mode: .shell, remoteName: "", columns: 80, rows: 24)
