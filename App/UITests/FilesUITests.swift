@@ -378,4 +378,41 @@ final class FilesUITests: RoamttyLiveUITestCase {
         let middle = marker.index(marker.startIndex, offsetBy: marker.count / 2)
         return "printf '%s' " + quote(String(marker[..<middle])) + "; printf '%s\\n' " + quote(String(marker[middle...]))
     }
+
+    /// In landscape the launch sheet and the file browser use the whole screen, like the host page there: one flat bar
+    /// on top, the folders in full height beside a side column with the recent folders, the pickers and the button,
+    /// and the files under a bar that carries the path, the sort, the search and the menu in place of the system ones.
+    func testLandscapeLaunchSheetAndFilesUseTheWholeScreen() throws {
+        try openHost()
+        XCTAssertTrue(app.buttons["host-detail-terminal"].waitForExistence(timeout: 10))
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        for _ in 0..<10 where app.windows.firstMatch.frame.width < app.windows.firstMatch.frame.height { sleep(1) }
+        let window = app.windows.firstMatch.frame
+        XCTAssertGreaterThan(window.width, window.height)
+
+        app.buttons["host-detail-agent"].tap()
+        let folders = app.descendants(matching: .any)["launch-folders"]
+        XCTAssertTrue(folders.waitForExistence(timeout: 15))
+        let close = app.buttons["launch-cancel"], launch = app.buttons["launch-session"]
+        XCTAssertTrue(close.isHittable && launch.isHittable, "The bar and the button are both on screen")
+        XCTAssertLessThan(close.frame.maxY, folders.frame.minY, "The bar is over the folders")
+        XCTAssertLessThan(folders.frame.maxX, launch.frame.minX, "The button sits in the side column")
+        XCTAssertLessThan(launch.frame.maxY, window.maxY, "The button is not cut off")
+        XCTAssertGreaterThan(folders.frame.height, window.height * 0.6, "The folders take the height")
+        capture("Launch sheet — landscape")
+        close.tap()
+
+        app.buttons["host-detail-files"].tap()
+        let search = app.textFields["files-search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 15))
+        XCTAssertFalse(app.navigationBars.firstMatch.exists, "The system bar is hidden in landscape")
+        XCTAssertFalse(app.searchFields.firstMatch.exists, "The search is in the bar, not the system's")
+        for id in ["files-back", "files-sort", "files-options"] {
+            XCTAssertLessThan(abs(app.descendants(matching: .any)[id].firstMatch.frame.midY - search.frame.midY), 3, "\(id) is in the bar")
+        }
+        capture("Files — landscape")
+        app.buttons["files-back"].tap()
+        XCTAssertTrue(app.buttons["host-detail-files"].waitForExistence(timeout: 5), "Back returns to the host")
+    }
 }

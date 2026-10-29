@@ -5,6 +5,7 @@ import RoamttyTransport
 struct LaunchScreen: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) var dismiss
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     let host: Host
     let forAgent: Bool
     var initialDirectory = "~"
@@ -53,20 +54,23 @@ struct LaunchScreen: View {
         if forAgent { return home ? model.text("在主目录启动 \(agent.shortLabel)", "Start \(agent.shortLabel) in home") : model.text("在 \(folderName) 启动 \(agent.shortLabel)", "Start \(agent.shortLabel) in \(folderName)") }
         return home ? model.text("在主目录打开终端", "Open terminal in home") : model.text("在 \(folderName) 打开终端", "Open terminal in \(folderName)")
     }
+    private var heading: String { title ?? (forAgent ? model.text("用 Agent 打开", "Open with Agent") : model.text("打开终端", "Open terminal")) }
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text(title ?? (forAgent ? model.text("用 Agent 打开", "Open with Agent") : model.text("打开终端", "Open terminal"))).font(.system(size: 20, weight: .semibold))
-                Spacer()
-                Button { dismiss() } label: { AppIcon("ic_close").frame(width: 48, height: 48) }.accessibilityLabel(model.text("关闭", "Close")).accessibilityIdentifier("launch-cancel")
-            }.padding(.leading, 24).padding(.trailing, 12).padding(.top, 16).padding(.bottom, 12)
-            if canAttach {
-                Picker("", selection: $source) {
-                    Text(model.text("工作目录", "Folder")).tag(Source.folder)
-                    Text(model.text("tmux 会话", "tmux session")).tag(Source.tmux)
-                }.pickerStyle(.segmented).padding(.horizontal, 16).padding(.bottom, 12).accessibilityIdentifier("launch-source")
+            if verticalSizeClass == .compact { landscape } else {
+                HStack {
+                    Text(heading).font(.system(size: 20, weight: .semibold))
+                    Spacer()
+                    Button { dismiss() } label: { AppIcon("ic_close").frame(width: 48, height: 48) }.accessibilityLabel(model.text("关闭", "Close")).accessibilityIdentifier("launch-cancel")
+                }.padding(.leading, 24).padding(.trailing, 12).padding(.top, 16).padding(.bottom, 12)
+                if canAttach {
+                    Picker("", selection: $source) {
+                        Text(model.text("工作目录", "Folder")).tag(Source.folder)
+                        Text(model.text("tmux 会话", "tmux session")).tag(Source.tmux)
+                    }.pickerStyle(.segmented).padding(.horizontal, 16).padding(.bottom, 12).accessibilityIdentifier("launch-source")
+                }
+                if source == .tmux { tmuxPanel } else { folderPanel }
             }
-            if source == .tmux { tmuxPanel } else { folderPanel }
         }.foregroundStyle(Palette.foreground).background(Palette.sheet.ignoresSafeArea())
         .task {
             let currentHost = model.host(host.id) ?? host
@@ -88,6 +92,15 @@ struct LaunchScreen: View {
                 HStack(spacing: 8) { ForEach(recent, id: \.self) { path in recentChip(path) } }.padding(.horizontal, 16)
             }.padding(.bottom, 8)
         }
+        folderBox.padding(.horizontal, 16)
+        if forAgent { HStack(spacing: 8) { agentPickers }.padding(.horizontal, 16).padding(.top, 12) }
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing") { testControls }
+        #endif
+        launchButton.padding(.horizontal, 16).padding(.vertical, 12)
+    }
+    /// The path bar over the folders.
+    private var folderBox: some View {
         VStack(spacing: 0) {
             if filtering { filterBar } else { pathBar }
             Divider().overlay(Palette.outline)
@@ -97,11 +110,9 @@ struct LaunchScreen: View {
                 else { folderList }
                 if busy && !entries.isEmpty { ProgressView().progressViewStyle(.linear).tint(Palette.accent) }
             }.frame(maxHeight: .infinity)
-        }.background(Palette.panel, in: RoundedRectangle(cornerRadius: 16)).clipShape(RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 16)
-        if forAgent { agentChooser }
-        #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("--ui-testing") { testControls }
-        #endif
+        }.background(Palette.panel, in: RoundedRectangle(cornerRadius: 16)).clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+    private var launchButton: some View {
         Button {
             guard launchReady else { return }
             let normalized = StartDirectory.normalize(directory)
@@ -117,10 +128,14 @@ struct LaunchScreen: View {
                 .foregroundStyle(launchReady ? (yolo ? Palette.adaptive(0xFFFFFF, 0x5E1C17) : Palette.onAccent) : Palette.foreground.opacity(0.38))
                 .background(launchReady ? (yolo ? Palette.danger : Palette.accent) : Palette.foreground.opacity(0.12), in: Capsule())
                 .animation(.easeInOut(duration: 0.2), value: yolo)
-        }.buttonStyle(.plain).disabled(!launchReady).padding(.horizontal, 16).padding(.vertical, 12).accessibilityIdentifier("launch-session")
+        }.buttonStyle(.plain).disabled(!launchReady).accessibilityIdentifier("launch-session")
     }
     /// The tmux sessions on the server, most recently used first; tapping one picks it, the button attaches it.
     @ViewBuilder private var tmuxPanel: some View {
+        tmuxBox.padding(.horizontal, 16)
+        attachButton.padding(.horizontal, 16).padding(.vertical, 12)
+    }
+    private var tmuxBox: some View {
         VStack(spacing: 0) {
             HStack {
                 Text(model.text("服务器上的 tmux 会话", "tmux sessions on the server")).font(.subheadline.weight(.semibold))
@@ -137,7 +152,9 @@ struct LaunchScreen: View {
                 } else { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
                 if tmuxBusy && tmuxSessions != nil { ProgressView().progressViewStyle(.linear).tint(Palette.accent) }
             }.frame(maxHeight: .infinity)
-        }.background(Palette.panel, in: RoundedRectangle(cornerRadius: 16)).clipShape(RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 16)
+        }.background(Palette.panel, in: RoundedRectangle(cornerRadius: 16)).clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+    private var attachButton: some View {
         Button {
             guard attachReady, let name = tmuxSelection else { return }
             model.attachExisting(host, name: name, mosh: moshExplicit ? mosh : nil)
@@ -146,7 +163,7 @@ struct LaunchScreen: View {
                 .font(.subheadline.weight(.medium)).frame(maxWidth: .infinity).frame(minHeight: 48)
                 .foregroundStyle(attachReady ? Palette.onAccent : Palette.foreground.opacity(0.38))
                 .background(attachReady ? Palette.accent : Palette.foreground.opacity(0.12), in: Capsule())
-        }.buttonStyle(.plain).disabled(!attachReady).padding(.horizontal, 16).padding(.vertical, 12).accessibilityIdentifier("launch-attach")
+        }.buttonStyle(.plain).disabled(!attachReady).accessibilityIdentifier("launch-attach")
     }
     private func loadTmux() {
         tmuxBusy = true; tmuxError = nil
@@ -238,9 +255,9 @@ struct LaunchScreen: View {
             .overlay { if !selected { RoundedRectangle(cornerRadius: 8).stroke(Palette.outline, lineWidth: 1) } }
             .contentShape(Rectangle()).onTapGesture { navigate(path) }
     }
-    /// Agent and permission as two pickers on one line; YOLO is red, and its "!" says what it allows.
-    private var agentChooser: some View {
-        HStack(spacing: 8) {
+    /// Agent and permission as two pickers, side by side in portrait and stacked in landscape; YOLO is red, and its "!"
+    /// says what it allows.
+    @ViewBuilder private var agentPickers: some View {
             Menu {
                 Picker("", selection: $agent) {
                     ForEach(CodingAgent.allCases) { option in Text(option.shortLabel + "  ·  " + option.command).tag(option) }
@@ -257,13 +274,82 @@ struct LaunchScreen: View {
                     if yolo { AppIcon("ic_alert", size: 18).foregroundStyle(Palette.danger).accessibilityLabel(modeHint(.yolo)).accessibilityIdentifier("launch-yolo-warning") }
                 }
             }.accessibilityIdentifier("launch-agent-mode")
-        }.padding(.horizontal, 16).padding(.top, 12)
     }
     private func pickerField<Content: View>(border: Color? = nil, @ViewBuilder _ content: () -> Content) -> some View {
         HStack(spacing: 8) { content(); Spacer(minLength: 0); AppIcon("ic_expand_down", size: 18).foregroundStyle(Palette.secondary) }
             .padding(.leading, 12).padding(.trailing, 6).frame(minHeight: 44).foregroundStyle(Palette.foreground)
             .background(Palette.panel, in: RoundedRectangle(cornerRadius: 12))
             .overlay { RoundedRectangle(cornerRadius: 12).stroke(border ?? Palette.outline, lineWidth: border == nil ? 0.5 : 1) }
+    }
+
+    // MARK: Landscape
+
+    /// Landscape, like the host page there: one flat bar with close, the heading and the 工作目录 · tmux 会话 tabs; the
+    /// folders take the whole height on the left, and a side column holds the recent folders, the agent pickers and
+    /// the launch button.
+    @ViewBuilder private var landscape: some View {
+        HStack(spacing: 6) {
+            Button { dismiss() } label: { AppIcon("ic_close", size: 24).frame(width: 44, height: 44).contentShape(Rectangle()) }
+                .buttonStyle(.plain).accessibilityLabel(model.text("关闭", "Close")).accessibilityIdentifier("launch-cancel")
+            Text(heading).font(.system(size: 17, weight: .semibold)).lineLimit(1).padding(.trailing, 6)
+            if canAttach {
+                HStack(spacing: 0) {
+                    sourceTab(model.text("工作目录", "Folder"), .folder)
+                    sourceTab(model.text("tmux 会话", "tmux session"), .tmux)
+                }.padding(3).background(Palette.foreground.opacity(0.07), in: Capsule()).fixedSize().accessibilityIdentifier("launch-source")
+            }
+            Spacer(minLength: 0)
+        }.padding(.horizontal, 6).frame(height: 48)
+        HStack(alignment: .top, spacing: 10) {
+            if source == .tmux { tmuxBox } else { folderBox }
+            // The pickers and the button keep their place at the bottom; the recent folders scroll in what is left.
+            VStack(alignment: .leading, spacing: 8) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if source == .folder && !recent.isEmpty { sideLabel(model.text("最近", "Recent")); recentList }
+                        #if DEBUG
+                        if source == .folder && ProcessInfo.processInfo.arguments.contains("--ui-testing") { testControls }
+                        #endif
+                    }
+                }.frame(maxHeight: .infinity)
+                if source == .folder && forAgent {
+                    sideLabel("Agent")
+                    agentPickers
+                }
+                if source == .tmux { attachButton } else { launchButton }
+            }.frame(width: 250)
+        }.padding(.horizontal, 6).padding(.bottom, 8)
+    }
+    private func sourceTab(_ label: String, _ value: Source) -> some View {
+        let active = source == value
+        return Button { withAnimation(.easeInOut(duration: 0.2)) { source = value } } label: {
+            Text(label).font(.system(size: 15, weight: active ? .semibold : .regular)).foregroundStyle(active ? Palette.foreground : Palette.secondary)
+                .lineLimit(1).padding(.horizontal, 14).frame(height: 32)
+                .background(active ? Palette.foreground.opacity(0.14) : Color.clear, in: Capsule()).contentShape(Capsule())
+        }.buttonStyle(.plain).accessibilityAddTraits(active ? .isSelected : [])
+    }
+    private func sideLabel(_ text: String) -> some View {
+        Text(text).font(.caption.weight(.medium)).foregroundStyle(Palette.secondary).padding(.horizontal, 4)
+    }
+    /// The recent folders as a list.
+    private var recentList: some View {
+        VStack(spacing: 0) {
+            ForEach(recent, id: \.self) { path in
+                let selected = StartDirectory.normalize(path) == directory
+                HStack(spacing: 9) {
+                    AppIcon("ic_history", size: 16).foregroundStyle(Palette.secondary)
+                    Text(StartDirectory.isHome(path) ? model.text("主目录", "home") : (path.split(separator: "/").last.map(String.init) ?? "/"))
+                        .font(.subheadline).lineLimit(1).truncationMode(.middle).frame(maxWidth: .infinity, alignment: .leading)
+                    Button { recent.removeAll { $0 == path }; persistRecent() } label: { AppIcon("ic_clear", size: 16).foregroundStyle(Palette.secondary).frame(width: 32, height: 38) }
+                        .buttonStyle(.plain).accessibilityLabel(model.text("移除 \(path)", "Remove \(path)"))
+                }.padding(.leading, 12).padding(.trailing, 4).frame(height: 38)
+                    .background(selected ? Palette.foreground.opacity(0.08) : Color.clear)
+                    .overlay(alignment: .bottom) { Rectangle().fill(Palette.outline).frame(height: 0.5) }
+                    .contentShape(Rectangle()).onTapGesture { navigate(path) }
+                    .accessibilityElement(children: .contain).accessibilityIdentifier("launch-recent-\(path)")
+            }
+        }
+        .background(Palette.panel, in: RoundedRectangle(cornerRadius: 16)).clipShape(RoundedRectangle(cornerRadius: 16))
     }
     private func modeLabel(_ mode: AgentMode) -> String {
         switch mode {
