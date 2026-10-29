@@ -42,6 +42,15 @@ public final class SSHConnection: @unchecked Sendable {
     private let wake = WorkerWake()
     private var pendingSize: (Int, Int)?
     private var transferGeneration = 0
+    /// Loops parked on the socket between bursts (the terminal, exec streams), by their wake, and the other
+    /// libssh2 work in flight. Another thread's libssh2 call can read a loop's packets off the socket into
+    /// libssh2's buffer, where no poll sees them, so a loop waits long only while it is the connection's sole user.
+    private var waitingLoops: [ObjectIdentifier: WorkerWake] = [:]
+    private var otherWork = 0
+    /// A loop's network wait while nothing else uses the connection: input, a resize, a close or other work wake it.
+    static let idleWaitMs: Int32 = 1000
+    /// A loop's network wait while other work may take its packets off the socket.
+    static let sharedWaitMs: Int32 = 30
     private static let initialized: Void = { _ = libssh2_init(0) }()
 
     public init(host: RoamttyCore.Host, credentials: Credentials, pinStore: PinStore, prompt: @escaping (AuthPrompt) -> [String]?) {
@@ -71,12 +80,35 @@ public final class SSHConnection: @unchecked Sendable {
         let direction = locked { libssh2_session_block_directions(session) }
         let read = direction & LIBSSH2_SESSION_BLOCK_INBOUND != 0
         let write = direction & LIBSSH2_SESSION_BLOCK_OUTBOUND != 0
-        let result = wake?.poll(socket, events: Int16((read || !write ? POLLIN : 0) | (write ? POLLOUT : 0)), timeout: 30)
-            ?? roam_socket_poll(socket, read || !write ? 1 : 0, write ? 1 : 0, 30)
+        let result = wake.map { $0.poll(socket, events: Int16((read || !write ? POLLIN : 0) | (write ? POLLOUT : 0)), timeout: waitMilliseconds(for: $0)) }
+            ?? roam_socket_poll(socket, read || !write ? 1 : 0, write ? 1 : 0, Self.sharedWaitMs)
         if result < 0 {
             disconnect()
             throw RoamError.transport("Network wait failed")
         }
+    }
+    func waitMilliseconds(for wake: WorkerWake) -> Int32 {
+        stateLock.lock(); defer { stateLock.unlock() }
+        let alone = otherWork == 0 && waitingLoops.count == 1 && waitingLoops[ObjectIdentifier(wake)] != nil
+        return alone ? Self.idleWaitMs : Self.sharedWaitMs
+    }
+    /// Wakes every parked loop, so each picks its wait again.
+    private func wakeLoops(_ loops: [WorkerWake]) { for loop in loops { loop.signal() } }
+    /// A loop that waits on the socket with `wake`, for as long as `body` runs.
+    func asWaitingLoop<T>(_ wake: WorkerWake?, _ body: () throws -> T) rethrows -> T {
+        guard let wake else { return try body() }
+        stateLock.lock(); waitingLoops[ObjectIdentifier(wake)] = wake; let others = Array(waitingLoops.values); stateLock.unlock()
+        wakeLoops(others)
+        defer { stateLock.lock(); waitingLoops.removeValue(forKey: ObjectIdentifier(wake)); let rest = Array(waitingLoops.values); stateLock.unlock(); wakeLoops(rest) }
+        return try body()
+    }
+    /// libssh2 work outside the loops: parked loops switch to short waits until it ends.
+    func asOtherWork<T>(_ body: () throws -> T) rethrows -> T {
+        stateLock.lock(); otherWork += 1; let loops = otherWork == 1 ? Array(waitingLoops.values) : []; stateLock.unlock()
+        wakeLoops(loops)
+        // Its last call may have left a loop's packets in libssh2's buffer: each loop reads once more before waiting long.
+        defer { stateLock.lock(); otherWork -= 1; let loops = otherWork == 0 ? Array(waitingLoops.values) : []; stateLock.unlock(); wakeLoops(loops) }
+        return try body()
     }
     @discardableResult
     func retry(timeout: TimeInterval = 20, cancelled: () -> Bool = { false }, _ operation: () -> Int32) throws -> Int32 {
@@ -343,9 +375,10 @@ public final class SSHConnection: @unchecked Sendable {
         stateLock.lock()
         let notify = authenticated && !stopped
         authenticated = false; stopped = true; acceptingInput = false; input.reset(); transferGeneration += 1
-        let fd = socket
+        let fd = socket, loops = Array(waitingLoops.values)
         stateLock.unlock()
         roam_socket_shutdown(fd)
+        wakeLoops(loops)
         creationCondition.lock(); creationCondition.broadcast(); creationCondition.unlock()
         if notify { onPhase?(.disconnected) }
     }
@@ -369,6 +402,9 @@ public final class SSHConnection: @unchecked Sendable {
         }
     }
     private func withChannelCreation<T>(cancelled: () -> Bool = { false }, _ action: () throws -> T) throws -> T {
+        try asOtherWork { try createChannel(cancelled: cancelled, action) }
+    }
+    private func createChannel<T>(cancelled: () -> Bool, _ action: () throws -> T) throws -> T {
         creationCondition.lock()
         while creatingChannel {
             if isStopped || cancelled() {
@@ -396,11 +432,13 @@ public final class SSHConnection: @unchecked Sendable {
         }
     }
     func closeChannel(_ channel: OpaquePointer) {
-        settle(timeout: 2) { libssh2_channel_close(channel) }
-        settle(timeout: 2) {
-            let result = libssh2_channel_free(channel)
-            if result != LIBSSH2_ERROR_EAGAIN { pendingChannelIO.removeValue(forKey: channel) }
-            return result
+        asOtherWork {
+            settle(timeout: 2) { libssh2_channel_close(channel) }
+            settle(timeout: 2) {
+                let result = libssh2_channel_free(channel)
+                if result != LIBSSH2_ERROR_EAGAIN { pendingChannelIO.removeValue(forKey: channel) }
+                return result
+            }
         }
     }
     /// Closing a pipe-backed exec channel does not stop its remote process.
@@ -484,11 +522,14 @@ public final class SSHConnection: @unchecked Sendable {
     static let burstLimit = 128 * 1024
     public func runTerminal(onOutput: @escaping (Data) -> Void) throws {
         guard let channel = terminal else { throw RoamError.invalid("Terminal is not open") }
-        var sizing: (Int, Int)?
         defer {
             stateLock.lock(); acceptingInput = false; input.reset(); terminal = nil; stateLock.unlock()
             closeChannel(channel); onPhase?(.disconnected)
         }
+        try asWaitingLoop(wake) { try terminalLoop(channel, onOutput: onOutput) }
+    }
+    private func terminalLoop(_ channel: OpaquePointer, onOutput: @escaping (Data) -> Void) throws {
+        var sizing: (Int, Int)?
         var buffer = [UInt8](repeating: 0, count: 32768)
         var outgoing = Data(); var offset = 0
         var lastAlive = Date()
@@ -559,6 +600,10 @@ public final class SSHConnection: @unchecked Sendable {
         guard timeout.isFinite, timeout > 0, command.utf8.count <= 256 * 1024,
               (input?.count ?? 0) <= limit else { throw RoamError.invalid("SSH command or input exceeds its limit") }
         guard !isStopped, cancellation?.isCancelled != true else { throw RoamError.cancelled }
+        return try asOtherWork { try runCommand(command, input: input, timeout: timeout, limit: limit, cancellation: cancellation, onOutput: onOutput) }
+    }
+    private func runCommand(_ command: String, input: Data?, timeout: TimeInterval, limit: Int,
+                            cancellation: TransferCancellation?, onOutput: ((Data) -> Void)?) throws -> CommandResult {
         let channel = try command.withCString { bytes in
             try openChannel(cancelled: { cancellation?.isCancelled == true }) { channel in
                 // Complete channel setup before honoring a per-command cancel;
@@ -617,7 +662,6 @@ public final class SSHConnection: @unchecked Sendable {
             throw RoamError.cancelled
         }
     }
-    public func cancelTransfers() { stateLock.lock(); transferGeneration += 1; stateLock.unlock() }
     func transferEpoch() -> Int { stateLock.lock(); defer { stateLock.unlock() }; return transferGeneration }
 }
 

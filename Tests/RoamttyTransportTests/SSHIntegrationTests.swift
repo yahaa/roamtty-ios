@@ -103,9 +103,10 @@ final class SSHIntegrationTests: XCTestCase {
         XCTAssertEqual(try client.exec("dd if=/dev/zero of=" + remote + " bs=1048576 count=4 2>/dev/null").status, 0)
         defer { _ = try? client.exec("rm -f " + remote) }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        XCTAssertThrowsError(try client.download(remote, to: file) { count, _ in
-            if count > 0 { client.cancelTransfers() }
-        })
+        let token = TransferCancellation()
+        XCTAssertThrowsError(try client.download(remote, to: file, progress: { count, _ in
+            if count > 0 { token.cancel() }
+        }, cancellation: token))
         XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
         XCTAssertEqual(try client.exec("printf still-connected").output, Data("still-connected".utf8))
     }
@@ -204,6 +205,83 @@ final class SSHIntegrationTests: XCTestCase {
         }
         wait(for: [received], timeout: 8)
         XCTAssertEqual(try client.exec("wc -c < " + remote).status, 0)
+    }
+    /// A loop parks on the socket for long only while nothing else can take its packets off it.
+    func testLoopWaitsLongOnlyWhileItIsTheConnectionsSoleUser() throws {
+        let store = try AppStore(url: URL(fileURLWithPath: ":memory:"))
+        let host = Host(name: "Unused", address: "127.0.0.1", port: 22, username: "nobody", auth: .password)
+        let client = SSHConnection(host: host, credentials: Credentials(password: nil, privateKey: nil, passphrase: nil), pinStore: store) { _ in nil }
+        let terminal = try XCTUnwrap(WorkerWake()), stream = try XCTUnwrap(WorkerWake())
+        client.asWaitingLoop(terminal) {
+            XCTAssertEqual(client.waitMilliseconds(for: terminal), SSHConnection.idleWaitMs)
+            client.asOtherWork {
+                XCTAssertEqual(client.waitMilliseconds(for: terminal), SSHConnection.sharedWaitMs, "an exec or SFTP request in flight")
+                client.asOtherWork { XCTAssertEqual(client.waitMilliseconds(for: terminal), SSHConnection.sharedWaitMs) }
+                XCTAssertEqual(client.waitMilliseconds(for: terminal), SSHConnection.sharedWaitMs, "the outer request still runs")
+            }
+            XCTAssertEqual(client.waitMilliseconds(for: terminal), SSHConnection.idleWaitMs)
+            client.asWaitingLoop(stream) {
+                XCTAssertEqual(client.waitMilliseconds(for: terminal), SSHConnection.sharedWaitMs, "two loops share the socket")
+                XCTAssertEqual(client.waitMilliseconds(for: stream), SSHConnection.sharedWaitMs)
+            }
+            XCTAssertEqual(client.waitMilliseconds(for: terminal), SSHConnection.idleWaitMs)
+        }
+    }
+    /// An idle terminal waits up to a second at a time; typed input and remote output still end the wait at once.
+    func testIdleTerminalAnswersInputAndLateOutputPromptly() throws {
+        let client = try connect(); defer { client.disconnect() }
+        try client.openTerminal(mode: .shell, remoteName: "", columns: 80, rows: 24)
+        let output = LockedOutput()
+        let echoed = expectation(description: "input echo"), late = expectation(description: "output with no input")
+        DispatchQueue.global().async {
+            var sawEcho = false, sawLate = false
+            try? client.runTerminal { data in
+                output.append(data)
+                if !sawEcho && output.text.contains("IDLE-ECHO-OK") { sawEcho = true; echoed.fulfill() }
+                if !sawLate && output.text.contains("IDLE-LATE-OK") { sawLate = true; late.fulfill() }
+            }
+        }
+        Thread.sleep(forTimeInterval: 1.5) // Let the loop settle into its long waits.
+        let typed = Date()
+        XCTAssertTrue(client.write(Data("printf 'IDLE-ECHO-%s\\n' OK\r".utf8)))
+        wait(for: [echoed], timeout: 5)
+        XCTAssertLessThan(Date().timeIntervalSince(typed), 0.8, "input wakes the wait")
+        XCTAssertTrue(client.write(Data("sleep 1.5; printf 'IDLE-LATE-%s\\n' OK\r".utf8)))
+        let asked = Date()
+        wait(for: [late], timeout: 5)
+        XCTAssertLessThan(Date().timeIntervalSince(asked), 2.3, "readable socket wakes the wait")
+        // A side command reads the socket meanwhile: the terminal still gets its own output.
+        XCTAssertTrue(client.write(Data("sleep 0.3; printf 'IDLE-SIDE-%s\\n' OK\r".utf8)))
+        let side = Date()
+        XCTAssertEqual(try client.exec("sleep 1.2; printf done").output, Data("done".utf8))
+        XCTAssertTrue(output.text.contains("IDLE-SIDE-OK"), "terminal output arrived while the exec ran")
+        XCTAssertLessThan(Date().timeIntervalSince(side), 3)
+    }
+    /// A folder transfer on one SFTP session: create, upload, list, download, then a recursive delete.
+    func testSharedSFTPSessionTransfersATreeAndRecursiveDeleteReusesIt() throws {
+        let client = try connect(); defer { client.disconnect() }
+        let remote = "/tmp/roamtty-ios-tree-" + UUID().uuidString
+        defer { _ = try? client.exec("rm -rf -- " + remote) }
+        let local = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try Data("one".utf8).write(to: local)
+        defer { try? FileManager.default.removeItem(at: local) }
+        let back = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: back) }
+        let names: [String] = try client.withSFTPSession { sftp in
+            try sftp.createDirectory(remote)
+            XCTAssertThrowsError(try sftp.createDirectory(remote), "an existing folder fails without ending the session")
+            try sftp.createDirectory(remote + "/nested")
+            try sftp.upload(local, to: remote + "/nested/a.txt") { _, _ in }
+            try sftp.upload(local, to: remote + "/b.txt") { _, _ in }
+            try sftp.download(remote + "/nested/a.txt", to: back) { _, _ in }
+            return try sftp.listDirectory(remote).entries.map(\.name)
+        }
+        XCTAssertEqual(names, ["nested", "b.txt"])
+        XCTAssertEqual(try Data(contentsOf: back), Data("one".utf8))
+        XCTAssertEqual(try client.exec("mkdir -p \(remote)/nested/deeper/deepest && touch \(remote)/nested/deeper/x \(remote)/nested/deeper/deepest/y").status, 0)
+        try client.remove(remote, recursive: true)
+        XCTAssertNotEqual(try client.exec("test -e " + remote).status, 0)
+        XCTAssertTrue(client.isConnected)
     }
     func testPTYInputAndResize() throws {
         let client = try connect(); defer { client.disconnect() }

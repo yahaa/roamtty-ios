@@ -640,7 +640,9 @@ final class DesktopGestureView: UIView {
     weak var controller: DesktopController?
     var boundsSize: CGSize = .zero
     private let gestures = DesktopGestures(mode: .touch, density: 1)
-    private var timer: CADisplayLink?
+    /// Fires once, when `gestures` next needs a tick (a long press or a tap's release); nil while nothing waits.
+    private var tickTimer: Timer?
+    /// The timer's target: the run loop retains it, never the view.
     private final class TickTarget: NSObject {
         weak var view: DesktopGestureView?
         init(_ view: DesktopGestureView) { self.view = view }
@@ -656,19 +658,25 @@ final class DesktopGestureView: UIView {
         isUserInteractionEnabled = true
     }
     required init?(coder: NSCoder) { fatalError("init(coder:)") }
-    deinit { timer?.invalidate() }
+    deinit { tickTimer?.invalidate() }
 
-    private func startTicking() {
-        guard timer == nil else { return }
-        timer = CADisplayLink(target: TickTarget(self), selector: #selector(TickTarget.tick))
-        timer?.add(to: .main, forMode: .common)
+    /// Arms the timer for `gestures.tickAt`, instead of ticking every display frame while the page shows.
+    private func scheduleTick() {
+        tickTimer?.invalidate(); tickTimer = nil
+        guard window != nil, let at = gestures.tickAt else { return }
+        let timer = Timer(timeInterval: max(0, Double(at - Self.nowMs()) / 1000), target: TickTarget(self),
+                          selector: #selector(TickTarget.tick), userInfo: nil, repeats: false)
+        RunLoop.main.add(timer, forMode: .common)
+        tickTimer = timer
     }
 
     func stopTicking() {
-        timer?.invalidate(); timer = nil
         twoFingerActive = false
         apply(gestures.cancel())
+        tickTimer?.invalidate(); tickTimer = nil
     }
+
+    private static func nowMs() -> Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -689,12 +697,12 @@ final class DesktopGestureView: UIView {
     }
 
     @objc private func tick() {
-        apply(gestures.tick(Int64(Date().timeIntervalSince1970 * 1000)))
+        apply(gestures.tick(Self.nowMs()))
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         syncViewport()
-        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        let now = Self.nowMs()
         let active = (event?.allTouches ?? touches).filter { $0.phase != .ended && $0.phase != .cancelled }
         if active.count >= 2 {
             let pts = active.prefix(2).map { $0.location(in: self) }
@@ -710,7 +718,7 @@ final class DesktopGestureView: UIView {
         }
     }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        let now = Self.nowMs()
         let active = Array((event?.allTouches ?? touches).filter { $0.phase != .ended && $0.phase != .cancelled })
         if active.count >= 2 {
             let pts = active.prefix(2).map { $0.location(in: self) }
@@ -728,11 +736,12 @@ final class DesktopGestureView: UIView {
         }
     }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        let now = Self.nowMs()
         let remaining = (event?.allTouches ?? []).filter { $0.phase != .ended && $0.phase != .cancelled && !touches.contains($0) }
         if twoFingerActive && remaining.count < 2 {
             gestures.twoUp()
             twoFingerActive = false
+            scheduleTick()
         }
         if remaining.isEmpty {
             let p = touches.first?.location(in: self) ?? lastPoint
@@ -763,7 +772,7 @@ final class DesktopGestureView: UIView {
     override var canBecomeFirstResponder: Bool { true }
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if window != nil { startTicking(); becomeFirstResponder() }
+        if window != nil { becomeFirstResponder(); scheduleTick() }
         else { stopTicking() }
     }
 
@@ -776,6 +785,8 @@ final class DesktopGestureView: UIView {
     }
 
     private func apply(_ actions: [GestureAction]) {
+        // Every gesture call comes through here, so the next tick follows whatever it changed.
+        defer { scheduleTick() }
         guard let c = controller else { return }
         for a in actions {
             switch a {

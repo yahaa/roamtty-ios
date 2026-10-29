@@ -10,6 +10,11 @@ final class MoshProtocolTests: XCTestCase {
         XCTAssertNil(Mosh.parseConnect("MOSH CONNECT 70000 \(key)"))
         XCTAssertNil(Mosh.parseConnect("MOSH CONNECT 0 \(key)"))
         XCTAssertNil(Mosh.parseConnect("MOSH CONNECT 60001 not-a-key"))
+        // What `startMosh` takes: one line of exactly four fields, on a port mosh-server picks by itself.
+        XCTAssertNil(Mosh.parseConnect("MOSH CONNECT 59999 \(key)"))
+        XCTAssertNil(Mosh.parseConnect("MOSH CONNECT 60001 \(key) extra"))
+        XCTAssertNil(Mosh.parseConnect("xMOSH CONNECT 60001 \(key)"))
+        XCTAssertEqual(Mosh.parseConnect("MOSH CONNECT 61000 \(key)"), Mosh.Connect(port: 61000, key: key))
     }
 
     func testInstructionMatchesAndroidProtobufIncludingUnsignedShutdown() throws {

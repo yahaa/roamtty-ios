@@ -36,11 +36,11 @@ final class DesktopProtocolTests: XCTestCase {
         guard case .video(let video)? = DesktopProtocol.decode(read("video.bin")) else { return XCTFail("video") }
         XCTAssertEqual(42, video.frame)
         XCTAssertTrue(video.keyframe)
-        XCTAssertFalse(video.refine)
+        XCTAssertEqual(0, video.flags & DesktopProtocol.VIDEO_REFINE)
         XCTAssertEqual(10, video.captureUs)
         XCTAssertEqual(20, video.encodedUs)
         XCTAssertEqual([1920, 1080], [video.width, video.height])
-        XCTAssertEqual([0, 0, 0, 1, 0x67, 0x42], Array(video.accessUnit))
+        XCTAssertEqual([0, 0, 0, 1, 0x67, 0x42], Array(video.data[video.offset...]))
 
         guard case .cursorPos(let x, let y, let visible, let shape)? = DesktopProtocol.decode(read("cursor-pos.bin")) else { return XCTFail("pos") }
         XCTAssertEqual(300, x); XCTAssertEqual(200, y); XCTAssertTrue(visible); XCTAssertEqual(0xDEADBEEF, shape)

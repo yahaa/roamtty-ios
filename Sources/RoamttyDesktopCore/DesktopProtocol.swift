@@ -240,8 +240,6 @@ public struct Video: Equatable, Sendable {
     public let data: [UInt8]
     public let offset: Int
     public var keyframe: Bool { flags & DesktopProtocol.VIDEO_KEY != 0 }
-    public var refine: Bool { flags & DesktopProtocol.VIDEO_REFINE != 0 }
-    public var accessUnit: ArraySlice<UInt8> { data[min(offset, data.count)...] }
 }
 
 /// One 20 ms Opus packet of 48 kHz stereo, from `offset` on; `seq` goes up by one per packet the host made.

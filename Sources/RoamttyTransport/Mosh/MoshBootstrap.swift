@@ -13,12 +13,7 @@ extension SSHConnection {
             let command = RemoteCommands.pathSetup + "; MOSH_SERVER_NETWORK_TMOUT=\(lifetime) mosh-server new -s -c 256 -l LANG=\(locale)" + attached
             let result = try exec("/bin/sh -c " + RemoteCommands.shellQuote(command), timeout: 15)
             let output = String(decoding: result.output, as: UTF8.self)
-            for line in output.components(separatedBy: .newlines) {
-                let fields = line.split(whereSeparator: \.isWhitespace)
-                if fields.count == 4, fields[0] == "MOSH", fields[1] == "CONNECT", let port = Int(fields[2]), (60000...61000).contains(port) {
-                    return try MoshTransport(host: peer, port: port, key: String(fields[3]))
-                }
-            }
+            if let connect = Mosh.parseConnect(output) { return try MoshTransport(host: peer, port: connect.port, key: connect.key) }
             if !output.contains("UTF-8") { break }
         }
         throw RoamError.transport("mosh 不可用，使用 SSH / mosh unavailable")

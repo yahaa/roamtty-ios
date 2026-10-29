@@ -10,9 +10,28 @@ final class MoshStateTests: XCTestCase {
         state.heard(at: 11, timestamp: 1000, reply: .max, sequence: 9)
         state.heard(at: 12, timestamp: 1100, reply: .max, sequence: 10)
         XCTAssertEqual(state.lastHeard, 1)
-        XCTAssertThrowsError(try state.checkTimeout(at: 13, firstContact: 8, silence: 100, stall: 10))
+        XCTAssertNotNil(state.timeoutReason(at: 13, firstContact: 8, silence: 100, stall: 10))
         state.heard(at: 13, timestamp: 1200, reply: .max, sequence: 11)
-        XCTAssertNoThrow(try state.checkTimeout(at: 14, firstContact: 8, silence: 100, stall: 10))
+        XCTAssertNil(state.timeoutReason(at: 14, firstContact: 8, silence: 100, stall: 10))
+    }
+
+    /// The worker sleeps until `nextTimeoutAt`, so a timeout must never come due before it.
+    func testNextTimeoutAtIsWhenTimeoutReasonFirstGivesUp() {
+        func check(_ state: MoshState, stall: TimeInterval?, file: StaticString = #filePath, line: UInt = #line) {
+            let at = state.nextTimeoutAt(firstContact: 8, silence: 100, stall: stall)
+            XCTAssertNil(state.timeoutReason(at: at - 0.01, firstContact: 8, silence: 100, stall: stall), file: file, line: line)
+            XCTAssertNotNil(state.timeoutReason(at: at + 0.01, firstContact: 8, silence: 100, stall: stall), file: file, line: line)
+        }
+        var state = MoshState(start: 2)
+        check(state, stall: 10) // first contact
+        state.heard(at: 3, timestamp: 100, reply: .max, sequence: 1)
+        check(state, stall: 10) // silence
+        state.requestProbe(at: 5)
+        check(state, stall: 10) // a probe waiting
+        check(state, stall: nil) // a plain shell ignores stalls
+        state.enqueue(.keys(Data("a".utf8)), at: 1)
+        state.heard(at: 20, timestamp: 200, reply: .max, sequence: 2)
+        check(state, stall: 10) // waiting since before the last packet
     }
 
     func testMissingTimestampDoesNotProduceAnInventedReply() {
@@ -58,11 +77,11 @@ final class MoshStateTests: XCTestCase {
 
     func testFirstContactTimeoutAndSleepPastSilenceLimitTriggerFallback() throws {
         var state = MoshState(start: 1)
-        XCTAssertNoThrow(try state.checkTimeout(at: 8.9, firstContact: 8, silence: 840, stall: 10))
-        XCTAssertThrowsError(try state.checkTimeout(at: 9.1, firstContact: 8, silence: 840, stall: 10))
+        XCTAssertNil(state.timeoutReason(at: 8.9, firstContact: 8, silence: 840, stall: 10))
+        XCTAssertNotNil(state.timeoutReason(at: 9.1, firstContact: 8, silence: 840, stall: 10))
         state.heard(at: 10, timestamp: 0, reply: 0xffff, sequence: 0)
-        XCTAssertNoThrow(try state.checkTimeout(at: 20, firstContact: 8, silence: 840, stall: 10))
-        XCTAssertThrowsError(try state.checkTimeout(at: 8 * 3600, firstContact: 8, silence: 840, stall: 10))
+        XCTAssertNil(state.timeoutReason(at: 20, firstContact: 8, silence: 840, stall: 10))
+        XCTAssertNotNil(state.timeoutReason(at: 8 * 3600, firstContact: 8, silence: 840, stall: 10))
     }
 
     func testUnansweredInputOrProbeTriggersStallButPlainShellMayKeepWaiting() throws {
@@ -70,11 +89,11 @@ final class MoshStateTests: XCTestCase {
             var state = MoshState(start: 0)
             state.heard(at: 1, timestamp: 0, reply: 0xffff, sequence: 0)
             if probe { state.requestProbe(at: 2) } else { state.enqueue(.keys(Data("a".utf8)), at: 2) }
-            XCTAssertNoThrow(try state.checkTimeout(at: 11, firstContact: 8, silence: 840, stall: 10))
-            XCTAssertThrowsError(try state.checkTimeout(at: 13, firstContact: 8, silence: 840, stall: 10))
-            XCTAssertNoThrow(try state.checkTimeout(at: 13, firstContact: 8, silence: 840, stall: nil))
+            XCTAssertNil(state.timeoutReason(at: 11, firstContact: 8, silence: 840, stall: 10))
+            XCTAssertNotNil(state.timeoutReason(at: 13, firstContact: 8, silence: 840, stall: 10))
+            XCTAssertNil(state.timeoutReason(at: 13, firstContact: 8, silence: 840, stall: nil))
             state.heard(at: 13, timestamp: 0, reply: 0xffff, sequence: 1)
-            XCTAssertNoThrow(try state.checkTimeout(at: 14, firstContact: 8, silence: 840, stall: 10))
+            XCTAssertNil(state.timeoutReason(at: 14, firstContact: 8, silence: 840, stall: 10))
         }
     }
 
@@ -95,10 +114,10 @@ final class MoshStateTests: XCTestCase {
         _ = try state.receive(Mosh.Instruction(oldNum: 0, newNum: 1, ackNum: 0, throwawayNum: 0), at: 1)
         state.heard(at: 43, timestamp: 0, reply: 0xffff, sequence: 1)
         _ = try state.receive(Mosh.Instruction(oldNum: 999, newNum: 2, ackNum: 0, throwawayNum: 0), at: 43)
-        XCTAssertNoThrow(try state.checkTimeout(at: 43, firstContact: 8, silence: 840, stall: 10))
+        XCTAssertNil(state.timeoutReason(at: 43, firstContact: 8, silence: 840, stall: 10))
         state.heard(at: 74, timestamp: 0, reply: 0xffff, sequence: 2)
         _ = try state.receive(Mosh.Instruction(oldNum: 999, newNum: 3, ackNum: 0, throwawayNum: 0), at: 74)
-        XCTAssertThrowsError(try state.checkTimeout(at: 74, firstContact: 8, silence: 840, stall: 10))
+        XCTAssertNotNil(state.timeoutReason(at: 74, firstContact: 8, silence: 840, stall: 10))
     }
 
     func testTimestampReplyAccountsForLocalDelayAndExpiresAfterOneSecond() {

@@ -58,6 +58,13 @@ public final class AppStore: PinStore {
             return left == right ? $0.offset < $1.offset : left > right
         }.map(\.element)
     }
+    /// The saved hosts' ids, without decoding their profiles.
+    private func hostIDs() throws -> Set<String> {
+        let s = try statement("SELECT id FROM hosts"); defer { sqlite3_finalize(s) }
+        var ids = Set<String>()
+        while sqlite3_step(s) == SQLITE_ROW { if let id = sqlite3_column_text(s, 0) { ids.insert(String(cString: id)) } }
+        return ids
+    }
     public func saveHost(_ host: Host) throws {
         lock.lock(); defer { lock.unlock() }
         let validated = try host.validated()
@@ -81,9 +88,11 @@ public final class AppStore: PinStore {
         try execute("BEGIN IMMEDIATE")
         do {
             try execute("DELETE FROM journal")
-            let valid = Set(try hosts().map(\.id))
+            let valid = try hostIDs()
+            // One prepared insert, reset per record.
+            let s = try statement("INSERT INTO journal(id,host_id,json) VALUES(?,?,?)"); defer { sqlite3_finalize(s) }
             for record in journal.records where valid.contains(record.hostID) {
-                let s = try statement("INSERT INTO journal(id,host_id,json) VALUES(?,?,?)"); defer { sqlite3_finalize(s) }
+                sqlite3_reset(s); sqlite3_clear_bindings(s)
                 bind(record.id, s, 1); bind(record.hostID, s, 2); bind(try encoder.encode(record), s, 3); try finish(s)
             }
             try execute("COMMIT")

@@ -113,9 +113,12 @@ final class TransferProgressRelay {
                 let progress = progressRelay(for: job.id)
                 try await performInBackground {
                     var sent: Int64 = 0
-                    try Self.uploadTree(url: url, path: target, ssh: ssh, count: 0, cancellation: cancellation) { bytes, total in
-                        progress.send(sent + bytes, total.map { sent + $0 })
-                    } completed: { bytes in sent += bytes }
+                    // One SFTP session for the whole tree, not one per file and folder.
+                    try ssh.withSFTPSession(cancellation: cancellation) { sftp in
+                        try Self.uploadTree(url: url, path: target, sftp: sftp, count: 0, cancellation: cancellation) { bytes, total in
+                            progress.send(sent + bytes, total.map { sent + $0 })
+                        } completed: { bytes in sent += bytes }
+                    }
                 }
                 guard !cancellations.contains(job.id) else { return }
                 update(job.id) { $0.state = .complete }
@@ -206,9 +209,11 @@ final class TransferProgressRelay {
                 let progress = progressRelay(for: job.id)
                 try await performInBackground {
                     var received: Int64 = 0
-                    try Self.downloadTree(entry: entry, destination: workingURL, ssh: ssh, depth: 0, cancellation: cancellation) { bytes, total in
-                        progress.send(received + bytes, entry.isDirectory ? nil : total)
-                    } completed: { bytes in received += bytes }
+                    try ssh.withSFTPSession(cancellation: cancellation) { sftp in
+                        try Self.downloadTree(entry: entry, destination: workingURL, sftp: sftp, depth: 0, cancellation: cancellation) { bytes, total in
+                            progress.send(received + bytes, entry.isDirectory ? nil : total)
+                        } completed: { bytes in received += bytes }
+                    }
                 }
                 guard !cancellation.isCancelled else { return }
                 // Publication and the complete state run together on MainActor, so Cancel cannot
@@ -230,31 +235,31 @@ final class TransferProgressRelay {
         }
         return url.deletingLastPathComponent().appendingPathComponent(UUID().uuidString + "-" + url.lastPathComponent)
     }
-    nonisolated private static func uploadTree(url: URL, path: String, ssh: SSHConnection, count: Int, cancellation: TransferCancellation, progress: @escaping (Int64, Int64?) -> Void, completed: (Int64) -> Void) throws {
+    nonisolated private static func uploadTree(url: URL, path: String, sftp: SFTPSession, count: Int, cancellation: TransferCancellation, progress: @escaping (Int64, Int64?) -> Void, completed: (Int64) -> Void) throws {
         guard !cancellation.isCancelled else { throw RoamError.cancelled }
         guard count < 64, isSafeRemoteEntryName(url.lastPathComponent) else { throw RoamError.invalid("Invalid or deeply nested upload path") }
         let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey])
         guard values.isSymbolicLink != true else { throw RoamError.invalid("Symbolic links are not uploaded recursively") }
         if values.isDirectory == true {
-            do { try ssh.createDirectory(path, cancellation: cancellation) }
+            do { try sftp.createDirectory(path) }
             catch {
                 // Existing upload folders may be reused, but a regular file or inaccessible path cannot.
                 guard !cancellation.isCancelled else { throw RoamError.cancelled }
-                _ = try ssh.listDirectory(path, cancellation: cancellation)
+                _ = try sftp.listDirectory(path)
             }
             let children = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey]).sorted { $0.lastPathComponent < $1.lastPathComponent }
-            for child in children { try uploadTree(url: child, path: joinRemotePath(directory: path, name: child.lastPathComponent), ssh: ssh, count: count + 1, cancellation: cancellation, progress: progress, completed: completed) }
-        } else { try ssh.upload(url, to: path, progress: progress, cancellation: cancellation); completed(Int64(values.fileSize ?? 0)) }
+            for child in children { try uploadTree(url: child, path: joinRemotePath(directory: path, name: child.lastPathComponent), sftp: sftp, count: count + 1, cancellation: cancellation, progress: progress, completed: completed) }
+        } else { try sftp.upload(url, to: path, progress: progress); completed(Int64(values.fileSize ?? 0)) }
     }
-    nonisolated private static func downloadTree(entry: RemoteEntry, destination: URL, ssh: SSHConnection, depth: Int, cancellation: TransferCancellation, progress: @escaping (Int64, Int64?) -> Void, completed: (Int64) -> Void) throws {
+    nonisolated private static func downloadTree(entry: RemoteEntry, destination: URL, sftp: SFTPSession, depth: Int, cancellation: TransferCancellation, progress: @escaping (Int64, Int64?) -> Void, completed: (Int64) -> Void) throws {
         guard !cancellation.isCancelled else { throw RoamError.cancelled }
         guard depth < 64, isSafeRemoteEntryName(entry.name) else { throw RoamError.invalid("Invalid or deeply nested remote path") }
         if entry.isDirectory {
             guard !entry.isSymlink else { throw RoamError.invalid("Symbolic-link directories are not downloaded recursively") }
             try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
-            let listing = try ssh.listDirectory(entry.path, cancellation: cancellation)
+            let listing = try sftp.listDirectory(entry.path)
             guard listing.unreadableNames == 0 else { throw RoamError.invalid("文件夹中有无法识别的文件名（非 UTF-8），无法完整下载 / The folder holds names that are not UTF-8, so it can't be downloaded whole") }
-            for child in listing.entries { try downloadTree(entry: child, destination: destination.appendingPathComponent(child.name), ssh: ssh, depth: depth + 1, cancellation: cancellation, progress: progress, completed: completed) }
-        } else { try ssh.download(entry.path, to: destination, progress: progress, cancellation: cancellation); completed(entry.size ?? 0) }
+            for child in listing.entries { try downloadTree(entry: child, destination: destination.appendingPathComponent(child.name), sftp: sftp, depth: depth + 1, cancellation: cancellation, progress: progress, completed: completed) }
+        } else { try sftp.download(entry.path, to: destination, progress: progress); completed(entry.size ?? 0) }
     }
 }

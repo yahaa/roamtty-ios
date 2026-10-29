@@ -122,8 +122,12 @@ struct MoshState {
         if probeSince != nil { probeSince = now }
     }
 
-    func checkTimeout(at now: TimeInterval, firstContact: TimeInterval, silence: TimeInterval, stall: TimeInterval?) throws {
-        if timeoutReason(at: now, firstContact: firstContact, silence: silence, stall: stall) != nil { throw RoamError.timeout }
+    /// The earliest moment `timeoutReason` can give up while nothing is heard; the worker waits no longer than this.
+    func nextTimeoutAt(firstContact: TimeInterval, silence: TimeInterval, stall: TimeInterval?) -> TimeInterval {
+        guard heardAny else { return start + firstContact }
+        var at = lastHeard + silence
+        if let stall, let waiting = [probeSince, inputPendingSince].compactMap({ $0 }).min() { at = min(at, max(waiting, lastHeard) + stall) }
+        return at
     }
 
     /// Why the session should give up now, for the diagnostics log; nil while it may keep waiting.

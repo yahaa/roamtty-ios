@@ -3,7 +3,6 @@ import Foundation
 /// A synchronous presentation sink. The decoder serializes all calls on the sink's executor.
 /// Existing sinks can keep the default immediate executor and unconditional readiness.
 public protocol DesktopVideoDisplay: AnyObject {
-    func present(frame: Int64, keyframe: Bool, width: Int, height: Int, annexB: [UInt8], offset: Int, avcc: [UInt8])
     /// `rendered` belongs to this submission, including its decoder generation. Call it only
     /// after a successful enqueue; retaining the closure does not make `present` asynchronous.
     func present(frame: Int64, keyframe: Bool, width: Int, height: Int, annexB: [UInt8], offset: Int, avcc: [UInt8], rendered: @escaping (Int64) -> Void)
@@ -15,11 +14,6 @@ public protocol DesktopVideoDisplay: AnyObject {
 }
 
 public extension DesktopVideoDisplay {
-    // Legacy sinks still receive frames. They must explicitly report successful enqueue;
-    // simply returning from present is not evidence that a frame was enqueued.
-    func present(frame: Int64, keyframe: Bool, width: Int, height: Int, annexB: [UInt8], offset: Int, avcc: [UInt8], rendered: @escaping (Int64) -> Void) {
-        present(frame: frame, keyframe: keyframe, width: width, height: height, annexB: annexB, offset: offset, avcc: avcc)
-    }
     func scheduleVideoWork(_ work: @escaping () -> Void) { work() }
     var isReadyForMoreVideo: Bool { true }
     func notifyWhenReadyForVideo(_ work: @escaping () -> Void) { work() }
@@ -42,7 +36,6 @@ public final class DesktopVideoDecoder: DesktopVideoSink, @unchecked Sendable {
     private var flushNeeded = false
     private var generation: UInt64 = 0
     private var awaitingRender: [Int64: UInt64] = [:]
-    private var presenting: (frame: Int64, generation: UInt64)?
     private var size = (0, 0)
     private var ready = false
     private var _name = ""
@@ -168,12 +161,10 @@ public final class DesktopVideoDecoder: DesktopVideoSink, @unchecked Sendable {
                 session?.decoded(frame: v.frame, decodedUs: now)
                 if locked({ ready && generation == token }) {
                     if let display {
-                        locked { presenting = (v.frame, token) }
                         display.present(frame: v.frame, keyframe: v.keyframe, width: v.width, height: v.height,
                                         annexB: v.data, offset: v.offset, avcc: avcc, rendered: { [weak self, frame = v.frame] renderedUs in
                             self?.didRender(frame: frame, generation: token, renderedUs: renderedUs)
                         })
-                        locked { presenting = nil }
                     } else { didRender(frame: v.frame, generation: token, renderedUs: now) }
                 }
             }
@@ -187,13 +178,8 @@ public final class DesktopVideoDecoder: DesktopVideoSink, @unchecked Sendable {
         }
     }
 
-    /// Legacy synchronous-only callback: accepted solely during the matching `present` call.
-    /// Delayed sinks must use the submission-bound `rendered` closure instead. On iOS the
-    /// timestamp measures actual layer enqueue, not physical scan-out.
-    public func didRender(frame: Int64, renderedUs: Int64) {
-        let token = locked { presenting.flatMap { $0.frame == frame ? $0.generation : nil } }
-        if let token { didRender(frame: frame, generation: token, renderedUs: renderedUs) }
-    }
+    /// The submission-bound `rendered` closure of `present` lands here. On iOS the timestamp
+    /// measures actual layer enqueue, not physical scan-out.
     private func didRender(frame: Int64, generation token: UInt64, renderedUs: Int64) {
         let current = locked { () -> Bool in
             guard generation == token, awaitingRender[frame] == token else { return false }

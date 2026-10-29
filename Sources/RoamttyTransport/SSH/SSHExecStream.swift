@@ -12,8 +12,11 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
     private let connection: SSHConnection
     private let channel: OpaquePointer
     private let cond = NSCondition()
+    /// Bytes before `incomingStart` / `outgoingStart` are already taken; they are dropped in bulk, not per read.
     private var incoming: [UInt8] = []
+    private var incomingStart = 0
     private var outgoing: [UInt8] = []
+    private var outgoingStart = 0
     private var errors: [UInt8] = []
     private var finished = false
     private var closeRequested = false
@@ -21,6 +24,8 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
     private let wake = WorkerWake()
     private static let maxErrors = 16 * 1024
     private static let maxIncoming = 4 * 1024 * 1024
+    /// libssh2 writes at most 32700 bytes a call, so a larger slice would only be copied.
+    private static let writeChunk = 32768
 
     init(connection: SSHConnection, channel: OpaquePointer) {
         self.connection = connection; self.channel = channel
@@ -31,11 +36,12 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
 
     public func read(maxBytes: Int) -> [UInt8] {
         cond.lock(); defer { cond.unlock() }
-        while incoming.isEmpty && !finished && !closeRequested { cond.wait() }
-        if incoming.isEmpty { return [] }
-        let n = min(maxBytes, incoming.count)
-        let out = Array(incoming[0..<n])
-        incoming.removeFirst(n)
+        while incomingCount == 0 && !finished && !closeRequested { cond.wait() }
+        if incomingCount == 0 { return [] }
+        let n = min(maxBytes, incomingCount)
+        let out = Array(incoming[incomingStart..<(incomingStart + n)])
+        incomingStart += n
+        Self.compact(&incoming, start: &incomingStart)
         cond.broadcast()
         return out
     }
@@ -43,6 +49,7 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
     public func write(_ bytes: [UInt8]) throws {
         cond.lock()
         guard !finished && !closeRequested else { cond.unlock(); throw RoamError.transport("Stream closed") }
+        Self.compact(&outgoing, start: &outgoingStart)
         outgoing.append(contentsOf: bytes)
         cond.unlock()
         wake?.signal()
@@ -57,7 +64,20 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
         wake?.signal()
     }
 
+    /// Unread bytes; called under `cond`.
+    private var incomingCount: Int { incoming.count - incomingStart }
+
+    /// Drops the taken prefix once it is everything or at least half of the buffer, so each byte moves at most once.
+    private static func compact(_ buffer: inout [UInt8], start: inout Int) {
+        if start == buffer.count { buffer.removeAll(keepingCapacity: true); start = 0 }
+        else if start >= 64 * 1024 && start >= buffer.count / 2 { buffer.removeFirst(start); start = 0 }
+    }
+
     private func pump() {
+        connection.asWaitingLoop(wake) { pumpLoop() }
+    }
+
+    private func pumpLoop() {
         var buffer = [UInt8](repeating: 0, count: 32768)
         var lastAlive = Date()
         var exit: Int?
@@ -69,11 +89,13 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
             while !connection.isStopped {
                 cond.lock()
                 // Hold back while the reader is far behind (libssh2's window then throttles the host).
-                while incoming.count >= Self.maxIncoming && !closeRequested && !connection.isStopped {
-                    _ = cond.wait(until: Date().addingTimeInterval(0.03))
+                // `read` and `close` signal; the timeout only bounds noticing a dropped connection.
+                while incomingCount >= Self.maxIncoming && !closeRequested && !connection.isStopped {
+                    _ = cond.wait(until: Date().addingTimeInterval(0.25))
                 }
                 let stop = closeRequested || connection.isStopped
-                let pending = outgoing
+                // A chunk that starts where the last write stopped: an EAGAIN retry hands libssh2 the same bytes.
+                let pending = Array(outgoing[outgoingStart..<min(outgoing.count, outgoingStart + Self.writeChunk)])
                 cond.unlock()
                 if stop { return }
                 var progressed = false
@@ -82,7 +104,7 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
                         connection.writeChannel(channel, 0, raw.bindMemory(to: CChar.self).baseAddress, pending.count)
                     }
                     if sent > 0 {
-                        cond.lock(); outgoing.removeFirst(sent); cond.unlock()
+                        cond.lock(); outgoingStart += sent; Self.compact(&outgoing, start: &outgoingStart); cond.unlock()
                         progressed = true
                     } else if sent < 0 && sent != LIBSSH2_ERROR_EAGAIN { throw connection.error(Int32(sent)) }
                 }
@@ -90,7 +112,7 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
                     while true {
                         cond.lock()
                         let stop = closeRequested || connection.isStopped
-                        let available = stream == 0 ? Self.maxIncoming - incoming.count : buffer.count
+                        let available = stream == 0 ? Self.maxIncoming - incomingCount : buffer.count
                         cond.unlock()
                         if stop { return }
                         let want = min(buffer.count, available)
@@ -100,7 +122,7 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
                         }
                         if count > 0 {
                             cond.lock()
-                            if stream == 0 { incoming.append(contentsOf: buffer[0..<count]) }
+                            if stream == 0 { Self.compact(&incoming, start: &incomingStart); incoming.append(contentsOf: buffer[0..<count]) }
                             else { errors.append(contentsOf: buffer[0..<count]); if errors.count > Self.maxErrors { errors.removeFirst(errors.count - Self.maxErrors) } }
                             cond.broadcast(); cond.unlock()
                             progressed = true
@@ -160,13 +182,16 @@ public final class SSHDesktopHost: DesktopHost, @unchecked Sendable {
     private func execute(_ command: String, input: Data, timeout: TimeInterval, onLine: @escaping (String) -> Void) -> Int? {
         var pending = Data()
         func flush(all: Bool) {
-            while let nl = pending.firstIndex(of: 0x0A) {
-                var line = pending[pending.startIndex..<nl]
+            // Lines are cut by index and the consumed prefix dropped once per chunk, not copied per line.
+            var start = pending.startIndex
+            while let nl = pending[start...].firstIndex(of: 0x0A) {
+                var line = pending[start..<nl]
                 if line.last == 0x0D { line = line.dropLast() }
                 onLine(String(decoding: line, as: UTF8.self))
-                pending = Data(pending[(nl + 1)...])
+                start = nl + 1
             }
-            if all && !pending.isEmpty { onLine(String(decoding: pending, as: UTF8.self)); pending.removeAll() }
+            if all && start < pending.endIndex { onLine(String(decoding: pending[start...], as: UTF8.self)); start = pending.endIndex }
+            if start == pending.endIndex { pending.removeAll() } else if start > pending.startIndex { pending = Data(pending[start...]) }
         }
         do {
             let result = try connection.exec(command, input: input, timeout: timeout) { chunk in pending.append(chunk); flush(all: false) }
