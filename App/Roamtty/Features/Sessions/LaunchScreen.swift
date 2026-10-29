@@ -56,7 +56,7 @@ struct LaunchScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(title ?? (forAgent ? model.text("用 AI Agent打开", "Open with AI Agent") : model.text("打开终端", "Open terminal"))).font(.system(size: 20, weight: .semibold))
+                Text(title ?? (forAgent ? model.text("用 Agent 打开", "Open with Agent") : model.text("打开终端", "Open terminal"))).font(.system(size: 20, weight: .semibold))
                 Spacer()
                 Button { dismiss() } label: { AppIcon("ic_close").frame(width: 48, height: 48) }.accessibilityLabel(model.text("关闭", "Close")).accessibilityIdentifier("launch-cancel")
             }.padding(.leading, 24).padding(.trailing, 12).padding(.top, 16).padding(.bottom, 12)

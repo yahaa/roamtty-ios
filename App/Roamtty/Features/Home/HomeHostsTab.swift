@@ -172,7 +172,7 @@ struct HostCard: View {
     }
     @ViewBuilder private var actions: some View {
         Button { model.sheet = .launch(host, false) } label: { Label(model.text("打开终端", "Open terminal"), image: "ic_sessions") }
-        Button { model.sheet = .launch(host, true) } label: { Label("AI Agent", image: "ic_agent") }
+        Button { model.sheet = .launch(host, true) } label: { Label("Agent", image: "ic_agent") }
         Button { model.path = [.host(host.id), .files(host.id)] } label: { Label(model.text("查看文件", "Browse files"), image: "ic_folder") }
         if live {
             Divider()
