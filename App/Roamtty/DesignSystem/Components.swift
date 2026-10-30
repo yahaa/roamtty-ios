@@ -22,17 +22,51 @@ struct Panel<Content: View>: View {
         }
     }
 }
-/// A form sheet's bar in landscape, where height is short: flat and 48pt like the launch sheet's, the title centered
-/// between its actions.
-struct LandscapeSheetBar<Leading: View, Trailing: View>: View {
+/// Every page's bar in landscape, where height is short: flat and 48pt, the control that leaves at the leading edge,
+/// the title beside it (with a short detail after it when there is one), and the page's actions at the end. Pages and
+/// sheets alike use it, so the bar looks and sits the same wherever the phone is turned.
+struct LandscapeBar<Leading: View, Trailing: View>: View {
+    static var height: CGFloat { 48 }
     let title: String
+    var detail: String? = nil
     @ViewBuilder var leading: Leading
     @ViewBuilder var trailing: Trailing
     var body: some View {
-        ZStack {
-            Text(title).font(.system(size: 17, weight: .semibold)).lineLimit(1).padding(.horizontal, 100)
-            HStack(spacing: 0) { leading; Spacer(minLength: 0); trailing }
-        }.padding(.horizontal, 8).frame(height: 48)
+        HStack(spacing: 6) {
+            leading
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(title).font(.system(size: 17, weight: .semibold)).lineLimit(1)
+                if let detail, !detail.isEmpty { Text(detail).font(.footnote).foregroundStyle(Palette.secondary).lineLimit(1) }
+            }.padding(.leading, 4).layoutPriority(1)
+            Spacer(minLength: 8)
+            trailing
+        }.padding(.horizontal, 6).frame(height: Self.height)
+    }
+}
+/// A 44-point icon button of a landscape bar: close, back, refresh, more.
+struct BarIconButton: View {
+    let icon: String
+    let label: String
+    var id: String? = nil
+    var enabled = true
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) { AppIcon(icon, size: 24).frame(width: 44, height: 44).contentShape(Rectangle()) }
+            .buttonStyle(.plain).foregroundStyle(enabled ? Palette.foreground : Palette.foreground.opacity(0.38)).disabled(!enabled)
+            .accessibilityLabel(label).accessibilityIdentifier(id ?? label)
+    }
+}
+/// Landscape content as two columns of sections, read down the left then down the right; each column as wide as the
+/// other and aligned at the top.
+struct LandscapeColumns<Left: View, Right: View>: View {
+    var spacing: CGFloat = 16
+    @ViewBuilder var left: Left
+    @ViewBuilder var right: Right
+    var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+            VStack(spacing: spacing) { left }.frame(maxWidth: .infinity, alignment: .top)
+            VStack(spacing: spacing) { right }.frame(maxWidth: .infinity, alignment: .top)
+        }
     }
 }
 struct InfoRow: View {

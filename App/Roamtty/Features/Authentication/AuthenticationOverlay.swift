@@ -8,7 +8,14 @@ struct AuthenticationOverlay: View {
         if let request = model.authentication {
             ZStack {
                 Color.black.opacity(0.5).ignoresSafeArea()
-                AuthenticationCard(request: request).id(request.id).frame(maxWidth: 430).padding(20)
+                // Centered while it fits; in landscape, where a fingerprint and its fields can be taller than the
+                // screen, it scrolls. One card either way, so typing never moves the answers to a new one.
+                GeometryReader { geo in
+                    ScrollView {
+                        AuthenticationCard(request: request).id(request.id).frame(maxWidth: 430).padding(20)
+                            .frame(maxWidth: .infinity, minHeight: geo.size.height)
+                    }
+                }
             }.zIndex(100).accessibilityAddTraits(.isModal)
         }
     }
@@ -44,19 +51,39 @@ private struct AuthenticationCard: View {
 struct FingerprintReview: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) var dismiss
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     let host: Host
     /// Android removes the old record and reconnects at once, so the new fingerprint is shown for approval.
     var onRemoved: (() -> Void)? = nil
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
-                EmptyMessage(icon: "exclamationmark.shield", title: model.text("服务器指纹已变化", "Host key changed"), message: model.text("这可能是服务器重装或连接被拦截。请通过可信渠道核对新的指纹，再移除之前的记录。", "This can mean the server was reinstalled or the connection was intercepted. Verify the new fingerprint through a trusted channel before removing the previous record."))
-                Button(onRemoved == nil ? model.text("移除旧指纹", "Remove previous fingerprint") : model.text("移除旧记录并重连", "Remove and reconnect"), role: .destructive) {
-                    model.forgetPin(host); dismiss(); onRemoved?()
-                }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("fingerprint-remove")
-                Spacer()
-            }.padding(16).pageBackground().navigationTitle(host.name).navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button(model.text("取消", "Cancel")) { dismiss() } } }
+            Group {
+                if verticalSizeClass == .compact {
+                    // Landscape: the flat bar, the warning beside the button that acts on it.
+                    VStack(spacing: 0) {
+                        LandscapeBar(title: host.name) { cancelButton.buttonStyle(TextActionStyle()) } trailing: { EmptyView() }
+                        ScrollView {
+                            HStack(alignment: .center, spacing: 24) {
+                                message
+                                removeButton.frame(width: 260)
+                            }.padding(.horizontal, 16).padding(.bottom, 16)
+                        }
+                    }
+                } else {
+                    VStack(spacing: 24) { message; removeButton; Spacer() }.padding(16)
+                }
+            }.pageBackground().navigationTitle(host.name).navigationBarTitleDisplayMode(.inline)
+                .toolbar(verticalSizeClass == .compact ? .hidden : .automatic, for: .navigationBar)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { cancelButton } }
         }
+    }
+    private var cancelButton: some View { Button(model.text("取消", "Cancel")) { dismiss() } }
+    private var message: some View {
+        EmptyMessage(icon: "exclamationmark.shield", title: model.text("服务器指纹已变化", "Host key changed"), message: model.text("这可能是服务器重装或连接被拦截。请通过可信渠道核对新的指纹，再移除之前的记录。", "This can mean the server was reinstalled or the connection was intercepted. Verify the new fingerprint through a trusted channel before removing the previous record."))
+    }
+    private var removeButton: some View {
+        Button(onRemoved == nil ? model.text("移除旧指纹", "Remove previous fingerprint") : model.text("移除旧记录并重连", "Remove and reconnect"), role: .destructive) {
+            model.forgetPin(host); dismiss(); onRemoved?()
+        }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("fingerprint-remove")
     }
 }

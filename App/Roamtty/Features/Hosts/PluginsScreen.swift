@@ -62,11 +62,12 @@ import RoamttyTransport
     /// cards side by side, each showing its own state where the install button would be.
     private var landscape: some View {
         VStack(spacing: 0) {
-            LandscapeSheetBar(title: model.text("管理插件 · \(host.name)", "Manage plugins · \(host.name)")) {
-                Button { startProbe() } label: { Image(systemName: "arrow.clockwise").font(.body.weight(.medium)).frame(width: 44, height: 44).contentShape(Rectangle()) }
-                    .buttonStyle(.plain).foregroundStyle(busy ? Palette.foreground.opacity(0.38) : Palette.accent).disabled(busy)
-                    .accessibilityLabel(model.text("重新检测", "Check again")).accessibilityIdentifier("host-plugins-retry")
-            } trailing: { doneButton.buttonStyle(TextActionStyle()) }
+            LandscapeBar(title: model.text("管理插件", "Manage plugins"), detail: host.name) {
+                EmptyView()
+            } trailing: {
+                BarIconButton(icon: "ic_refresh", label: model.text("重新检测", "Check again"), id: "host-plugins-retry", enabled: !busy) { startProbe() }
+                doneButton.buttonStyle(TextActionStyle())
+            }
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     VStack(alignment: .leading, spacing: 8) {

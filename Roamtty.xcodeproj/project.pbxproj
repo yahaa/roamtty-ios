@@ -3330,6 +3330,26 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "44E7639112664E544A978F6B";
 		};
+		"739E4A8ABE4A4E9F9E9F2855" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/UITests/LandscapePagesUITests.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"6F3F5131776E6B4FE0930069" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "739E4A8ABE4A4E9F9E9F2855";
+		};
+		"AE18C3542839A4BC90F492FC" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/UITests/LandscapeSheetsUITests.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"8E8B3F5082CD9F9B5BE8C48E" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "AE18C3542839A4BC90F492FC";
+		};
 		"92517A6688BB864D987E8B90" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/UITests/NativeFileWorkflowUITests.swift";
@@ -3465,6 +3485,8 @@
 				"6C4C6149B117DB44A37C9270",
 				"6B2EF5457A47BD60648475A6",
 				"C2E3E3D8011F76971773C3FF",
+				"6F3F5131776E6B4FE0930069",
+				"8E8B3F5082CD9F9B5BE8C48E",
 				"EF454252C2A0075113C991E3",
 				"33CD919E270B147D74A13D9B",
 				"AA54280581B7B4AC33E7F8F7",
@@ -3847,6 +3869,8 @@
 				"48A213B2252282D1D8204985",
 				"1EFC1D94F9EB991503BC5957",
 				"44E7639112664E544A978F6B",
+				"739E4A8ABE4A4E9F9E9F2855",
+				"AE18C3542839A4BC90F492FC",
 				"92517A6688BB864D987E8B90",
 				"14D1F9719A9D06DFA7564A67",
 				"DEBF387A1044BABBC67B883C",

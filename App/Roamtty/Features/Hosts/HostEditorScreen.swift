@@ -74,7 +74,7 @@ struct HostEditorScreen: View {
     /// keep one height, so the columns line up however much the authentication box holds.
     private var landscape: some View {
         VStack(spacing: 0) {
-            LandscapeSheetBar(title: title) { cancelButton.buttonStyle(TextActionStyle()) } trailing: { saveButton.buttonStyle(TextActionStyle()) }
+            LandscapeBar(title: title) { cancelButton.buttonStyle(TextActionStyle()) } trailing: { saveButton.buttonStyle(TextActionStyle()) }
             ScrollView {
                 VStack(spacing: 16) {
                     validationMessage
