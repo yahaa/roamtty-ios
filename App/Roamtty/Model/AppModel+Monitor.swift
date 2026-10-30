@@ -14,7 +14,7 @@ extension AppModel {
             guard let self else { return }
             @MainActor func current() -> Bool { !Task.isCancelled && !cancellation.isCancelled && self.foreground && self.monitorJobs[host.id]?.token == token }
             defer { if self.monitorJobs[host.id]?.token == token { self.monitorJobs.removeValue(forKey: host.id) } }
-            var retry = 0
+            var retry = 0, probedDesktop = false
             while current() {
                 var samplingConnection: SSHConnection?
                 do {
@@ -22,6 +22,8 @@ extension AppModel {
                     guard current() else { return }
                     samplingConnection = ssh
                     self.monitorStates[host.id] = HostMonitorState(phase: .connected)
+                    // The page's own probe skips logins that need typing; this one rides the login just made.
+                    if !probedDesktop { probedDesktop = true; Task { await self.refreshDesktopProbe(host) } }
                     var series = self.metricSeries[host.id] ?? HostMetricSeries()
                     series.resetNetworkBaseline()
                     while current() {

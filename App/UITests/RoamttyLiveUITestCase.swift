@@ -5,6 +5,8 @@ class RoamttyLiveUITestCase: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
+        // Start upright whatever orientation an earlier test left the simulator in.
+        XCUIDevice.shared.orientation = .portrait
         app = XCUIApplication()
         app.launchArguments = ["--ui-testing"]
         for key in ["ROAMTTY_TEST_HOST", "ROAMTTY_TEST_PORT", "ROAMTTY_TEST_USERNAME", "ROAMTTY_TEST_PASSWORD"] {
@@ -212,8 +214,11 @@ class RoamttyLiveUITestCase: XCTestCase {
 
     func replace(_ field: XCUIElement, with text: String) {
         XCTAssertTrue(field.exists); field.tap()
-        let old = field.value as? String ?? ""
-        if !old.isEmpty && old != field.placeholderValue {
+        func remaining() -> String? {
+            let value = field.value as? String ?? ""
+            return value.isEmpty || value == field.placeholderValue ? nil : value
+        }
+        if remaining() != nil {
             // iOS typeText inserts arrow-key glyphs literally. Use the native edit menu
             // to select the entire value, including text beyond a long field's viewport.
             field.press(forDuration: 1.1)
@@ -227,6 +232,13 @@ class RoamttyLiveUITestCase: XCTestCase {
                 else if selectAllButton.exists { selectAllButton.tap() }
             }
             field.typeText(XCUIKeyboardKey.delete.rawValue)
+        }
+        // The long press sometimes selects only a word, leaving the rest. Backspace from
+        // the trailing corner, where the caret lands at the end of a short remainder.
+        for _ in 0..<4 {
+            guard let old = remaining() else { break }
+            field.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.85)).tap()
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: old.count))
         }
         field.typeText(text)
         XCTAssertEqual(field.value as? String, text, "Replacing an input must remove its entire previous value")
