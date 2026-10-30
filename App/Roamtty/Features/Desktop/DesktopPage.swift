@@ -57,7 +57,9 @@ struct DesktopPage: View {
                             .background(GeometryReader { rail in Color.clear.preference(key: RailWidthKey.self, value: rail.size.width) })
                     }
                     // The picture runs under the home indicator too; the keyboard panel floats clear of it.
-                    .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+                    // All regions: while the keyboard is up, the home indicator's inset counts as the keyboard's,
+                    // and keeping it would shrink the picture. The panel places itself from keyboardOverlap.
+                    .ignoresSafeArea(.all, edges: [.horizontal, .bottom])
                 } else {
                     VStack(spacing: 0) {
                         desktopWorkspace(landscape: false, bottomInset: max(0, keyboardOverlap - geo.safeAreaInsets.bottom))
