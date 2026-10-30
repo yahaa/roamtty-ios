@@ -5,6 +5,7 @@ import RoamttyTransport
 @MainActor struct PluginsScreen: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) var dismiss
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     let host: Host
     @State private var installed: Set<HostPlugin>?
     @State private var system: HostSystem = .UNKNOWN
@@ -23,53 +24,11 @@ import RoamttyTransport
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    Panel(title: host.name, footer: installHint) {
-                        row("tmux", model.text("断开连接后远端任务继续运行，重连即可恢复。", "Keep remote tasks running and restore them after reconnecting."), .tmux).panelDivider()
-                        row("mosh", model.text("切换网络后自动恢复。需放行 UDP 60000–61000。", "Recover across network changes. Requires UDP ports 60000–61000."), .mosh)
-                    }
-                    if busy {
-                        ProgressView(installing.map { model.text("正在安装 \($0.rawValue)…", "Installing \($0.rawValue)…") } ?? model.text("正在检测插件…", "Checking plugins…"))
-                            .accessibilityIdentifier("plugin-progress")
-                    }
-                    if probed && installed == nil && !busy {
-                        Text(system == .WINDOWS
-                             ? model.text("Windows 的 cmd 和 PowerShell 无法运行 tmux 与 mosh。请将 OpenSSH 默认 shell 改为 MSYS2 或 Cygwin 的 bash，或单独添加 WSL 的 SSH 主机。", "Windows cmd and PowerShell cannot run tmux or mosh. Use MSYS2 or Cygwin bash as the OpenSSH default shell, or add a separate WSL SSH host.")
-                             : model.text("无法检测插件。目前支持 Linux、macOS、BSD，以及使用 MSYS2 或 Cygwin shell 的 Windows 主机。", "Plugins could not be detected. Supported hosts include Linux, macOS, BSD, and Windows using an MSYS2 or Cygwin shell."))
-                            .font(.footnote).foregroundStyle(Palette.secondary)
-                    }
-                    if let outcome {
-                        Text(resultMessage(outcome.plugin, outcome.result))
-                            .foregroundStyle(outcome.result == .installed ? Palette.success : Palette.danger)
-                            .frame(maxWidth: .infinity, alignment: .leading).accessibilityIdentifier("plugin-result")
-                        if outcome.result == .sudoPassword {
-                            Panel(title: model.text("sudo 密码", "sudo password"), footer: model.text("仅用于本次安装，不会保存。", "Used only for this installation and never saved.")) {
-                                HStack(spacing: 12) {
-                                    SecureField(model.text("输入 sudo 密码", "Enter sudo password"), text: $sudoPassword)
-                                        .textContentType(.password).autocorrectionDisabled().textInputAutocapitalization(.never)
-                                        .accessibilityIdentifier("plugin-sudo-password")
-                                    Button(model.text("重试", "Retry")) { startInstall(outcome.plugin) }
-                                        .disabled(busy || !validSudoPassword).accessibilityIdentifier("plugin-sudo-retry")
-                                }.padding(16)
-                            }
-                        }
-                    }
-                    if let errorMessage {
-                        Text(errorMessage).foregroundStyle(Palette.danger).frame(maxWidth: .infinity, alignment: .leading)
-                            .accessibilityIdentifier("plugin-error")
-                    }
-                    if !log.text.isEmpty {
-                        Panel(title: model.text("安装输出", "Installation output")) {
-                            Text(log.text).font(.system(.footnote, design: .monospaced)).textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading).padding(16).accessibilityIdentifier("plugin-log")
-                        }
-                    }
-                    Button(model.text("重新检测", "Check again")) { startProbe() }
-                        .buttonStyle(RoamButtonStyle()).disabled(busy).accessibilityIdentifier("host-plugins-retry")
-                }.padding(16)
+            Group {
+                if verticalSizeClass == .compact { landscape } else { portrait }
             }.pageBackground().navigationTitle(model.text("管理插件", "Manage plugins")).navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button(model.text("完成", "Done")) { dismiss() }.accessibilityIdentifier("plugins-done") } }
+                .toolbar(verticalSizeClass == .compact ? .hidden : .automatic, for: .navigationBar)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { doneButton } }
         }
         .task { system = HostSystem.fromStored(host.system); startProbe() }
         .onDisappear { cancelOperation(); sudoPassword = "" }
@@ -81,6 +40,114 @@ import RoamttyTransport
         }
     }
 
+    private var doneButton: some View { Button(model.text("完成", "Done")) { dismiss() }.accessibilityIdentifier("plugins-done") }
+    private var portrait: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                Panel(title: host.name, footer: installHint) {
+                    row("tmux", tmuxDescription, .tmux).panelDivider()
+                    row("mosh", moshDescription, .mosh)
+                }
+                if busy {
+                    ProgressView(installing.map { model.text("正在安装 \($0.rawValue)…", "Installing \($0.rawValue)…") } ?? model.text("正在检测插件…", "Checking plugins…"))
+                        .accessibilityIdentifier("plugin-progress")
+                }
+                statusSections
+                Button(model.text("重新检测", "Check again")) { startProbe() }
+                    .buttonStyle(RoamButtonStyle()).disabled(busy).accessibilityIdentifier("host-plugins-retry")
+            }.padding(16)
+        }
+    }
+    /// Landscape, where height is short: a flat bar with check again as its refresh button, and the two plugins as
+    /// cards side by side, each showing its own state where the install button would be.
+    private var landscape: some View {
+        VStack(spacing: 0) {
+            LandscapeSheetBar(title: model.text("管理插件 · \(host.name)", "Manage plugins · \(host.name)")) {
+                Button { startProbe() } label: { Image(systemName: "arrow.clockwise").font(.body.weight(.medium)).frame(width: 44, height: 44).contentShape(Rectangle()) }
+                    .buttonStyle(.plain).foregroundStyle(busy ? Palette.foreground.opacity(0.38) : Palette.accent).disabled(busy)
+                    .accessibilityLabel(model.text("重新检测", "Check again")).accessibilityIdentifier("host-plugins-retry")
+            } trailing: { doneButton.buttonStyle(TextActionStyle()) }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .top, spacing: 16) {
+                            card("tmux", tmuxDescription, .tmux)
+                            card("mosh", moshDescription, .mosh)
+                        }.fixedSize(horizontal: false, vertical: true)
+                        Text(installHint).font(.footnote).foregroundStyle(Palette.secondary).padding(.horizontal, 16)
+                    }
+                    statusSections
+                }.padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 16)
+            }
+        }
+    }
+    @ViewBuilder private var statusSections: some View {
+        if probed && installed == nil && !busy {
+            Text(system == .WINDOWS
+                 ? model.text("Windows 的 cmd 和 PowerShell 无法运行 tmux 与 mosh。请将 OpenSSH 默认 shell 改为 MSYS2 或 Cygwin 的 bash，或单独添加 WSL 的 SSH 主机。", "Windows cmd and PowerShell cannot run tmux or mosh. Use MSYS2 or Cygwin bash as the OpenSSH default shell, or add a separate WSL SSH host.")
+                 : model.text("无法检测插件。目前支持 Linux、macOS、BSD，以及使用 MSYS2 或 Cygwin shell 的 Windows 主机。", "Plugins could not be detected. Supported hosts include Linux, macOS, BSD, and Windows using an MSYS2 or Cygwin shell."))
+                .font(.footnote).foregroundStyle(Palette.secondary)
+        }
+        if let outcome {
+            Text(resultMessage(outcome.plugin, outcome.result))
+                .foregroundStyle(outcome.result == .installed ? Palette.success : Palette.danger)
+                .frame(maxWidth: .infinity, alignment: .leading).accessibilityIdentifier("plugin-result")
+            if outcome.result == .sudoPassword {
+                Panel(title: model.text("sudo 密码", "sudo password"), footer: model.text("仅用于本次安装，不会保存。", "Used only for this installation and never saved.")) {
+                    HStack(spacing: 12) {
+                        SecureField(model.text("输入 sudo 密码", "Enter sudo password"), text: $sudoPassword)
+                            .textContentType(.password).autocorrectionDisabled().textInputAutocapitalization(.never)
+                            .accessibilityIdentifier("plugin-sudo-password")
+                        Button(model.text("重试", "Retry")) { startInstall(outcome.plugin) }
+                            .disabled(busy || !validSudoPassword).accessibilityIdentifier("plugin-sudo-retry")
+                    }.padding(16)
+                }
+            }
+        }
+        if let errorMessage {
+            Text(errorMessage).foregroundStyle(Palette.danger).frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("plugin-error")
+        }
+        if !log.text.isEmpty {
+            Panel(title: model.text("安装输出", "Installation output")) {
+                Text(log.text).font(.system(.footnote, design: .monospaced)).textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(16).accessibilityIdentifier("plugin-log")
+            }
+        }
+    }
+    private var tmuxDescription: String { model.text("断开连接后远端任务继续运行，重连即可恢复。", "Keep remote tasks running and restore them after reconnecting.") }
+    private var moshDescription: String { model.text("切换网络后自动恢复。需放行 UDP 60000–61000。", "Recover across network changes. Requires UDP ports 60000–61000.") }
+    private func card(_ name: String, _ description: String, _ plugin: HostPlugin) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: plugin == .tmux ? "rectangle.on.rectangle" : "network").foregroundStyle(Palette.accent)
+                Text(name).font(.headline)
+            }
+            Text(description).font(.footnote).foregroundStyle(Palette.secondary).frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 8)
+            cardAction(name, plugin)
+        }.padding(16).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Palette.panel, in: RoundedRectangle(cornerRadius: 16))
+    }
+    /// Installed, the check or install under way, or the install button: what the row's trailing word says in portrait.
+    @ViewBuilder private func cardAction(_ name: String, _ plugin: HostPlugin) -> some View {
+        if installed?.contains(plugin) == true {
+            Label(model.text("已安装", "Installed"), systemImage: "checkmark").font(.subheadline.weight(.medium)).foregroundStyle(Palette.success)
+                .frame(maxWidth: .infinity, minHeight: 44).background(Palette.raised, in: RoundedRectangle(cornerRadius: 12))
+                .accessibilityElement(children: .combine).accessibilityIdentifier("plugin-installed-\(name)")
+        } else if busy && (installing == plugin || installing == nil) {
+            HStack(spacing: 8) {
+                ProgressView().accessibilityIdentifier("plugin-progress")
+                Text(installing == plugin ? model.text("正在安装…", "Installing…") : model.text("正在检测…", "Checking…"))
+            }.font(.subheadline).foregroundStyle(Palette.secondary)
+                .frame(maxWidth: .infinity, minHeight: 44).background(Palette.raised, in: RoundedRectangle(cornerRadius: 12))
+        } else {
+            let enabled = !busy && installed != nil
+            Button(model.text("安装", "Install")) { confirmInstall = plugin }
+                .buttonStyle(RoamButtonStyle(filled: true)).opacity(enabled ? 1 : 0.45).disabled(!enabled)
+                .accessibilityIdentifier("plugin-install-\(name)")
+        }
+    }
     private var validSudoPassword: Bool { !sudoPassword.isEmpty && !sudoPassword.contains("\n") && !sudoPassword.contains("\r") && !sudoPassword.contains("\0") }
     private var installHint: String {
         let hint: String
