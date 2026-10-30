@@ -299,6 +299,40 @@ final class AgentStatusTests: XCTestCase {
         XCTAssertNil(fixture.option("@roamtty_reply"))
     }
 
+    func testATurnWaitingForBackgroundWorkGoesOnUntilThatWorkWakesItAndEnds() throws {
+        let fixture = try HookFixture()
+        try fixture.hook("prompt", #"{"prompt":"run the suite"}"#)
+        let turn = fixture.option("@roamtty_turn")
+        // Claude Code's Stop as it comes while a background shell runs (an answer quoting the key changes nothing).
+        try fixture.hook("stop", #"{"stop_hook_active":false,"last_assistant_message":"started \"background_tasks\":[{}]","#
+            + #""background_tasks":[{"id":"b1","type":"shell","status":"running","description":"Run the suite","command":"make test"}],"session_crons":[]}"#)
+        XCTAssertEqual(fixture.reported(), "working|Background|make test")
+        XCTAssertNil(fixture.option("@roamtty_worked"))
+        // Idle for a minute only to look at: it stays at work.
+        try fixture.hook("notify", #"{"notification_type":"idle_prompt","message":"Claude is waiting for your input"}"#)
+        XCTAssertEqual(fixture.reported(), "working|Background|make test")
+        // The work ends and wakes it: the same turn and task go on, then end.
+        try fixture.hook("prompt", #"{"prompt":"<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>"}"#)
+        XCTAssertEqual(fixture.option("@roamtty_turn"), turn)
+        XCTAssertEqual(fixture.option("@roamtty_task"), "run the suite")
+        try fixture.hook("stop", #"{"last_assistant_message":"All green.","background_tasks":[],"session_crons":[]}"#)
+        XCTAssertEqual(fixture.reported(), "idle||")
+        XCTAssertNotNil(fixture.option("@roamtty_worked"))
+        XCTAssertEqual(fixture.option("@roamtty_reply"), "All green.")
+        // Grok names it in camelCase; a subagent says what it does. Only a scheduled wakeup is no work in flight.
+        try fixture.hook("prompt", #"{"prompt":"review"}"#, agent: "grok", grok: true)
+        try fixture.hook("stop", #"{"lastAssistantMessage":"spawned","backgroundTasks":[{"id":"a1","type":"subagent","status":"running","description":"Review the diff","agentType":"general"}],"sessionCrons":[]}"#, agent: "grok", grok: true)
+        XCTAssertEqual(fixture.reported(), "working|Background|Review the diff")
+        try fixture.hook("stop", #"{"lastAssistantMessage":"ok","backgroundTasks":[],"sessionCrons":[{"id":"c1","schedule":"*/5 * * * *"}]}"#, agent: "grok", grok: true)
+        XCTAssertEqual(fixture.reported(), "idle||")
+        // A new prompt of the user's while work runs in the background starts a turn of its own.
+        try fixture.hook("stop", #"{"background_tasks":[{"id":"b2","type":"shell","status":"running","command":"sleep 60"}]}"#)
+        try FileManager.default.removeItem(at: fixture.dir.appendingPathComponent("opt@roamtty_turn"))
+        try fixture.hook("prompt", #"{"prompt":"something else"}"#)
+        XCTAssertNotNil(fixture.option("@roamtty_turn"), "the user's prompt starts a turn")
+        XCTAssertEqual(fixture.option("@roamtty_task"), "something else")
+    }
+
     func testASessionSentToTheBackgroundStillReportsToItsPane() throws {
         let fixture = try HookFixture(listPanes: true)
         let id = "32c4597e-61a4-4ddd-ba0a-51f68f9d1148"

@@ -56,8 +56,9 @@ case "$event" in
     # Claude Code also submits "<task-notification>…" itself when a background task ends: that is no task of the user's.
     task=$(field prompt 200)
     case "$task" in "<"*) ;; *) put @roamtty_task "$task" ;; esac
-    # A turn starts: the time it began, for how long it worked once it stops.
-    put @roamtty_turn "$(date +%s)"
+    # A turn starts: the time it began, for how long it worked once it stops. A turn that waited for background work
+    # (see stop) goes on when that work ends and wakes the agent.
+    case "$task:$(get @roamtty_agent)" in "<"*:working\|*) ;; *) put @roamtty_turn "$(date +%s)" ;; esac
     for option in @roamtty_worked @roamtty_reply; do tmux set-option -u -q -t "$TMUX_PANE" "$option" 2>/dev/null; done
     record working "" "" ;;
   tool)
@@ -87,7 +88,8 @@ case "$event" in
     # Agents also notify when idle for a minute (Grok after a turn that reported no end too); a request for permission
     # waits, idleness settles. Claude Code's older notifications only say so in their message.
     kind=$(field 'notification_type|notificationType' 40)
-    case "$kind" in idle_prompt) record idle "" ""; exit 0 ;; esac
+    # Not while background work is to wake it (see stop): the agent only looks idle.
+    case "$kind" in idle_prompt) [ "$(get @roamtty_agent | cut -d '|' -f 4)" = Background ] || record idle "" ""; exit 0 ;; esac
     case "$kind:$(field message 200)" in
       permission_prompt:*|*ermission*|*pprov*)
         # The message is generic: the tool about to run says more.
@@ -97,12 +99,22 @@ case "$event" in
         else record waiting "" "$(field message 120)"; fi ;;
     esac ;;
   stop)
-    # How long the turn worked, in seconds; Claude Code shows it as "Worked for …".
-    turn=$(get @roamtty_turn)
-    case "$turn" in ''|*[!0-9]*) ;; *) put @roamtty_worked "$(( $(date +%s) - turn ))" ;; esac
     # The start of the turn's answer, for the session list; all three agents pass it to their Stop hook.
     reply=$(field 'last_assistant_message|lastAssistantMessage' 400)
     [ -z "$reply" ] || put @roamtty_reply "$reply"
+    # Claude Code and Grok list the background work still running (shells, monitors, subagents), which wakes the
+    # agent when it ends: the turn is not over yet. The first task says what it waits for.
+    tasks=$(printf '%s' "$input" | sed -nE 's/.*"(background_tasks|backgroundTasks)"[[:space:]]*:[[:space:]]*\[[[:space:]]*\{([^}]*).*/\2/p' | head -n 1)
+    if [ -n "$tasks" ]; then
+      input="{$tasks}"
+      detail=$(field command 120)
+      [ -n "$detail" ] || detail=$(field description 120)
+      record working Background "$detail"
+      exit 0
+    fi
+    # How long the turn worked, in seconds; Claude Code shows it as "Worked for …".
+    turn=$(get @roamtty_turn)
+    case "$turn" in ''|*[!0-9]*) ;; *) put @roamtty_worked "$(( $(date +%s) - turn ))" ;; esac
     record idle "" "" ;;
   end)
     for option in @roamtty_agent @roamtty_task @roamtty_turn @roamtty_worked @roamtty_reply; do
