@@ -46,7 +46,7 @@ struct TmuxSessionList: View {
     }
 }
 
-/// The selected session on its own, for the launch sheet's side column in landscape: its mark, what it is for, what it
+/// The selected session on its own, for the continue sheet's side column in landscape: its mark, what it is for, what it
 /// is doing and where it runs.
 struct TmuxSessionCard: View {
     @EnvironmentObject var model: AppModel

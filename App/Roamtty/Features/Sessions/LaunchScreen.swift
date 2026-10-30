@@ -30,16 +30,6 @@ struct LaunchScreen: View {
     @State private var loadRevision = 0
     @State private var loadTask: Task<Void, Never>?
     @State private var loadCancellation: TransferCancellation?
-    /// Opening a terminal can start in a folder or attach a tmux session already on the server.
-    @State private var source = Source.folder
-    @State private var tmuxSessions: [TmuxSessionInfo]?
-    @State private var tmuxError: String?
-    @State private var tmuxBusy = false
-    @State private var tmuxSelection: String?
-    private enum Source: Hashable { case folder, tmux }
-    /// A plain terminal opened without a folder in mind may attach a tmux session instead.
-    private var canAttach: Bool { !forAgent && StartDirectory.isHome(initialDirectory) }
-    private var attachReady: Bool { tmuxSessions?.contains { $0.name == tmuxSelection && $0.attachable } == true }
     private var launchReady: Bool { !busy && error == nil && StartDirectory.isSupported(pathDraft) && StartDirectory.normalize(pathDraft) == directory }
     private var segments: [(name: String, path: String)] { StartDirectory.segments(directory) }
     private var parent: String? {
@@ -63,13 +53,7 @@ struct LaunchScreen: View {
                     Spacer()
                     Button { dismiss() } label: { AppIcon("ic_close").frame(width: 48, height: 48) }.accessibilityLabel(model.text("关闭", "Close")).accessibilityIdentifier("launch-cancel")
                 }.padding(.leading, 24).padding(.trailing, 12).padding(.top, 16).padding(.bottom, 12)
-                if canAttach {
-                    Picker("", selection: $source) {
-                        Text(model.text("工作目录", "Folder")).tag(Source.folder)
-                        Text(model.text("tmux 会话", "tmux session")).tag(Source.tmux)
-                    }.pickerStyle(.segmented).padding(.horizontal, 16).padding(.bottom, 12).accessibilityIdentifier("launch-source")
-                }
-                if source == .tmux { tmuxPanel } else { folderPanel }
+                folderPanel
             }
         }.foregroundStyle(Palette.foreground).background(Palette.sheet.ignoresSafeArea())
         .task {
@@ -83,7 +67,6 @@ struct LaunchScreen: View {
             if !moshExplicit { mosh = plugins?.contains("mosh") == true }
             if !sessionModeExplicit { sessionMode = (model.host(host.id) ?? host).newSessionMode }
         }
-        .onChange(of: source) { value in if value == .tmux && tmuxSessions == nil && !tmuxBusy { loadTmux() } }
         .onDisappear { loadTask?.cancel(); loadCancellation?.cancel(); loadRevision += 1 }
     }
     @ViewBuilder private var folderPanel: some View {
@@ -129,55 +112,6 @@ struct LaunchScreen: View {
                 .background(launchReady ? (yolo ? Palette.danger : Palette.accent) : Palette.foreground.opacity(0.12), in: Capsule())
                 .animation(.easeInOut(duration: 0.2), value: yolo)
         }.buttonStyle(.plain).disabled(!launchReady).accessibilityIdentifier("launch-session")
-    }
-    /// The tmux sessions on the server, most recently used first; tapping one picks it, the button attaches it.
-    @ViewBuilder private var tmuxPanel: some View {
-        tmuxBox.padding(.horizontal, 16)
-        attachButton.padding(.horizontal, 16).padding(.vertical, 12)
-    }
-    private var tmuxBox: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text(model.text("服务器上的 tmux 会话", "tmux sessions on the server")).font(.subheadline.weight(.semibold))
-                Spacer()
-                Button { loadTmux() } label: { AppIcon("ic_refresh", size: 20).frame(width: 40, height: 40) }.disabled(tmuxBusy)
-                    .accessibilityLabel(model.text("刷新", "Refresh")).accessibilityIdentifier("launch-tmux-refresh")
-            }.padding(.leading, 16).padding(.trailing, 4).frame(minHeight: 48)
-            Divider().overlay(Palette.outline)
-            ZStack(alignment: .top) {
-                if let tmuxError { centerNote(tmuxError, id: "launch-tmux-error", action: model.text("重试", "Retry")) { loadTmux() } }
-                else if let tmuxSessions {
-                    if tmuxSessions.isEmpty { centerNote(model.text("服务器上没有正在运行的 tmux 会话", "No tmux sessions are running on the server"), id: "launch-tmux-empty", action: model.text("刷新", "Refresh")) { loadTmux() } }
-                    else { TmuxSessionList(hostID: host.id, sessions: tmuxSessions, home: homeDirectory, selected: tmuxSelection) { tmuxSelection = $0.name } }
-                } else { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
-                if tmuxBusy && tmuxSessions != nil { ProgressView().progressViewStyle(.linear).tint(Palette.accent) }
-            }.frame(maxHeight: .infinity)
-        }.background(Palette.panel, in: RoundedRectangle(cornerRadius: 16)).clipShape(RoundedRectangle(cornerRadius: 16))
-    }
-    private var attachButton: some View {
-        Button {
-            guard attachReady, let name = tmuxSelection else { return }
-            model.attachExisting(host, name: name, mosh: moshExplicit ? mosh : nil)
-        } label: {
-            // In landscape the card above names the session, so the button only says what it does.
-            Text(tmuxSelection.map { verticalSizeClass == .compact ? model.text("打开会话", "Open session") : model.text("打开 tmux 会话 \($0)", "Open tmux session \($0)") }
-                ?? model.text("选择一个 tmux 会话", "Pick a tmux session")).lineLimit(1).truncationMode(.middle)
-                .font(.subheadline.weight(.medium)).padding(.horizontal, 16).frame(maxWidth: .infinity).frame(minHeight: 48)
-                .foregroundStyle(attachReady ? Palette.onAccent : Palette.foreground.opacity(0.38))
-                .background(attachReady ? Palette.accent : Palette.foreground.opacity(0.12), in: Capsule())
-        }.buttonStyle(.plain).disabled(!attachReady).accessibilityIdentifier("launch-attach")
-    }
-    private func loadTmux() {
-        tmuxBusy = true; tmuxError = nil
-        Task {
-            defer { tmuxBusy = false }
-            do {
-                guard let sessions = try await model.tmuxSessions(on: host.id) else { throw RoamError.invalid(model.text("服务器未安装 tmux", "tmux is not installed on the server")) }
-                tmuxSessions = sessions
-                if let selection = tmuxSelection, !sessions.contains(where: { $0.name == selection && $0.attachable }) { tmuxSelection = nil }
-                if tmuxSelection == nil { tmuxSelection = sessions.first(where: \.attachable)?.name }
-            } catch { tmuxError = error.localizedDescription }
-        }
     }
     private var yolo: Bool { forAgent && agentMode == .yolo }
     @State private var filtering = false
@@ -286,53 +220,34 @@ struct LaunchScreen: View {
 
     // MARK: Landscape
 
-    /// Landscape, like the host page there: one flat bar with close, the heading and the 工作目录 · tmux 会话 tabs; the
-    /// folders take the whole height on the left, and a side column holds the recent folders, the agent pickers and
-    /// the launch button.
+    /// Landscape, like the host page there: one flat bar with close and the heading; the folders take the whole height
+    /// on the left, and a side column holds the recent folders, the agent pickers and the launch button.
     @ViewBuilder private var landscape: some View {
         HStack(spacing: 6) {
             Button { dismiss() } label: { AppIcon("ic_close", size: 24).frame(width: 44, height: 44).contentShape(Rectangle()) }
                 .buttonStyle(.plain).accessibilityLabel(model.text("关闭", "Close")).accessibilityIdentifier("launch-cancel")
             Text(heading).font(.system(size: 17, weight: .semibold)).lineLimit(1).padding(.trailing, 6)
-            if canAttach {
-                HStack(spacing: 0) {
-                    sourceTab(model.text("工作目录", "Folder"), .folder)
-                    sourceTab(model.text("tmux 会话", "tmux session"), .tmux)
-                }.padding(3).background(Palette.foreground.opacity(0.07), in: Capsule()).fixedSize().accessibilityIdentifier("launch-source")
-            }
             Spacer(minLength: 0)
         }.padding(.horizontal, 6).frame(height: 48)
         HStack(alignment: .top, spacing: 10) {
-            if source == .tmux { tmuxBox } else { folderBox }
+            folderBox
             // The pickers and the button keep their place at the bottom; the recent folders scroll in what is left.
             VStack(alignment: .leading, spacing: 8) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
-                        if source == .folder && !recent.isEmpty { sideLabel(model.text("最近", "Recent")); recentList }
+                        if !recent.isEmpty { sideLabel(model.text("最近", "Recent")); recentList }
                         #if DEBUG
-                        if source == .folder && ProcessInfo.processInfo.arguments.contains("--ui-testing") { testControls }
+                        if ProcessInfo.processInfo.arguments.contains("--ui-testing") { testControls }
                         #endif
                     }
                 }.frame(maxHeight: .infinity)
-                if source == .folder && forAgent {
+                if forAgent {
                     sideLabel("Agent")
                     agentPickers
                 }
-                if source == .tmux, let session = tmuxSessions?.first(where: { $0.name == tmuxSelection }) {
-                    sideLabel(model.text("已选择", "Selected"))
-                    TmuxSessionCard(hostID: host.id, session: session, home: homeDirectory)
-                }
-                if source == .tmux { attachButton } else { launchButton }
+                launchButton
             }.frame(width: 250)
         }.padding(.horizontal, 6).padding(.bottom, 8)
-    }
-    private func sourceTab(_ label: String, _ value: Source) -> some View {
-        let active = source == value
-        return Button { withAnimation(.easeInOut(duration: 0.2)) { source = value } } label: {
-            Text(label).font(.system(size: 15, weight: active ? .semibold : .regular)).foregroundStyle(active ? Palette.foreground : Palette.secondary)
-                .lineLimit(1).padding(.horizontal, 14).frame(height: 32)
-                .background(active ? Palette.foreground.opacity(0.14) : Color.clear, in: Capsule()).contentShape(Capsule())
-        }.buttonStyle(.plain).accessibilityAddTraits(active ? .isSelected : [])
     }
     private func sideLabel(_ text: String) -> some View {
         Text(text).font(.caption.weight(.medium)).foregroundStyle(Palette.secondary).padding(.horizontal, 4)

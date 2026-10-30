@@ -1,8 +1,8 @@
 import XCTest
 
 final class ContinueSessionUITests: RoamttyLiveUITestCase {
-    /// 新建会话 › 继续会话 lists the tmux sessions on the one host and attaches the tapped one; tapping it again opens
-    /// the card it already has instead of a second one.
+    /// 新建会话 › 继续会话 lists the tmux sessions on the one host; picking one and 打开会话 attaches it, and opening it
+    /// again opens the card it already has instead of a second one. The host page's 继续 opens the same sheet.
     func testContinueSessionAttachesARunningTmuxSession() throws {
         let name = "roamtty-ui-continue-" + UUID().uuidString.prefix(8).lowercased()
         let surface = try openTerminal()
@@ -16,8 +16,13 @@ final class ContinueSessionUITests: RoamttyLiveUITestCase {
         openContinueSheet()
         let row = app.buttons["continue-tmux-\(name)"]
         XCTAssertTrue(row.waitForExistence(timeout: 20), "The detached session is listed")
-        capture("继续会话 lists the running tmux sessions")
         row.tap()
+        let attach = app.buttons["continue-attach"]
+        expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: attach)
+        waitForExpectations(timeout: 10)
+        XCTAssertEqual(attach.label, "打开会话")
+        capture("继续会话 lists the running tmux sessions")
+        attach.tap()
         let attached = app.descendants(matching: .any)["terminal-surface"].firstMatch
         XCTAssertTrue(attached.waitForExistence(timeout: 20))
         waitForConnected(timeout: 25)
@@ -31,7 +36,7 @@ final class ContinueSessionUITests: RoamttyLiveUITestCase {
         openContinueSheet()
         XCTAssertTrue(row.waitForExistence(timeout: 20))
         XCTAssertTrue(row.staticTexts.matching(NSPredicate(format: "label == '已打开' OR label == 'Open'")).firstMatch.exists)
-        row.tap()
+        row.tap(); app.buttons["continue-attach"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["terminal-surface"].firstMatch.waitForExistence(timeout: 20))
         waitForConnected(timeout: 25)
         let again = try runCommand("tmux display-message -p 'AGAIN_#S'")
@@ -39,20 +44,26 @@ final class ContinueSessionUITests: RoamttyLiveUITestCase {
         leaveTerminal()
         XCTAssertEqual(Set(homeSessionCards().allElementsBoundByIndex.map(\.identifier)), after, "An open session is not attached twice")
 
-        // The launch sheet's tmux tab shares the list: the session is badged, and attaching it opens the same card.
+        // The host page's 继续 opens the same sheet; 打开终端 has no tmux tab any more.
         try openHost()
+        for id in ["host-detail-agent", "host-detail-terminal", "host-detail-continue", "host-detail-files"] {
+            XCTAssertTrue(app.buttons[id].isHittable, "\(id) is on screen")
+        }
+        capture("The host page's actions with 继续")
         app.buttons["host-detail-terminal"].tap()
-        let source = app.segmentedControls["launch-source"]
-        XCTAssertTrue(source.waitForExistence(timeout: 10)); source.buttons.element(boundBy: 1).tap()
-        let launchRow = app.buttons["launch-tmux-\(name)"]
-        XCTAssertTrue(launchRow.waitForExistence(timeout: 20))
-        XCTAssertTrue(launchRow.staticTexts.matching(NSPredicate(format: "label == '已打开' OR label == 'Open'")).firstMatch.exists)
-        launchRow.tap()
-        let attach = app.buttons["launch-attach"]
-        expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: attach)
+        XCTAssertTrue(app.descendants(matching: .any)["launch-folders"].firstMatch.waitForExistence(timeout: 15))
+        XCTAssertFalse(app.segmentedControls["launch-source"].exists, "Folders only")
+        app.buttons["launch-cancel"].tap()
+        app.buttons["host-detail-continue"].tap()
+        let hostRow = app.buttons["continue-tmux-\(name)"]
+        XCTAssertTrue(hostRow.waitForExistence(timeout: 20))
+        XCTAssertTrue(hostRow.staticTexts.matching(NSPredicate(format: "label == '已打开' OR label == 'Open'")).firstMatch.exists)
+        hostRow.tap()
+        let hostAttach = app.buttons["continue-attach"]
+        expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: hostAttach)
         waitForExpectations(timeout: 10)
-        capture("The launch sheet's tmux tab")
-        attach.tap()
+        capture("The host page's 继续")
+        hostAttach.tap()
         XCTAssertTrue(app.descendants(matching: .any)["terminal-surface"].firstMatch.waitForExistence(timeout: 20))
         waitForConnected(timeout: 25)
         closeTerminal()
