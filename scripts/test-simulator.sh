@@ -32,6 +32,9 @@ print(max(runtimes, key=lambda r: tuple(map(int, r["version"].split("."))))["ide
 ')}"
   SIMULATOR="$(xcrun simctl create 'Roamtty Validation' "${ROAMTTY_SIM_DEVICE_TYPE:-com.apple.CoreSimulator.SimDeviceType.iPhone-17}" "$RUNTIME")"
 fi
+# Start from a fresh boot: a long-running simulator can stop rotating the app window
+# (the device reports landscape, the window stays portrait), failing every landscape test.
+xcrun simctl shutdown "$SIMULATOR" >/dev/null 2>&1 || true
 xcrun simctl boot "$SIMULATOR" >/dev/null 2>&1 || true
 xcrun simctl bootstatus "$SIMULATOR" -b
 python3 scripts/generate-project.py
