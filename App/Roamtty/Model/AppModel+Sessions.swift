@@ -139,6 +139,10 @@ extension AppModel {
             do { try await performInBackground { try ssh.connect() } } catch { self.disconnectSoon(ssh); throw error }
             return ssh
         }
+        runtime.onAgentReport = { [weak self, weak runtime] previous, current in
+            guard let self, let runtime, self.runtimes[record.id] === runtime else { return }
+            self.agentReported(runtime, previous: previous, current: current)
+        }
         runtimes.updateValue(runtime, forKey: record.id)?.discard()
         sessionSubscriptions[record.id] = runtime.summaryWillChange.sink { [weak self] in self?.objectWillChange.send() }
         objectWillChange.send()
@@ -264,6 +268,7 @@ extension AppModel {
         sessionSubscriptions.removeValue(forKey: id)
         MoshPreference.forget(id)
         AgentStatusMemory.set(nil, for: id)
+        AgentNotifier.shared.withdraw(id)
     }
 
     // MARK: Reconnecting by itself

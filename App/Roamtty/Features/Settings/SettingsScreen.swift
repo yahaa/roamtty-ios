@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import UserNotifications
 import RoamttyCore
 
 struct SettingsScreen: View {
@@ -11,6 +12,9 @@ struct SettingsScreen: View {
     @State private var showImporter = false
     @State private var fontError: String?
     @State private var downloadFolderError: String?
+    /// The user said no to notifications in iOS: only Settings can turn them on again.
+    @State private var notificationsDenied = false
+    @Environment(\.scenePhase) private var scenePhase
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -47,6 +51,21 @@ struct SettingsScreen: View {
                         Toggle(model.text("固定工具箱", "Keep toolbox open"), isOn: $model.settings.toolboxPinned).padding(16).accessibilityIdentifier("settings-toolbox-pinned")
                     }
 
+                    Panel(title: model.text("通知", "Notifications"), footer: model.text(
+                        "Agent 等你确认或做完一轮（超过 1 分钟）时提醒，点通知进入该会话。App 离开屏幕后，iOS 只让它再运行约半分钟，之后的变化回到 App 时提醒。",
+                        "Tells you when an agent needs you or finishes a turn of over a minute; tap it to open the session. iOS lets the app run only about half a minute after it leaves the screen; later changes are told once you are back.")) {
+                        ForEach(AgentNotifications.allCases, id: \.self) { option in
+                            checkRow(option.label(english: model.english), selected: model.settings.agentNotifications == option, id: "settings-notify-\(option.rawValue)") {
+                                model.settings.agentNotifications = option; model.saveSettings()
+                            }.panelDivider(option != .off || notificationsDenied)
+                        }
+                        if notificationsDenied {
+                            Button { if let url = URL(string: UIApplication.openNotificationSettingsURLString) { UIApplication.shared.open(url) } } label: {
+                                InfoRow(title: model.text("在系统设置中允许通知", "Allow notifications in Settings"), icon: "bell.slash")
+                            }.accessibilityIdentifier("settings-notify-system")
+                        }
+                    }
+                    .task(id: scenePhase) { notificationsDenied = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .denied }
                     Panel(title: model.text("远程桌面", "Remote desktop")) {
                         HStack {
                             Text(model.text("离开后保持", "Keep link after leaving"))

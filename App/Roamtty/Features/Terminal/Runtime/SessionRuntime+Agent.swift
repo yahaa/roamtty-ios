@@ -37,6 +37,9 @@ extension SessionRuntime {
             AgentStatusMemory.set(status, for: record.id)
         } else if !agentPolled { AgentStatusMemory.set(status, for: record.id) }
         if !agentPolled { agentPolled = true }
+        let previous = reportedAgentStatus
+        reportedAgentStatus = status
+        onAgentReport?(previous, status)
         let directory = AgentStatus.directory(answer)
         if !directory.isEmpty && directory != paneDirectory { paneDirectory = directory }
         return status
