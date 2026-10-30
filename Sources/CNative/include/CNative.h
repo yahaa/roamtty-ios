@@ -15,5 +15,21 @@ void roam_socket_shutdown(int socket);
 void roam_socket_close(int socket);
 // Numeric address of a connected socket's peer, written into `host`. Returns zero on success.
 int roam_socket_peer(int socket, char *host, int length);
+// A libssh2 session's own allocator. libssh2 1.11.1 drops the MAC keys of every key exchange under AES-GCM
+// (libssh2 #1951), so whatever a session still holds once libssh2_session_free returns is wiped and released
+// by roam_ssh_heap_destroy. The session's abstract is the heap; `user` is what callbacks were given.
+typedef struct roam_ssh_heap roam_ssh_heap;
+roam_ssh_heap *roam_ssh_heap_create(void *user);
+LIBSSH2_SESSION *roam_ssh_session_init(roam_ssh_heap *heap);
+// The `user` of a session made by roam_ssh_session_init, from a libssh2 callback's abstract.
+void *roam_ssh_user(void **abstract);
+// Replaces the session's `user`, returning the previous one.
+void *roam_ssh_set_user(LIBSSH2_SESSION *session, void *user);
+// Memory libssh2 will free itself, such as keyboard-interactive responses.
+void *roam_ssh_alloc(void **abstract, size_t size);
+// Blocks (and their bytes) the session holds now.
+size_t roam_ssh_heap_live(roam_ssh_heap *heap, size_t *bytes);
+// Releases the heap after libssh2_session_free; returns how many blocks libssh2 had left behind.
+size_t roam_ssh_heap_destroy(roam_ssh_heap *heap, size_t *bytes);
 // Atomic, same-volume move that refuses to replace any existing destination. Returns errno or zero.
 int roam_move_exclusive(const char *source, const char *destination);

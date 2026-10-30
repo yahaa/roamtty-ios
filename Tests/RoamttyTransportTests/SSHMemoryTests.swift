@@ -17,15 +17,13 @@ final class SSHMemoryTests: XCTestCase {
         let connection = try client(); defer { connection.disconnect() }
         let counter = ShutdownSends()
         let old = connection.locked {
-            let context = libssh2_session_abstract(connection.session)!
-            let previous = context.pointee
-            context.pointee = Unmanaged.passUnretained(counter).toOpaque()
+            let previous = roam_ssh_set_user(connection.session, Unmanaged.passUnretained(counter).toOpaque())
             let callback = unsafeBitCast(countShutdownSends, to: (@convention(c) () -> Void).self)
-            return (context, previous, libssh2_session_callback_set2(connection.session, LIBSSH2_CALLBACK_SEND, callback))
+            return (previous, libssh2_session_callback_set2(connection.session, LIBSSH2_CALLBACK_SEND, callback))
         }
         defer { connection.locked {
-            _ = libssh2_session_callback_set2(connection.session, LIBSSH2_CALLBACK_SEND, old.2)
-            old.0.pointee = old.1
+            _ = libssh2_session_callback_set2(connection.session, LIBSSH2_CALLBACK_SEND, old.1)
+            _ = roam_ssh_set_user(connection.session, old.0)
         } }
         var checks = 0
         XCTAssertThrowsError(try connection.openSFTP(cancelled: {
@@ -117,15 +115,13 @@ final class SSHMemoryTests: XCTestCase {
         let handle = try connection.pointer { libssh2_sftp_open_ex(sftp, "/dev/zero", 9, UInt(LIBSSH2_FXF_READ), 0, LIBSSH2_SFTP_OPENFILE) }
         let gate = PendingStreamSend()
         let old = connection.locked {
-            let context = libssh2_session_abstract(connection.session)!
-            let previous = context.pointee
-            context.pointee = Unmanaged.passUnretained(gate).toOpaque()
+            let previous = roam_ssh_set_user(connection.session, Unmanaged.passUnretained(gate).toOpaque())
             let callback = unsafeBitCast(blockStreamSend, to: (@convention(c) () -> Void).self)
-            return (context, previous, libssh2_session_callback_set2(connection.session, LIBSSH2_CALLBACK_SEND, callback))
+            return (previous, libssh2_session_callback_set2(connection.session, LIBSSH2_CALLBACK_SEND, callback))
         }
         defer { connection.locked {
-            _ = libssh2_session_callback_set2(connection.session, LIBSSH2_CALLBACK_SEND, old.2)
-            old.0.pointee = old.1
+            _ = libssh2_session_callback_set2(connection.session, LIBSSH2_CALLBACK_SEND, old.1)
+            _ = roam_ssh_set_user(connection.session, old.0)
         } }
         try stream.write([UInt8](repeating: 42, count: 65536))
         XCTAssertEqual(gate.blocked.wait(timeout: .now() + 2), .success)
@@ -148,15 +144,13 @@ final class SSHMemoryTests: XCTestCase {
         let handle = try connection.pointer { libssh2_sftp_open_ex(sftp, "/dev/zero", 9, UInt(LIBSSH2_FXF_READ), 0, LIBSSH2_SFTP_OPENFILE) }
         let gate = PendingStreamSend()
         let old = connection.locked {
-            let context = libssh2_session_abstract(connection.session)!
-            let previous = context.pointee
-            context.pointee = Unmanaged.passUnretained(gate).toOpaque()
+            let previous = roam_ssh_set_user(connection.session, Unmanaged.passUnretained(gate).toOpaque())
             let callback = unsafeBitCast(blockStreamSend, to: (@convention(c) () -> Void).self)
-            return (context, previous, libssh2_session_callback_set2(connection.session, LIBSSH2_CALLBACK_SEND, callback))
+            return (previous, libssh2_session_callback_set2(connection.session, LIBSSH2_CALLBACK_SEND, callback))
         }
         defer { connection.locked {
-            _ = libssh2_session_callback_set2(connection.session, LIBSSH2_CALLBACK_SEND, old.2)
-            old.0.pointee = old.1
+            _ = libssh2_session_callback_set2(connection.session, LIBSSH2_CALLBACK_SEND, old.1)
+            _ = roam_ssh_set_user(connection.session, old.0)
         } }
         let creation = expectation(description: "pending channel creation unwinds")
         DispatchQueue.global().async {
@@ -182,15 +176,13 @@ final class SSHMemoryTests: XCTestCase {
         let handle = try connection.pointer { libssh2_sftp_open_ex(sftp, "/dev/zero", 9, UInt(LIBSSH2_FXF_READ), 0, LIBSSH2_SFTP_OPENFILE) }
         let gate = PendingStreamSend()
         let old = connection.locked {
-            let context = libssh2_session_abstract(connection.session)!
-            let previous = context.pointee
-            context.pointee = Unmanaged.passUnretained(gate).toOpaque()
+            let previous = roam_ssh_set_user(connection.session, Unmanaged.passUnretained(gate).toOpaque())
             let callback = unsafeBitCast(blockStreamSend, to: (@convention(c) () -> Void).self)
-            return (context, previous, libssh2_session_callback_set2(connection.session, LIBSSH2_CALLBACK_SEND, callback))
+            return (previous, libssh2_session_callback_set2(connection.session, LIBSSH2_CALLBACK_SEND, callback))
         }
         defer { connection.locked {
-            _ = libssh2_session_callback_set2(connection.session, LIBSSH2_CALLBACK_SEND, old.2)
-            old.0.pointee = old.1
+            _ = libssh2_session_callback_set2(connection.session, LIBSSH2_CALLBACK_SEND, old.1)
+            _ = roam_ssh_set_user(connection.session, old.0)
         } }
         connection.resize(columns: 100, rows: 40)
         let terminal = expectation(description: "terminal unwinds pending resize")
@@ -301,14 +293,12 @@ final class SSHMemoryTests: XCTestCase {
 
     private func blockSends(_ connection: SSHConnection, _ gate: PendingStreamSend) -> () -> Void {
         connection.locked {
-            let context = libssh2_session_abstract(connection.session)!
-            let previous = context.pointee
-            context.pointee = Unmanaged.passUnretained(gate).toOpaque()
+            let previous = roam_ssh_set_user(connection.session, Unmanaged.passUnretained(gate).toOpaque())
             let callback = unsafeBitCast(blockStreamSend, to: (@convention(c) () -> Void).self)
             let old = libssh2_session_callback_set2(connection.session, LIBSSH2_CALLBACK_SEND, callback)
             return { connection.locked {
                 _ = libssh2_session_callback_set2(connection.session, LIBSSH2_CALLBACK_SEND, old)
-                context.pointee = previous
+                _ = roam_ssh_set_user(connection.session, previous)
             }; withExtendedLifetime(gate) {} }
         }
     }
@@ -350,7 +340,7 @@ final class SSHMemoryTests: XCTestCase {
 
 private final class ShutdownSends { var stopped = false; var afterStop = 0 }
 private let countShutdownSends: @convention(c) (Int32, UnsafeRawPointer?, Int, Int32, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> Int = { socket, bytes, count, flags, abstract in
-    guard let value = abstract?.pointee else { return -Int(EINVAL) }
+    guard let value = roam_ssh_user(abstract) else { return -Int(EINVAL) }
     let counter = Unmanaged<ShutdownSends>.fromOpaque(value).takeUnretainedValue()
     if counter.stopped { counter.afterStop += 1 }
     let result = send(socket, bytes, count, flags)
@@ -395,7 +385,7 @@ private final class PendingStreamSend {
     init(skipping: Int = 0, onBlock: (() -> Void)? = nil) { self.skipping = skipping; self.onBlock = onBlock }
 }
 private let blockStreamSend: @convention(c) (Int32, UnsafeRawPointer?, Int, Int32, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> Int = { socket, bytes, count, flags, abstract in
-    guard let value = abstract?.pointee else { return -Int(EINVAL) }
+    guard let value = roam_ssh_user(abstract) else { return -Int(EINVAL) }
     let gate = Unmanaged<PendingStreamSend>.fromOpaque(value).takeUnretainedValue()
     if gate.skipping > 0 {
         gate.skipping -= 1
