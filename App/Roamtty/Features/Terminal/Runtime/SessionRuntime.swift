@@ -38,6 +38,11 @@ import RoamttyTransport
     /// Whether the host has answered a status poll since this connection came up; until then the list shows what the
     /// session reported last.
     @Published var agentPolled = false
+    /// The status the last answered poll reported, starting from what the session reported before this runtime: what
+    /// `onAgentReport` compares the next report with. Unlike `agentStatus`, a dropped connection does not clear it.
+    var reportedAgentStatus: AgentStatus?
+    /// Each answered poll's report after the one before it, for the agent notifications.
+    var onAgentReport: ((_ previous: AgentStatus?, _ current: AgentStatus?) -> Void)?
     /// The folder the tmux pane was last seen in, agent or not; empty until the first poll answers.
     @Published var paneDirectory = ""
     /// A double tap (Tab) brings the Up/Down/Left keys around the toolbox pet; each one restarts their idle clock.
@@ -122,6 +127,7 @@ import RoamttyTransport
         self.record = record; self.host = host
         self.loginSnapshot = loginSnapshot ?? SessionLoginSnapshot(host: host)
         self.launchedAgent = CodingAgent.fromTitle(record.title)
+        self.reportedAgentStatus = AgentStatusMemory.value(record.id)
         let view = AccessibleTerminalView(frame: .zero)
         terminalView = view
         super.init()

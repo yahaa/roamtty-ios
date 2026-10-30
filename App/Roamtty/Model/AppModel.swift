@@ -88,6 +88,7 @@ import RoamttyTransport
             try installDesktopControlsFixture()
             #endif
         } catch { self.error = error.localizedDescription }
+        installAgentNotifications()
     }
     #if DEBUG
     /// UI tests pass a live host's login in the environment; it becomes a saved host.
@@ -118,7 +119,10 @@ import RoamttyTransport
         case .tmuxMissing: return text("未安装 tmux", "tmux missing")
         }
     }
-    func saveSettings() { do { try store?.saveSettings(settings) } catch { self.error = error.localizedDescription } }
+    func saveSettings() {
+        AgentNotifier.shared.apply(settings.agentNotifications)
+        do { try store?.saveSettings(settings) } catch { self.error = error.localizedDescription }
+    }
 
     /// Remote desktops for every host; created on first use.
     var desktops: DesktopStore {
@@ -138,6 +142,7 @@ import RoamttyTransport
 
     func resume() {
         foreground = true
+        AgentNotifier.shared.keepWatching(false)
         Diagnostics.shared.log("foreground", "sessions=\(runtimes.count) terminals=\(TerminalCensus.live)")
         for runtime in runtimes.values { runtime.probe() }
         // A terminal on screen that dropped while the app was away found the app in the background and did not
@@ -183,5 +188,7 @@ import RoamttyTransport
         for runtime in runtimes.values { runtime.clearLoginCredentials() }
         desktopStore?.live.forEach { $0.pause() }
         prompts.removeAll().forEach { $0.answer(nil) }
+        // An agent at work may still need the user or finish before iOS suspends the app.
+        AgentNotifier.shared.keepWatching(runtimes.values.contains { $0.phase == .connected && ($0.agentStatus.map { $0.state != .idle } ?? false) })
     }
 }

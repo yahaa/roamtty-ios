@@ -11,6 +11,8 @@ import RoamttyCore
         // SO_NOSIGPIPE set; its default action kills the app with no crash report. Ignored, the write fails with EPIPE.
         signal(SIGPIPE, SIG_IGN)
         Diagnostics.shared.start()
+        // Before launching finishes, so the tap on a notification that launched the app opens its session.
+        AgentNotifier.shared.install()
     }
     var body: some Scene {
         WindowGroup {

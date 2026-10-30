@@ -2,7 +2,8 @@ import SwiftUI
 
 extension View {
     func pageBackground() -> some View { background(Palette.background).foregroundStyle(Palette.foreground) }
-    func panelDivider() -> some View { overlay(alignment: .bottom) { Divider().overlay(Palette.outline).padding(.leading, 16) } }
+    /// The line under a panel row; `shown` false for the last row.
+    func panelDivider(_ shown: Bool = true) -> some View { overlay(alignment: .bottom) { if shown { Divider().overlay(Palette.outline).padding(.leading, 16) } } }
 }
 /// Queue incoming shares until an existing preview, transfer, or command sheet closes.
 struct ChildModalPresence: ViewModifier {

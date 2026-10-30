@@ -164,12 +164,14 @@ public struct AppSettings: Codable, Equatable {
     public var desktopHosts: [String: DesktopHostSettings] = [:]
     /// Debug: replace the pinned plugin base URL.
     public var desktopPluginBaseUrl = ""
+    /// Which agent notifications come (设置 → 通知).
+    public var agentNotifications = AgentNotifications.all
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
         case theme, language, font, fontSize, showHiddenFiles, toolboxPinned, downloadBookmark
         case fileSort, fileSortDescending, codeWrap, codeFontSize
-        case desktopKeepAliveMinutes, desktopShowStats, desktopHosts, desktopPluginBaseUrl
+        case desktopKeepAliveMinutes, desktopShowStats, desktopHosts, desktopPluginBaseUrl, agentNotifications
     }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -190,6 +192,7 @@ public struct AppSettings: Codable, Equatable {
         desktopShowStats = (try? values.decodeIfPresent(Bool.self, forKey: .desktopShowStats)) ?? false
         desktopHosts = (try? values.decodeIfPresent([String: DesktopHostSettings].self, forKey: .desktopHosts)) ?? [:]
         desktopPluginBaseUrl = (try? values.decodeIfPresent(String.self, forKey: .desktopPluginBaseUrl)) ?? ""
+        agentNotifications = AgentNotifications(rawValue: (try? values.decodeIfPresent(String.self, forKey: .agentNotifications)) ?? "") ?? .all
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -209,6 +212,7 @@ public struct AppSettings: Codable, Equatable {
         try values.encode(desktopShowStats, forKey: .desktopShowStats)
         try values.encode(desktopHosts, forKey: .desktopHosts)
         try values.encode(desktopPluginBaseUrl, forKey: .desktopPluginBaseUrl)
+        try values.encode(agentNotifications, forKey: .agentNotifications)
     }
 }
 
