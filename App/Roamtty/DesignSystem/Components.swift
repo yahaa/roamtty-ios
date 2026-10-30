@@ -22,6 +22,19 @@ struct Panel<Content: View>: View {
         }
     }
 }
+/// A form sheet's bar in landscape, where height is short: flat and 48pt like the launch sheet's, the title centered
+/// between its actions.
+struct LandscapeSheetBar<Leading: View, Trailing: View>: View {
+    let title: String
+    @ViewBuilder var leading: Leading
+    @ViewBuilder var trailing: Trailing
+    var body: some View {
+        ZStack {
+            Text(title).font(.system(size: 17, weight: .semibold)).lineLimit(1).padding(.horizontal, 100)
+            HStack(spacing: 0) { leading; Spacer(minLength: 0); trailing }
+        }.padding(.horizontal, 8).frame(height: 48)
+    }
+}
 struct InfoRow: View {
     let title: String
     var value: String? = nil
