@@ -35,12 +35,9 @@ struct ContinueSessionScreen: View {
     /// Like the launch sheet there: one flat bar, the list over the whole height, and a side column with the picked
     /// session and the button at its foot.
     @ViewBuilder private var landscape: some View {
-        HStack(spacing: 6) {
-            Button { dismiss() } label: { AppIcon("ic_close", size: 24).frame(width: 44, height: 44).contentShape(Rectangle()) }
-                .buttonStyle(.plain).accessibilityLabel(model.text("关闭", "Close")).accessibilityIdentifier("continue-close")
-            Text(heading).font(.system(size: 17, weight: .semibold)).lineLimit(1)
-            Spacer(minLength: 0)
-        }.padding(.horizontal, 6).frame(height: 48)
+        LandscapeBar(title: heading) {
+            BarIconButton(icon: "ic_close", label: model.text("关闭", "Close"), id: "continue-close") { dismiss() }
+        } trailing: { EmptyView() }
         HStack(alignment: .top, spacing: 10) {
             listBox
             VStack(alignment: .leading, spacing: 8) {

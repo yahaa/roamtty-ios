@@ -6,6 +6,7 @@ import RoamttyTransport
 struct CommandSheet: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) var dismiss
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @ObservedObject var runtime: SessionRuntime
     @State private var connectionTarget: RemoteConnectionTarget
     @State private var query = ""
@@ -24,18 +25,26 @@ struct CommandSheet: View {
         // Merged, filtered and given their font once per update, not once per line that reads them.
         let commands = self.commands, font = Font(FontCatalog.shared.font(selection: model.settings.font, size: 13) as CTFont)
         VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: 0) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(model.text("常用命令", "Common commands")).font(.system(size: 20, weight: .semibold))
-                    Text(model.text("点按即执行", "Tap to run")).font(.footnote).foregroundStyle(Palette.secondary)
-                }.frame(maxWidth: .infinity, alignment: .leading)
-                Button { refreshID += 1 } label: { AppIcon("ic_refresh").frame(width: 48, height: 48) }
-                    .foregroundStyle(Palette.secondary).disabled(!connected || historyLoading)
-                    .accessibilityLabel(model.text("刷新", "Refresh")).accessibilityIdentifier("history-refresh")
-                Button { dismiss() } label: { AppIcon("ic_close").frame(width: 48, height: 48) }
-                    .foregroundStyle(Palette.secondary).accessibilityLabel(model.text("关闭", "Close")).accessibilityIdentifier("command-done")
-            }.padding(.leading, 17).padding(.trailing, 8).padding(.top, 20).padding(.bottom, 12)
-            AppSearchField(text: $query, placeholder: model.text("搜索命令", "Search commands"), id: "history-search").padding(.horizontal, 16)
+            if compact {
+                // Landscape: one flat bar with the count after the title and the search in it, so the list keeps the height.
+                LandscapeBar(title: model.text("常用命令", "Common commands"), detail: historyLoading || commands.isEmpty ? nil : sourceLine(commands.count)) {
+                    BarIconButton(icon: "ic_close", label: model.text("关闭", "Close"), id: "command-done") { dismiss() }
+                } trailing: {
+                    AppSearchField(text: $query, placeholder: model.text("搜索命令", "Search commands"), id: "history-search", compact: true).frame(width: 260)
+                    refreshButton
+                }
+            } else {
+                HStack(alignment: .center, spacing: 0) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(model.text("常用命令", "Common commands")).font(.system(size: 20, weight: .semibold))
+                        Text(model.text("点按即执行", "Tap to run")).font(.footnote).foregroundStyle(Palette.secondary)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    refreshButton
+                    Button { dismiss() } label: { AppIcon("ic_close").frame(width: 48, height: 48) }
+                        .foregroundStyle(Palette.secondary).accessibilityLabel(model.text("关闭", "Close")).accessibilityIdentifier("command-done")
+                }.padding(.leading, 17).padding(.trailing, 8).padding(.top, 20).padding(.bottom, 12)
+                AppSearchField(text: $query, placeholder: model.text("搜索命令", "Search commands"), id: "history-search").padding(.horizontal, 16)
+            }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if historyLoading {
@@ -46,20 +55,29 @@ struct CommandSheet: View {
                     } else if commands.isEmpty {
                         note(query.trimmingCharacters(in: .whitespaces).isEmpty ? model.text("未找到可用命令", "No commands found") : model.text("无匹配命令", "No matching commands"))
                     } else {
-                        Text(model.text("\(commands.count) 条 · \(historySource)", "\(commands.count) · \(historySource)")).font(.subheadline.weight(.medium))
-                            .foregroundStyle(Palette.secondary).lineLimit(1).padding(.horizontal, 16).padding(.bottom, 8).accessibilityIdentifier("history-source")
+                        if !compact {
+                            Text(sourceLine(commands.count)).font(.subheadline.weight(.medium))
+                                .foregroundStyle(Palette.secondary).lineLimit(1).padding(.horizontal, 16).padding(.bottom, 8).accessibilityIdentifier("history-source")
+                        }
                         VStack(spacing: 0) {
                             ForEach(Array(commands.enumerated()), id: \.element) { index, command in
                                 row(command, index: index, last: index == commands.count - 1, font: font)
                             }
                         }.background(Palette.panel, in: RoundedRectangle(cornerRadius: 12)).clipShape(RoundedRectangle(cornerRadius: 12))
                     }
-                }.padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 24)
+                }.padding(.horizontal, 16).padding(.top, compact ? 4 : 16).padding(.bottom, 24)
             }.accessibilityIdentifier("command-history-list")
         }.foregroundStyle(Palette.foreground).background(Palette.sheet.ignoresSafeArea())
             .presentationDetents([.fraction(0.88), .large]).presentationDragIndicator(.visible)
             .modifier(ChildModalPresence()).overlay { AuthenticationOverlay() }
             .task(id: refreshID) { await refreshHistory() }
+    }
+    private var compact: Bool { verticalSizeClass == .compact }
+    private func sourceLine(_ count: Int) -> String { model.text("\(count) 条 · \(historySource)", "\(count) · \(historySource)") }
+    private var refreshButton: some View {
+        Button { refreshID += 1 } label: { AppIcon("ic_refresh").frame(width: compact ? 44 : 48, height: compact ? 44 : 48) }
+            .foregroundStyle(Palette.secondary).disabled(!connected || historyLoading)
+            .accessibilityLabel(model.text("刷新", "Refresh")).accessibilityIdentifier("history-refresh")
     }
     private func note(_ text: String) -> some View {
         Text(text).font(.subheadline).foregroundStyle(Palette.secondary).multilineTextAlignment(.center).frame(maxWidth: .infinity).padding(.vertical, 24)

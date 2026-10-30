@@ -223,12 +223,9 @@ struct LaunchScreen: View {
     /// Landscape, like the host page there: one flat bar with close and the heading; the folders take the whole height
     /// on the left, and a side column holds the recent folders, the agent pickers and the launch button.
     @ViewBuilder private var landscape: some View {
-        HStack(spacing: 6) {
-            Button { dismiss() } label: { AppIcon("ic_close", size: 24).frame(width: 44, height: 44).contentShape(Rectangle()) }
-                .buttonStyle(.plain).accessibilityLabel(model.text("关闭", "Close")).accessibilityIdentifier("launch-cancel")
-            Text(heading).font(.system(size: 17, weight: .semibold)).lineLimit(1).padding(.trailing, 6)
-            Spacer(minLength: 0)
-        }.padding(.horizontal, 6).frame(height: 48)
+        LandscapeBar(title: heading) {
+            BarIconButton(icon: "ic_close", label: model.text("关闭", "Close"), id: "launch-cancel") { dismiss() }
+        } trailing: { EmptyView() }
         HStack(alignment: .top, spacing: 10) {
             folderBox
             // The pickers and the button keep their place at the bottom; the recent folders scroll in what is left.

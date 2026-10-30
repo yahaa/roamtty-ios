@@ -204,7 +204,7 @@ struct FileBrowserScreen: View {
             Button(model.text("上传文件夹", "Upload folder")) { folderImporter = true; importer = true }
         } label: { Label { Text(model.text("上传", "Upload")) } icon: { Image("ic_upload") } }.accessibilityIdentifier("files-upload")
         Button { selecting.toggle(); if !selecting { selectedOnly = false } } label: { Label { Text(selecting ? model.text("结束批量下载", "Finish batch download") : model.text("批量下载", "Batch download")) } icon: { Image("ic_download") } }.accessibilityIdentifier("files-select")
-        Button { transfers = true } label: { Label { Text(model.text("传输", "Transfers")) } icon: { Image("ic_cloud_download") } }
+        Button { transfers = true } label: { Label { Text(model.text("传输", "Transfers")) } icon: { Image("ic_cloud_download") } }.accessibilityIdentifier("files-transfers")
         Button { UIPasteboard.general.string = directory } label: { Label { Text(model.text("复制当前路径", "Copy current path")) } icon: { Image("ic_copy") } }.accessibilityIdentifier("files-copy-current-path")
         if !downloadSelection && model.path.contains(.host(host.id)) {
             Button { model.path = [.host(host.id)] } label: { Label { Text(model.text("返回主机详情", "Back to host details")) } icon: { Image("ic_close") } }.accessibilityIdentifier("files-close")
