@@ -405,13 +405,13 @@ final class DesktopLaunchUITests: XCTestCase {
             if keyboardContinue.waitForExistence(timeout: 2) { keyboardContinue.tap() }
             let toggle = app.buttons["desktop-kb-toggle"]
             if toggle.waitForExistence(timeout: 3) {
-                assertPictureAboveControls(app, controls: toggle)
+                assertPictureClearsKeyboard(app, landscape: landscape, fullHeight: fullPictureHeight, controls: toggle)
                 if landscape { capture(app, "Landscape before shortcut toggle") }
                 toggle.tap()
             }
             XCTAssertTrue(app.buttons["desktop-kb-more"].waitForExistence(timeout: 5))
             if !landscape { XCTAssertFalse(ops.exists, "Portrait rail is replaced by the keyboard") }
-            assertPictureAboveControls(app, controls: app.buttons["desktop-kb-more"])
+            assertPictureClearsKeyboard(app, landscape: landscape, fullHeight: fullPictureHeight, controls: app.buttons["desktop-kb-more"])
 
             let modifier = app.buttons.matching(NSPredicate(format: "label == 'Ctrl' OR label == '⌃'")).firstMatch
             XCTAssertTrue(modifier.exists)
@@ -427,7 +427,7 @@ final class DesktopLaunchUITests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.5)
             let f12 = app.buttons["F12"]
             XCTAssertTrue(f12.waitForExistence(timeout: 5)); XCTAssertTrue(f12.isHittable)
-            assertPictureAboveControls(app, controls: app.buttons["desktop-kb-more"])
+            assertPictureClearsKeyboard(app, landscape: landscape, fullHeight: fullPictureHeight, controls: app.buttons["desktop-kb-more"])
             f12.tap()
             let shift = app.buttons["Shift"]
             XCTAssertTrue(shift.isHittable); shift.tap()
@@ -445,6 +445,16 @@ final class DesktopLaunchUITests: XCTestCase {
             XCTAssertEqual(modifier.value as? String ?? "", "", "Closing the keyboard must clear locked modifiers")
             app.buttons.matching(NSPredicate(format: "label == '关闭键盘' OR label == 'Close keyboard'")).firstMatch.tap()
         }
+    }
+
+    /// Portrait: the picture shrinks to fit above the keyboard. Landscape: the picture is short already, so it keeps
+    /// its full height and the keyboard floats over its lower part.
+    private func assertPictureClearsKeyboard(_ app: XCUIApplication, landscape: Bool, fullHeight: CGFloat, controls: XCUIElement) {
+        guard landscape else { return assertPictureAboveControls(app, controls: controls) }
+        let picture = app.otherElements["desktop-video-surface"]
+        XCTAssertEqual(picture.frame.height, fullHeight, accuracy: 1, "The landscape keyboard does not shrink the picture")
+        XCTAssertGreaterThan(picture.frame.maxY, controls.frame.maxY,
+                             "The landscape keyboard floats over the picture instead of shrinking it")
     }
 
     private func assertPictureAboveControls(_ app: XCUIApplication, controls: XCUIElement) {
