@@ -58,13 +58,22 @@ final class DesktopLaunchUITests: XCTestCase {
             if app.buttons["Continue"].waitForExistence(timeout: 1) { app.buttons["Continue"].tap() }
             let hideKeyboard = app.buttons["关闭键盘"]
             XCTAssertTrue(hideKeyboard.waitForExistence(timeout: 5))
-            assertPictureAboveControls(app, controls: hideKeyboard)
+            if landscape {
+                // The landscape picture is short already: rather than shrinking above the keyboard,
+                // it keeps running under the floating keyboard bar.
+                XCTAssertGreaterThan(picture.frame.maxY, hideKeyboard.frame.maxY,
+                                     "The landscape keyboard floats over the picture instead of shrinking it")
+            } else {
+                assertPictureAboveControls(app, controls: hideKeyboard)
+            }
             let rtt = app.staticTexts["UDP 15 ms"]
             if landscape { XCTAssertEqual(rtt.frame.minX, picture.frame.minX + 15, accuracy: 1) }
             XCTAssertEqual(rtt.frame.minY, picture.frame.minY + 12, accuracy: 1)
             XCTAssertTrue(picture.frame.contains(app.staticTexts["1920×1246 videotoolbox"].frame))
             capture(app, landscape ? "Landscape overlay with keyboard" : "Portrait overlay with keyboard")
-            hideKeyboard.tap()
+            // A tap that lands while the keyboard is still settling can be dropped; the next rotation needs it down.
+            for _ in 0..<2 where hideKeyboard.exists { hideKeyboard.tap(); _ = app.keyboards.firstMatch.waitForNonExistence(timeout: 3) }
+            XCTAssertFalse(app.keyboards.firstMatch.exists, "Closing the keyboard must put it away")
         }
     }
 
@@ -137,11 +146,18 @@ final class DesktopLaunchUITests: XCTestCase {
         // control; querying the offscreen row's hit point can fail in XCTest.
         let toggle = row.switches.firstMatch
         XCTAssertTrue(toggle.waitForExistence(timeout: 5))
-        for _ in 0..<5 where !scroll.frame.contains(toggle.frame) {
-            if toggle.frame.minY < scroll.frame.minY { scroll.swipeDown() }
-            else { scroll.swipeUp() }
+        // swipeUp/swipeDown do not move this panel in landscape; drag explicitly within the visible scroll area.
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        for _ in 0..<6 where !scroll.frame.contains(toggle.frame) {
+            let frame = scroll.frame, up = toggle.frame.minY > frame.minY
+            let (from, to) = up ? (frame.minY + frame.height * 0.8, frame.minY + frame.height * 0.25)
+                                : (frame.minY + frame.height * 0.25, frame.minY + frame.height * 0.8)
+            origin.withOffset(CGVector(dx: frame.midX, dy: from))
+                .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: frame.midX, dy: to)))
         }
-        XCTAssertTrue(toggle.isHittable)
+        // The operations sheet may still be sliding in; wait for the switch to settle under a finger.
+        let hittable = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: toggle)
+        XCTAssertEqual(XCTWaiter.wait(for: [hittable], timeout: 5), .completed, "The network stats switch must be tappable: \(toggle.frame) in \(scroll.frame), window \(app.frame)")
         toggle.tap()
         app.buttons["desktop-op-close"].tap()
     }

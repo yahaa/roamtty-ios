@@ -377,6 +377,8 @@ extension AppModel {
 
     /// Read-only desktop probe over the host's shared connection (host page / session connect).
     func refreshDesktopProbe(_ host: Host) async {
+        // Best-effort: never ask for a password just to look. The monitor runs it again once the user logs in.
+        guard connections[host.id]?.isConnected == true || canLoginSilently(host) else { return }
         do {
             let ssh = try await connection(for: host.id)
             let found = try await performInBackground { DesktopProbeScript.probe(SSHDesktopHost(connection: ssh)) }

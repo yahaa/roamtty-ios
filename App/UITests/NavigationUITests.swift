@@ -9,15 +9,17 @@ final class NavigationUITests: RoamttyLiveUITestCase {
         app.buttons["save-host"].tap()
         let card = app.buttons["host-" + name]
         XCTAssertTrue(card.waitForExistence(timeout: 5))
-        waitFor(NSPredicate(format: "label CONTAINS '离线' OR label CONTAINS 'Offline'"), element: card, timeout: 10)
+        waitFor(NSPredicate(format: "label CONTAINS '离线' OR label CONTAINS 'Offline'"), element: status(of: card), timeout: 10)
 
         app.buttons["search-hosts"].tap()
         let search = app.textFields["host-search"]
         XCTAssertTrue(search.waitForExistence(timeout: 3))
+        let liveAddress = ProcessInfo.processInfo.environment["ROAMTTY_TEST_HOST"]
         for query in [name.uppercased(), "127.0.0.1", username] {
             replace(search, with: query)
             XCTAssertTrue(card.exists, "Host search must match name, address and username")
-            XCTAssertFalse(app.buttons["host-UI Live Host"].exists)
+            // A fixture served on loopback shares this address, and then the live host rightly matches too.
+            if query != liveAddress { XCTAssertFalse(app.buttons["host-UI Live Host"].exists) }
         }
         replace(search, with: "no-such-host-" + suffix)
         XCTAssertFalse(card.exists)
@@ -45,8 +47,9 @@ final class NavigationUITests: RoamttyLiveUITestCase {
         let saved = app.buttons["host-" + edited]
         XCTAssertTrue(saved.waitForExistence(timeout: 8))
         XCTAssertTrue(saved.label.contains("changed_" + suffix.lowercased()))
-        XCTAssertTrue(saved.label.contains("SSH"))
-        waitFor(NSPredicate(format: "label CONTAINS '离线' OR label CONTAINS 'Offline'"), element: saved, timeout: 10)
+        // Cards show installed plugins; an unprobed host shows tmux only in tmux mode, so plain SSH drops it.
+        XCTAssertFalse(saved.label.contains("tmux"), "The plain SSH mode must persist")
+        waitFor(NSPredicate(format: "label CONTAINS '离线' OR label CONTAINS 'Offline'"), element: status(of: saved), timeout: 10)
         capture("Edited offline host persisted after relaunch")
         saved.tap()
 
@@ -176,7 +179,7 @@ final class NavigationUITests: RoamttyLiveUITestCase {
             let top = max(frame.minY, app.navigationBars.firstMatch.frame.maxY)
             let visible = CGRect(x: frame.minX, y: top, width: frame.width, height: max(0, bottom - top))
             if element.exists && element.isHittable && visible.contains(element.frame) { return }
-            guard attempt < 6 else { XCTFail("The control did not become visible above the keyboard"); return }
+            guard attempt < 6 else { XCTFail("The control did not become visible above the keyboard: \(element.frame) hittable \(element.isHittable), visible \(visible), keyboard \(keyboard.exists) keys \(app.keys.count)"); return }
             XCTAssertGreaterThan(bottom - top, 80)
             let origin = app.coordinate(withNormalizedOffset: .zero)
             origin.withOffset(CGVector(dx: frame.midX, dy: top + visible.height * 0.75)).press(forDuration: 0.05,
@@ -184,8 +187,16 @@ final class NavigationUITests: RoamttyLiveUITestCase {
         }
     }
 
-    private func waitFor(_ predicate: NSPredicate, element: XCUIElement, timeout: Double) {
+    /// The card's reachability pill sits beside its button; both are keyed by the host id the login line carries.
+    private func status(of card: XCUIElement) -> XCUIElement {
+        let login = card.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH 'host-login-'")).firstMatch
+        XCTAssertTrue(login.waitForExistence(timeout: 5))
+        return app.descendants(matching: .any)["host-status-" + login.identifier.dropFirst("host-login-".count)]
+    }
+
+    private func waitFor(_ predicate: NSPredicate, element: XCUIElement, timeout: Double,
+                         file: StaticString = #filePath, line: UInt = #line) {
         let check = XCTNSPredicateExpectation(predicate: predicate, object: element)
-        XCTAssertEqual(XCTWaiter.wait(for: [check], timeout: timeout), .completed)
+        XCTAssertEqual(XCTWaiter.wait(for: [check], timeout: timeout), .completed, file: file, line: line)
     }
 }
