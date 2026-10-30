@@ -404,19 +404,17 @@ final class FilesUITests: RoamttyLiveUITestCase {
         capture("Launch sheet — landscape")
         close.tap()
 
-        // tmux: the selected session is shown on a card above a short button.
-        app.buttons["host-detail-terminal"].tap()
-        let tmux = app.buttons["tmux 会话"]
-        XCTAssertTrue(tmux.waitForExistence(timeout: 15)); tmux.tap()
+        // 继续: the selected session is shown on a card above the button, which says the same as in portrait.
+        app.buttons["host-detail-continue"].tap()
         let card = app.descendants(matching: .any)["launch-tmux-selected"]
         if card.waitForExistence(timeout: 15) {
-            let attach = app.buttons["launch-attach"]
+            let attach = app.buttons["continue-attach"]
             XCTAssertTrue(attach.isHittable)
             XCTAssertLessThan(card.frame.maxY, attach.frame.minY, "The card is over the button")
             XCTAssertEqual(attach.label, "打开会话")
-            capture("Launch sheet — landscape tmux")
+            capture("Continue sheet — landscape")
         }
-        app.buttons["launch-cancel"].tap()
+        app.buttons["continue-close"].tap()
 
         app.buttons["host-detail-files"].tap()
         let search = app.textFields["files-search"]

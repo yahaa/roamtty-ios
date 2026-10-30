@@ -37,14 +37,10 @@ struct HostDetailScreen: View {
                         ReachabilityLabel(state: model.reachability[hostID] ?? .checking)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
-                HStack(spacing: 8) {
-                    Button { model.sheet = .launch(host, true) } label: { actionLabel("Agent", "ic_agent") }.buttonStyle(RoamButtonStyle(filled: true)).accessibilityIdentifier("host-detail-agent")
-                    Button { model.sheet = .launch(host, false) } label: { actionLabel(model.text("终端", "Terminal"), "ic_sessions") }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-terminal")
-                    Button { model.path.append(.files(hostID)) } label: { actionLabel(model.text("文件", "Files"), "ic_folder") }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-files")
-                    if model.desktopSupported(host) {
-                        Button { model.openDesktop(host) } label: { actionLabel(model.text("桌面", "Desktop"), "ic_desktop") }
-                            .buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-desktop")
-                    }
+                // Five buttons on a narrow phone: the icons step aside before a label would be cut short.
+                ViewThatFits(in: .horizontal) {
+                    actions(host, icons: true)
+                    actions(host, icons: false)
                 }
                 monitorStatus(host)
                 if let metrics = model.metrics[hostID] { MetricsPanel(metrics: metrics, series: model.metricSeries[hostID] ?? HostMetricSeries()) }
@@ -91,8 +87,21 @@ struct HostDetailScreen: View {
         case .interactive: return model.text("交互式认证", "Interactive")
         }
     }
-    private func actionLabel(_ title: String, _ icon: String) -> some View {
-        HStack(spacing: 8) { AppIcon(icon, size: 18); Text(title) }
+    private func actions(_ host: Host, icons: Bool) -> some View {
+        HStack(spacing: 8) {
+            Button { model.sheet = .launch(host, true) } label: { actionLabel("Agent", "ic_agent", icons) }.buttonStyle(RoamButtonStyle(filled: true)).accessibilityIdentifier("host-detail-agent")
+            Button { model.sheet = .launch(host, false) } label: { actionLabel(model.text("终端", "Terminal"), "ic_sessions", icons) }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-terminal")
+            Button { model.sheet = .continueSession(host) } label: { actionLabel(model.text("继续", "Continue"), "ic_history", icons) }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-continue")
+            Button { model.path.append(.files(hostID)) } label: { actionLabel(model.text("文件", "Files"), "ic_folder", icons) }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-files")
+            if model.desktopSupported(host) {
+                Button { model.openDesktop(host) } label: { actionLabel(model.text("桌面", "Desktop"), "ic_desktop", icons) }
+                    .buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-desktop")
+            }
+        }
+    }
+    /// The label at its full width, so the row that would cut it short does not fit and the one without icons is used.
+    private func actionLabel(_ title: String, _ icon: String, _ withIcon: Bool) -> some View {
+        HStack(spacing: 8) { if withIcon { AppIcon(icon, size: 18) }; Text(title).lineLimit(1).fixedSize() }.padding(.horizontal, 8)
     }
     /// The monitor is connected and reading, so its numbers are current.
     var monitorLive: Bool { model.monitorStates[hostID].map { $0.phase == .connected && $0.sampled && !$0.reconnecting && !$0.samplingFailed } ?? false }
