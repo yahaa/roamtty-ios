@@ -219,6 +219,86 @@ final class DesktopGestureUITests: XCTestCase {
         start.press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: to.x, dy: to.y)), withVelocity: 600, thenHoldForDuration: 0)
     }
 
+    /// The rail's 显示桌面, tapped again and again: each tap must reach the host at once and change its picture.
+    func testShowDesktopButtonEveryTap() throws {
+        try launch(pointer: "touch")
+        let button = app.buttons["显示桌面"]
+        XCTAssertTrue(button.waitForExistence(timeout: 5))
+        var report: [String] = []
+        for i in 1...6 {
+            let before = picture(), sent = probeCount()
+            let tapped = Date()
+            button.tap()
+            let tapMs = Int(Date().timeIntervalSince(tapped) * 1000)
+            // The app sent it?
+            var sentMs = -1
+            while Date().timeIntervalSince(tapped) < 3 {
+                if probeCount() > sent, tokens().last == "a1" { sentMs = Int(Date().timeIntervalSince(tapped) * 1000); break }
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            // The host's picture changed?
+            var changedMs = -1
+            while Date().timeIntervalSince(tapped) < 5 {
+                let after = picture()
+                let share = Double(zip(before, after).filter { abs(Int($0) - Int($1)) > 16 }.count) / Double(max(1, before.count))
+                if share > 0.02 { changedMs = Int(Date().timeIntervalSince(tapped) * 1000); break }
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            report.append("tap \(i): tap() \(tapMs) ms, sent \(sentMs) ms, picture changed \(changedMs) ms")
+            capture("show desktop tap \(i)")
+            pause(2)
+        }
+        NSLog("RoamttyShowDesktop %@", report.joined(separator: " | "))
+        let a = XCTAttachment(string: report.joined(separator: "\n")); a.name = "show desktop timings"; a.lifetime = .keepAlways; add(a)
+        for line in report {
+            XCTAssertFalse(line.contains("sent -1"), line)
+            XCTAssertFalse(line.contains("changed -1"), line)
+        }
+    }
+
+    /// A Mac with a full-screen app in front (the runner activates it first): 显示桌面 must answer at once with the slide, and a second, impatient tap must not undo it.
+    func testShowDesktopFromFullScreenTappedTwice() throws {
+        try launch(pointer: "touch")
+        let button = app.buttons["显示桌面"]
+        XCTAssertTrue(button.waitForExistence(timeout: 5))
+        pause(1)
+        capture("full-screen app in front")
+        let app0 = picture()
+        let tapped = Date()
+        button.tap()
+        button.tap() // the impatient second tap, a moment later
+        var samples: [(ms: Int, pic: [UInt8])] = []
+        while Date().timeIntervalSince(tapped) < 4 {
+            samples.append((Int(Date().timeIntervalSince(tapped) * 1000), picture()))
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        func differs(_ a: [UInt8], _ b: [UInt8]) -> Double {
+            Double(zip(a, b).filter { abs(Int($0) - Int($1)) > 16 }.count) / Double(max(1, a.count))
+        }
+        let first = samples.first { differs(app0, $0.pic) > 0.02 }?.ms ?? -1
+        let moving = zip(samples, samples.dropFirst()).filter { differs($0.pic, $1.pic) > 0.02 }.map { $1.ms }
+        pause(1)
+        let end = picture()
+        capture("after two taps")
+        let report = "first change \(first) ms, picture changed at \(moving) ms, end differs from the app by \(String(format: "%.2f", differs(app0, end)))"
+        NSLog("RoamttyShowDesktopFullScreen %@", report)
+        let a = XCTAttachment(string: report); a.name = "timings"; a.lifetime = .keepAlways; add(a)
+        XCTAssertGreaterThanOrEqual(first, 0, report)
+        XCTAssertLessThan(first, 1200, "the slide starts at once, the picture does not freeze: \(report)")
+        XCTAssertGreaterThan(differs(app0, end), 0.2, "the second tap did not undo the first: the desktop shows. \(report)")
+        // Back where it started: the app's Space, the desktop shown again hidden.
+        button.tap()
+        pause(1.5)
+    }
+
+    /// ⌃⌘F on the host from a hardware keyboard (the simulator's): puts a Mac's front window in full screen, or takes it out.
+    func testToggleHostFullScreen() throws {
+        try launch(pointer: "touch")
+        app.typeKey("f", modifierFlags: [.command, .control])
+        pause(3)
+        capture("after control-command-F")
+    }
+
     /// Connects and looks, sending nothing: to see what is on a host before testing on it.
     func testLookAtHost() throws {
         try launch(pointer: "mouse")
@@ -408,7 +488,8 @@ final class DesktopGestureUITests: XCTestCase {
     }
 
     private func probeCount() -> Int {
-        Int(probe.label.split(separator: " ").first?.dropFirst() ?? "") ?? 0
+        guard probe.exists else { return 0 }
+        return Int(probe.label.split(separator: " ").first?.dropFirst() ?? "") ?? 0
     }
 
     private func pinchAndSmartZoom(touch: Bool) throws {

@@ -69,6 +69,10 @@ import RoamttyDesktopCore
         case .swipe(let d): token = "s\(d)"
         case .feedback(let f): token = "f\(f)"
         }
+        probeToken(token)
+    }
+    func probeToken(_ token: String) {
+        guard inputProbeOn else { return }
         // Moves and wheel steps come many at a time: one token stands for a run of them.
         if let last = inputProbeLog.last, last.first == token.first, "mwz".contains(token.first!) {
             inputProbeLog[inputProbeLog.count - 1] = token
@@ -217,6 +221,7 @@ import RoamttyDesktopCore
     }
     func input(_ bytes: [UInt8]) {
         #if DEBUG
+        if inputProbeOn, bytes.count == 5, Int(bytes[0]) == DesktopProtocol.ACTION { probeToken("a\(bytes[4])") }
         // Existing rail actions drive real in-place phase transitions in the isolated UI fixture.
         if fixtureRecoverySequence {
             if bytes == DesktopProtocol.action(DesktopProtocol.ACTION_ALL_WINDOWS) {

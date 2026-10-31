@@ -216,10 +216,13 @@ struct DesktopPage: View {
             ("ic_keyboard", model.text("键盘", "Keys"), panel == .keyboard, {
                 togglePanel(.keyboard); imeFocused = panel == .keyboard && keyboardPage == .ime
             }),
+            // A tap is felt at once: from a Mac's full-screen app the host takes a moment to slide over.
             ("ic_show_desktop", model.text("显示桌面", "Desktop"), false, {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 controller.input(DesktopProtocol.action(DesktopProtocol.ACTION_SHOW_DESKTOP))
             }),
             ("ic_windows_all", model.text("所有窗口", "Windows"), false, {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 controller.input(DesktopProtocol.action(DesktopProtocol.ACTION_ALL_WINDOWS))
             }),
         ]
