@@ -72,6 +72,12 @@ struct DesktopPage: View {
                     .ignoresSafeArea(.container, edges: panel == .keyboard ? [] : .bottom)
                 }
                 #if DEBUG
+                if !controller.inputProbe.isEmpty {
+                    // Test only: what the gestures sent (ROAMTTY_DESKTOP_INPUT_PROBE=1).
+                    Text(controller.inputProbe).font(.system(size: 6)).opacity(0.02).allowsHitTesting(false)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .accessibilityIdentifier("desktop-input-probe")
+                }
                 if !controller.audioProbe.isEmpty {
                     // Test only: a near-invisible line the live UI test reads (ROAMTTY_DESKTOP_AUDIO_PROBE=1).
                     Text(controller.audioProbe).font(.system(size: 6)).opacity(0.02).allowsHitTesting(false)
@@ -112,6 +118,10 @@ struct DesktopPage: View {
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
+        // Swipes from the screen's edges are the desktop's (edge swipes, drags to the Dock): the system's
+        // own edge gestures need a second swipe, and the home indicator fades. 操作 › 返回 leaves the page.
+        .defersSystemGestures(on: .all)
+        .persistentSystemOverlays(.hidden)
         .task {
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             while !Task.isCancelled {
@@ -121,6 +131,7 @@ struct DesktopPage: View {
         }
         .onAppear {
             updateIslandSide()
+            InteractivePopGesture.blocked = true
             controller.resume()
             showStats = model.settings.desktopShowStats
             page.showStats = showStats
@@ -132,6 +143,7 @@ struct DesktopPage: View {
             // Leaving pauses and keeps the link for the keep-alive window (phase 5).
             saveThumbnail()
             resetKeyboardState()
+            InteractivePopGesture.blocked = false
             controller.pause()
         }
         .confirmationDialog(model.text("断开连接？", "Disconnect?"), isPresented: $showDisconnect, titleVisibility: .visible) {
@@ -180,7 +192,6 @@ struct DesktopPage: View {
             ZStack {
                 DesktopVideoSurface(display: controller.display, content: contentFrame(in: geo.size))
                 DesktopGestureOverlay(controller: controller, size: geo.size)
-                cursorOverlay
                 if landscape { statsOverlay.padding(.leading, bleed) } else { portraitStatsOverlay }
                 DesktopStatusOverlay(host: controller.host.name, phase: controller.phase,
                                      hasPicture: controller.videoSize.0 > 0, windowsHost: controller.windowsHost,
@@ -275,8 +286,8 @@ struct DesktopPage: View {
                         }
                         section(model.text("操作方式", "Pointer mode")) {
                             HStack(spacing: 8) {
-                                choice(model.text("屏幕触控", "Touch"), selected: pointerMode == .touch) { pointerMode = .touch; controller.setPointerMode(.touch) }
-                                choice(model.text("鼠标指针", "Trackpad"), selected: pointerMode == .mouse) { pointerMode = .mouse; controller.setPointerMode(.mouse) }
+                                choice(model.text("屏幕触控", "Touch"), selected: pointerMode == .touch) { setPointerMode(.touch) }
+                                choice(model.text("鼠标指针", "Trackpad"), selected: pointerMode == .mouse) { setPointerMode(.mouse) }
                             }
                         }
                         toggleRow(model.text("声音", "Sound"), controller.audioAvailable == false
@@ -548,17 +559,6 @@ struct DesktopPage: View {
         .allowsHitTesting(false)
     }
 
-    @ViewBuilder private var cursorOverlay: some View {
-        if pointerMode == .mouse || virtualMouse, let cursor = controller.cursor, cursor.visible {
-            GeometryReader { geo in
-                let pt = viewport(in: geo.size).toView(Float(cursor.x), Float(cursor.y))
-                Circle().fill(Color.white).frame(width: 8, height: 8)
-                    .position(x: CGFloat(pt.x), y: CGFloat(pt.y))
-                    .allowsHitTesting(false)
-            }
-        }
-    }
-
     /// The gesture view's viewport while it matches this picture, else the unzoomed fit.
     private func viewport(in size: CGSize) -> Viewport {
         let remote = controller.remoteSize
@@ -592,6 +592,12 @@ struct DesktopPage: View {
             .first { $0.activationState == .foregroundActive }?.interfaceOrientation
         // Landscape left: the home button's side, so the top of the phone, is on the right.
         islandLeading = orientation != .landscapeLeft
+    }
+
+    private func setPointerMode(_ mode: PointerMode) {
+        if mode != pointerMode { UIImpactFeedbackGenerator(style: .rigid).impactOccurred() }
+        pointerMode = mode
+        controller.setPointerMode(mode)
     }
 
     private func togglePanel(_ p: DesktopPanel) {
@@ -660,6 +666,7 @@ private struct DesktopGestureOverlay: UIViewRepresentable {
     func updateUIView(_ uiView: DesktopGestureView, context: Context) {
         uiView.controller = controller
         uiView.boundsSize = size
+        uiView.hostCursorChanged(controller.cursor)
     }
     static func dismantleUIView(_ uiView: DesktopGestureView, coordinator: ()) {
         uiView.stopTicking()
@@ -667,11 +674,13 @@ private struct DesktopGestureOverlay: UIViewRepresentable {
     }
 }
 
+/// Raw touches into `DesktopGestures`, and what it asks for out to the host. It also draws what the
+/// gestures need on the phone: the cursor where the phone put it, the hold ring, and haptics.
 final class DesktopGestureView: UIView {
     weak var controller: DesktopController?
     var boundsSize: CGSize = .zero
     private let gestures = DesktopGestures(mode: .touch, density: 1)
-    /// Fires once, when `gestures` next needs a tick (a long press or a tap's release); nil while nothing waits.
+    /// Fires once, when `gestures` next needs a tick (a hold, a waiting right click, inertia); nil while nothing waits.
     private var tickTimer: Timer?
     /// The timer's target: the run loop retains it, never the view.
     private final class TickTarget: NSObject {
@@ -679,17 +688,40 @@ final class DesktopGestureView: UIView {
         init(_ view: DesktopGestureView) { self.view = view }
         @objc func tick() { view?.tick() }
     }
-    private var twoFingerActive = false
-    private var lastPoint: CGPoint = .zero
+    /// Each finger's id for `gestures`, for as long as it touches.
+    private var touchIDs: [ObjectIdentifier: Int] = [:]
+    private var nextTouchID = 0
+    private var lastTouchEnded: Int64 = 0
+
+    private let cursorLayer = CALayer()
+    private var cursorShape: CursorImage?
+    private var cursorShown: RemoteCursor?
+    private let ringLayer = CAShapeLayer()
+    private var ringShown: HoldIndicator?
+    private let impact = UIImpactFeedbackGenerator(style: .medium)
+    private let tapFeel = UIImpactFeedbackGenerator(style: .light)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
         isMultipleTouchEnabled = true
         isUserInteractionEnabled = true
+        cursorLayer.contentsScale = UIScreen.main.scale
+        cursorLayer.contentsGravity = .resize
+        cursorLayer.magnificationFilter = .nearest
+        cursorLayer.isHidden = true
+        cursorLayer.zPosition = 2
+        layer.addSublayer(cursorLayer)
+        ringLayer.isHidden = true
+        ringLayer.zPosition = 1
+        layer.addSublayer(ringLayer)
+        accessibilityIdentifier = "desktop-gestures"
     }
     required init?(coder: NSCoder) { fatalError("init(coder:)") }
     deinit { tickTimer?.invalidate() }
+
+    /// Three-finger swipes are the host's, not the system's undo and redo.
+    override var editingInteractionConfiguration: UIEditingInteractionConfiguration { .none }
 
     /// Arms the timer for `gestures.tickAt`, instead of ticking every display frame while the page shows.
     private func scheduleTick() {
@@ -702,16 +734,19 @@ final class DesktopGestureView: UIView {
     }
 
     func stopTicking() {
-        twoFingerActive = false
+        touchIDs.removeAll()
         apply(gestures.cancel())
         tickTimer?.invalidate(); tickTimer = nil
     }
 
-    private static func nowMs() -> Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
+    /// The clock touches carry: seconds since boot.
+    private static func nowMs() -> Int64 { Int64(ProcessInfo.processInfo.systemUptime * 1000) }
+    private static func ms(_ touch: UITouch) -> Int64 { Int64(touch.timestamp * 1000) }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         syncViewport()
+        refreshCursor()
     }
 
     private func syncViewport() {
@@ -727,60 +762,49 @@ final class DesktopGestureView: UIView {
         show(vp.clamped())
     }
 
+    func hostCursorChanged(_ cursor: RemoteCursor?) {
+        guard let cursor, cursor != cursorShown else { return }
+        cursorShown = cursor
+        gestures.hostCursor(x: cursor.x, y: cursor.y, time: Self.nowMs())
+        refreshCursor()
+    }
+
     @objc private func tick() {
         apply(gestures.tick(Self.nowMs()))
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         syncViewport()
-        let now = Self.nowMs()
-        let active = (event?.allTouches ?? touches).filter { $0.phase != .ended && $0.phase != .cancelled }
-        if active.count >= 2 {
-            let pts = active.prefix(2).map { $0.location(in: self) }
-            if !twoFingerActive {
-                twoFingerActive = true
-                apply(gestures.twoDown(Float(pts[0].x), Float(pts[0].y), Float(pts[1].x), Float(pts[1].y)))
-            }
-            return
-        }
-        if let t = touches.first {
-            let p = t.location(in: self); lastPoint = p
-            apply(gestures.down(Float(p.x), Float(p.y), time: now))
+        #if DEBUG
+        // A double tap's second tap belongs with the first.
+        if touchIDs.isEmpty, Self.nowMs() - lastTouchEnded > 500 { controller?.probeGestureStarted() }
+        #endif
+        for t in touches.sorted(by: { $0.timestamp < $1.timestamp }) {
+            let id = nextTouchID; nextTouchID += 1
+            touchIDs[ObjectIdentifier(t)] = id
+            let p = t.location(in: self)
+            apply(gestures.began(id, Float(p.x), Float(p.y), time: Self.ms(t)))
         }
     }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        let now = Self.nowMs()
-        let active = Array((event?.allTouches ?? touches).filter { $0.phase != .ended && $0.phase != .cancelled })
-        if active.count >= 2 {
-            let pts = active.prefix(2).map { $0.location(in: self) }
-            if !twoFingerActive {
-                twoFingerActive = true
-                apply(gestures.twoDown(Float(pts[0].x), Float(pts[0].y), Float(pts[1].x), Float(pts[1].y)))
-            } else {
-                apply(gestures.twoMove(Float(pts[0].x), Float(pts[0].y), Float(pts[1].x), Float(pts[1].y)))
-            }
-            return
+        let moved = touches.compactMap { t -> (id: Int, x: Float, y: Float)? in
+            guard let id = touchIDs[ObjectIdentifier(t)] else { return nil }
+            let p = t.location(in: self)
+            return (id, Float(p.x), Float(p.y))
         }
-        if let t = touches.first {
-            let p = t.location(in: self); lastPoint = p
-            apply(gestures.move(Float(p.x), Float(p.y), time: now))
-        }
+        guard !moved.isEmpty else { return }
+        apply(gestures.moved(moved, time: touches.map(Self.ms).max() ?? Self.nowMs()))
     }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        let now = Self.nowMs()
-        let remaining = (event?.allTouches ?? []).filter { $0.phase != .ended && $0.phase != .cancelled && !touches.contains($0) }
-        if twoFingerActive && remaining.count < 2 {
-            gestures.twoUp()
-            twoFingerActive = false
-            scheduleTick()
-        }
-        if remaining.isEmpty {
-            let p = touches.first?.location(in: self) ?? lastPoint
-            apply(gestures.up(Float(p.x), Float(p.y), time: now))
+        for t in touches {
+            guard let id = touchIDs.removeValue(forKey: ObjectIdentifier(t)) else { continue }
+            let p = t.location(in: self)
+            apply(gestures.ended(id, Float(p.x), Float(p.y), time: Self.ms(t)))
+            lastTouchEnded = Self.ms(t)
         }
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        twoFingerActive = false
+        touchIDs.removeAll()
         apply(gestures.cancel())
     }
 
@@ -817,22 +841,125 @@ final class DesktopGestureView: UIView {
 
     private func apply(_ actions: [GestureAction]) {
         // Every gesture call comes through here, so the next tick follows whatever it changed.
-        defer { scheduleTick() }
+        defer { scheduleTick(); refreshCursor(); refreshRing() }
         guard let c = controller else { return }
         for a in actions {
             switch a {
             case .moveTo(let x, let y):
                 c.input(DesktopProtocol.abs(display: c.displayIndex, x: x, y: y))
-            case .moveBy(let dx, let dy):
-                c.input(DesktopProtocol.rel(dx: dx, dy: dy))
             case .button(let b, let down):
                 c.input(DesktopProtocol.button(b, down: down))
             case .wheel(let dx, let dy):
                 c.input(DesktopProtocol.wheel(dx: dx, dy: dy))
             case .view(let vp):
                 show(vp)
+            case .swipe(let direction):
+                DesktopSwipeShortcut.frames(direction, os: c.hello?.os ?? c.host.system).forEach(c.input)
+            case .feedback(let kind):
+                switch kind {
+                case .hold, .pickup: impact.impactOccurred()
+                case .click, .shortcut: tapFeel.impactOccurred()
+                }
+            }
+            #if DEBUG
+            c.probeInput(a)
+            #endif
+        }
+    }
+
+    // MARK: Cursor and ring
+
+    /// The host's cursor image at the picture's scale, but never smaller than 18 pt; an arrow until it sends one.
+    private func refreshCursor() {
+        let visible = cursorShown?.visible ?? true
+        guard gestures.hasCursor, visible, controller?.remoteSize.0 ?? 0 > 0 else { cursorLayer.isHidden = true; return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        let shape = cursorShown?.shape
+        if shape != cursorShape || cursorLayer.contents == nil {
+            cursorShape = shape
+            if let shape, let image = Self.image(shape) {
+                cursorLayer.contents = image
+                cursorLayer.anchorPoint = CGPoint(x: CGFloat(shape.hotX) / CGFloat(max(1, shape.width)), y: CGFloat(shape.hotY) / CGFloat(max(1, shape.height)))
+            } else {
+                cursorLayer.contents = Self.arrow
+                cursorLayer.anchorPoint = CGPoint(x: 1.5 / 14, y: 1.5 / 21)
             }
         }
+        let vp = gestures.viewport
+        if let shape = cursorShape {
+            let s = max(CGFloat(vp.scale), 18 / CGFloat(max(1, shape.height, shape.width)))
+            cursorLayer.bounds = CGRect(x: 0, y: 0, width: CGFloat(shape.width) * s, height: CGFloat(shape.height) * s)
+        } else {
+            cursorLayer.bounds = CGRect(x: 0, y: 0, width: 14, height: 21)
+        }
+        let p = vp.toView(gestures.cursorX, gestures.cursorY)
+        cursorLayer.position = CGPoint(x: CGFloat(p.x), y: CGFloat(p.y))
+        cursorLayer.isHidden = false
+    }
+
+    private static func image(_ shape: CursorImage) -> CGImage? {
+        guard shape.width > 0, shape.height > 0, shape.rgba.count >= shape.width * shape.height * 4,
+              let provider = CGDataProvider(data: Data(shape.rgba) as CFData) else { return nil }
+        return CGImage(width: shape.width, height: shape.height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: shape.width * 4,
+                       space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+                       provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+    }
+
+    /// The standard arrow, white with a black edge, its tip the hot spot.
+    private static let arrow: CGImage? = {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = UIScreen.main.scale
+        return UIGraphicsImageRenderer(size: CGSize(width: 14, height: 21), format: format).image { ctx in
+            let path = UIBezierPath()
+            path.move(to: CGPoint(x: 1.5, y: 1.5))
+            path.addLine(to: CGPoint(x: 1.5, y: 17))
+            path.addLine(to: CGPoint(x: 5.5, y: 13.2))
+            path.addLine(to: CGPoint(x: 8.3, y: 19.5))
+            path.addLine(to: CGPoint(x: 10.8, y: 18.4))
+            path.addLine(to: CGPoint(x: 8.1, y: 12.3))
+            path.addLine(to: CGPoint(x: 13, y: 12.3))
+            path.close()
+            UIColor.white.setFill(); path.fill()
+            UIColor.black.setStroke(); path.lineWidth = 1.2; path.lineJoinStyle = .round; path.stroke()
+            _ = ctx
+        }.cgImage
+    }()
+
+    /// The hold ring: it fills while a hold is coming, then turns solid, blue for the left button, red for the right.
+    private func refreshRing() {
+        let next = gestures.indicator
+        guard next != ringShown else { return }
+        ringShown = next
+        ringLayer.removeAllAnimations()
+        guard let next else { ringLayer.isHidden = true; return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        let r: CGFloat = next.fingers > 1 ? 34 : 26
+        ringLayer.path = UIBezierPath(arcCenter: .zero, radius: r, startAngle: -.pi / 2, endAngle: .pi * 1.5, clockwise: true).cgPath
+        ringLayer.position = CGPoint(x: CGFloat(next.x), y: CGFloat(next.y))
+        let color = next.fingers > 1 ? UIColor.systemRed : UIColor.systemBlue
+        ringLayer.lineWidth = 3
+        ringLayer.isHidden = false
+        if next.armed {
+            ringLayer.strokeColor = color.cgColor
+            ringLayer.fillColor = color.withAlphaComponent(0.3).cgColor
+            ringLayer.strokeEnd = 1
+            ringLayer.opacity = 1
+        } else {
+            // Nothing shows for a quick tap: the ring starts after a moment and fills as the hold comes.
+            ringLayer.strokeColor = UIColor.white.withAlphaComponent(0.85).cgColor
+            ringLayer.fillColor = UIColor.clear.cgColor
+            ringLayer.strokeEnd = 1
+            let delay = 0.12
+            let total = max(0.05, Double(next.firesAt - Self.nowMs()) / 1000 - delay)
+            let fill = CABasicAnimation(keyPath: "strokeEnd")
+            fill.fromValue = 0; fill.toValue = 1
+            fill.beginTime = CACurrentMediaTime() + delay; fill.duration = total
+            fill.fillMode = .both
+            ringLayer.add(fill, forKey: "fill")
+        }
+        CATransaction.commit()
+        if next.armed { impact.prepare() } else { impact.prepare(); tapFeel.prepare() }
     }
 }
 
