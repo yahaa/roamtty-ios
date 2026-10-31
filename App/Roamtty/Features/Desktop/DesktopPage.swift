@@ -869,7 +869,8 @@ final class DesktopGestureView: UIView {
 
     // MARK: Cursor and ring
 
-    /// The host's cursor image at the picture's scale, but never smaller than 18 pt; an arrow until it sends one.
+    /// The host's cursor image at the picture's scale, kept between 15 and 24 pt (the picture is often a
+    /// fifth of the host's size, and zoomed in five times); an arrow until it sends one, about iOS's own pointer size.
     private func refreshCursor() {
         let visible = cursorShown?.visible ?? true
         guard gestures.hasCursor, visible, controller?.remoteSize.0 ?? 0 > 0 else { cursorLayer.isHidden = true; return }
@@ -888,10 +889,11 @@ final class DesktopGestureView: UIView {
         }
         let vp = gestures.viewport
         if let shape = cursorShape {
-            let s = max(CGFloat(vp.scale), 18 / CGFloat(max(1, shape.height, shape.width)))
+            let size = CGFloat(max(1, shape.height, shape.width))
+            let s = min(max(CGFloat(vp.scale), 15 / size), 24 / size)
             cursorLayer.bounds = CGRect(x: 0, y: 0, width: CGFloat(shape.width) * s, height: CGFloat(shape.height) * s)
         } else {
-            cursorLayer.bounds = CGRect(x: 0, y: 0, width: 14, height: 21)
+            cursorLayer.bounds = CGRect(x: 0, y: 0, width: 10, height: 15)
         }
         let p = vp.toView(gestures.cursorX, gestures.cursorY)
         cursorLayer.position = CGPoint(x: CGFloat(p.x), y: CGFloat(p.y))
@@ -946,11 +948,12 @@ final class DesktopGestureView: UIView {
             ringLayer.strokeEnd = 1
             ringLayer.opacity = 1
         } else {
-            // Nothing shows for a quick tap: the ring starts after a moment and fills as the hold comes.
+            // Nothing shows for a tap: the ring starts after a moment and fills as the hold comes.
             ringLayer.strokeColor = UIColor.white.withAlphaComponent(0.85).cgColor
             ringLayer.fillColor = UIColor.clear.cgColor
             ringLayer.strokeEnd = 1
-            let delay = 0.12
+            // A tap lasts under 0.2 s: only a finger still down after that sees the ring.
+            let delay = 0.2
             let total = max(0.05, Double(next.firesAt - Self.nowMs()) / 1000 - delay)
             let fill = CABasicAnimation(keyPath: "strokeEnd")
             fill.fromValue = 0; fill.toValue = 1
