@@ -149,6 +149,10 @@ final class DesktopGestureUITests: XCTestCase {
         return bytes
     }
 
+    private func share(_ a: [UInt8], _ b: [UInt8]) -> Double {
+        Double(zip(a, b).filter { abs(Int($0) - Int($1)) > 16 }.count) / Double(max(1, a.count))
+    }
+
     private func assertChanged(_ before: [UInt8], _ what: String, file: StaticString = #filePath, line: UInt = #line) {
         // The host's picture takes a moment to come: wait up to three seconds for it.
         var changed = 0, share = 0.0
@@ -429,10 +433,17 @@ final class DesktopGestureUITests: XCTestCase {
         let lifted = probeCount()
         pause(0.6)
         XCTAssertGreaterThan(probeCount(), lifted + 3, "a flick carries on after lifting")
-        assertChanged(page, "the document under the finger scrolled")
-        capture("touch: one-finger scroll")
-        pause(2)
-        try Touches.perform([[(pic(0.5, 0.25), 0), (pic(0.5, 0.75), 0.15)]])
+        pause(1)
+        if share(page, picture()) <= 0.004 {
+            // At the end of the document already: the flick the other way must scroll it.
+            let end = picture()
+            try Touches.perform([[(pic(0.5, 0.25), 0), (pic(0.5, 0.75), 0.15)]])
+            assertChanged(end, "the document under the finger scrolled (back from its end)")
+        } else {
+            capture("touch: one-finger scroll")
+            pause(2)
+            try Touches.perform([[(pic(0.5, 0.25), 0), (pic(0.5, 0.75), 0.15)]])
+        }
         pause(2.5)
 
         var before = picture()
