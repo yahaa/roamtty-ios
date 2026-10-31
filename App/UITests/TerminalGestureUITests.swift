@@ -172,7 +172,17 @@ final class TerminalGestureUITests: RoamttyLiveUITestCase {
     func testTapMovesTheCursorInsideAMultiLineInput() throws {
         let surface = try openTerminal()
         try runCommand(boxEditor())
-        waitForOutput("EDITOR_READY_1", surface: surface)
+        // The editor counts the sizes it has drawn at: putting the prompt editor or the keyboard away resizes it.
+        func status(_ pattern: String) -> Int? {
+            let value = (surface.value as? String ?? "").replacingOccurrences(of: "\n", with: "")
+            guard let regex = try? NSRegularExpression(pattern: pattern),
+                  let match = regex.matches(in: value, range: NSRange(value.startIndex..., in: value)).last,
+                  let range = Range(match.range(at: 1), in: value) else { return nil }
+            return Int(value[range])
+        }
+        func sizes(_ phase: String) -> Int? { status("EDITOR_" + phase + "_([0-9]+)") }
+        waitForOutput("EDITOR_READY_", surface: surface)
+        let drawn = sizes("READY") ?? 0
         let row = app.buttons.matching(NSPredicate(format: "identifier IN {'cursor-escape', 'cursor-enter'}")).firstMatch
         // Bring the keyboard up first, so the box does not move under the taps. A tap past the typed text sends nothing.
         XCTAssertTrue(row.waitForExistence(timeout: 6))
@@ -180,13 +190,16 @@ final class TerminalGestureUITests: RoamttyLiveUITestCase {
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         // The editor parks the cursor on its output row, then on the end of the last input row: the cursor's key
         // follows it, which measures the rows. Cells are measured from the column count, so taps stay near the left.
-        waitForOutput("EDITOR_CAL_2", surface: surface); sleep(1)
+        let resized = expectation(for: NSPredicate { _, _ in (sizes("CAL") ?? 0) > drawn }, evaluatedWith: surface)
+        resized.expectationDescription = "The keyboard resized the editor"
+        wait(for: [resized], timeout: 10); sleep(1)
         let output = row.frame.midY
-        waitForOutput("EDITOR_READY_2", surface: surface); sleep(1)
+        let size = sizes("CAL") ?? 0
+        waitForOutput("EDITOR_READY_\(size)", surface: surface); sleep(1)
         let last = row.frame.midY, rowHeight = (last - output) / 4
         let value = surface.value as? String ?? ""
-        let size = try NSRegularExpression(pattern: "SIZE_([0-9]+)x([0-9]+)")
-        guard let match = size.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)),
+        let sizePattern = try NSRegularExpression(pattern: "SIZE_([0-9]+)x([0-9]+)")
+        guard let match = sizePattern.matches(in: value, range: NSRange(value.startIndex..., in: value)).last,
               let range = Range(match.range(at: 2), in: value), let columns = Double(value[range]), rowHeight > 4 else {
             return XCTFail("The editor must report its size and the cursor rows must be measurable")
         }
@@ -212,7 +225,7 @@ final class TerminalGestureUITests: RoamttyLiveUITestCase {
         // Output above the box is not the input: nothing is sent.
         tap(column: 4, inputRow: -2)
         sleep(2)
-        waitForOutput("AT_1_8 KEYS_33", surface: surface)
+        XCTAssertEqual(status("KEYS_([0-9]+)"), 33, "A tap on output must send no arrows")
         closeTerminal()
     }
 

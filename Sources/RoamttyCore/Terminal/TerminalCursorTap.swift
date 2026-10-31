@@ -22,7 +22,10 @@ public enum TerminalCursorTap {
     public static func move(_ grid: TerminalTextGrid, cursorColumn: Int, cursorRow: Int, column: Int, row: Int) -> Move? {
         guard grid.columns > 0, cursorRow >= 0, cursorRow < grid.endRow, row >= 0, row < grid.endRow else { return nil }
         let line = TerminalUrl.Reader(grid).logicalLine(cursorRow)
-        if row >= line.firstRow && row <= line.lastRow {
+        // SwiftTerm can read a never-written row below as continuing the line; a blank row is not typed text.
+        var lastRow = line.lastRow
+        while lastRow > cursorRow && isBlank(grid, lastRow) { lastRow -= 1 }
+        if row >= line.firstRow && row <= lastRow {
             return .along(steps(line, cursorColumn: cursorColumn, cursorRow: cursorRow, column: column, row: row))
         }
         guard let input = inputRows(grid, cursorRow: cursorRow), input.contains(row) else { return nil }
