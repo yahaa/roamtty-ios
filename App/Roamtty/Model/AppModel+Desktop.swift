@@ -47,6 +47,42 @@ import RoamttyDesktopCore
     #if DEBUG
     /// Test only (ROAMTTY_DESKTOP_AUDIO_PROBE=1): what the player decoded, for the live UI test.
     @Published private(set) var audioProbe = ""
+    /// Test only (ROAMTTY_DESKTOP_INPUT_PROBE=1): the last gesture actions, for the live gesture UI test.
+    @Published private(set) var inputProbe = ""
+    private let inputProbeOn = ProcessInfo.processInfo.environment["ROAMTTY_DESKTOP_INPUT_PROBE"] == "1"
+    private var inputProbeLog: [String] = []
+    private var inputProbeCount = 0
+    /// A new gesture: the probe shows only what it sends, and what follows it (inertia, a waiting click).
+    func probeGestureStarted() {
+        guard inputProbeOn else { return }
+        inputProbeLog.removeAll()
+        inputProbe = "#\(inputProbeCount) "
+    }
+    func probeInput(_ action: GestureAction) {
+        guard inputProbeOn else { return }
+        let token: String
+        switch action {
+        case .moveTo(let x, let y): token = "m\(x),\(y)"
+        case .button(let b, let down): token = "b\(b)\(down ? "d" : "u")"
+        case .wheel(let dx, let dy): token = "w\(dx),\(dy)"
+        case .view(let v): token = String(format: "z%.2f", v.zoom)
+        case .swipe(let d): token = "s\(d)"
+        case .feedback(let f): token = "f\(f)"
+        }
+        probeToken(token)
+    }
+    func probeToken(_ token: String) {
+        guard inputProbeOn else { return }
+        // Moves and wheel steps come many at a time: one token stands for a run of them.
+        if let last = inputProbeLog.last, last.first == token.first, "mwz".contains(token.first!) {
+            inputProbeLog[inputProbeLog.count - 1] = token
+        } else {
+            inputProbeLog.append(token)
+        }
+        inputProbeCount += 1
+        if inputProbeLog.count > 60 { inputProbeLog.removeFirst(inputProbeLog.count - 60) }
+        inputProbe = "#\(inputProbeCount) " + inputProbeLog.joined(separator: " ")
+    }
     #endif
     @Published private(set) var phase: DesktopPhase = .idle
     @Published private(set) var log: [String] = []
@@ -185,6 +221,7 @@ import RoamttyDesktopCore
     }
     func input(_ bytes: [UInt8]) {
         #if DEBUG
+        if inputProbeOn, bytes.count == 5, Int(bytes[0]) == DesktopProtocol.ACTION { probeToken("a\(bytes[4])") }
         // Existing rail actions drive real in-place phase transitions in the isolated UI fixture.
         if fixtureRecoverySequence {
             if bytes == DesktopProtocol.action(DesktopProtocol.ACTION_ALL_WINDOWS) {
@@ -249,6 +286,45 @@ extension AppModel {
                                            showStats: false, english: english, onPrefs: { _ in }, onEnded: { _ in })
         controller.configureLayoutFixture(status: environment["ROAMTTY_DESKTOP_STATUS_FIXTURE"], english: english)
         desktops.put(controller)
+        path = [.desktop(host.id)]
+    }
+    #endif
+
+    #if DEBUG
+    /// The live gesture UI test: a real desktop on the host in ROAMTTY_TEST_*, opened straight away,
+    /// in an isolated store. The host key is accepted as is: only a disposable test host is named here.
+    func installDesktopGestureFixture() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard ProcessInfo.processInfo.arguments.contains("--desktop-gesture-fixture"),
+              environment["ROAMTTY_STORAGE_NAME"]?.hasPrefix("DesktopGesture") == true,
+              let address = environment["ROAMTTY_TEST_HOST"], let user = environment["ROAMTTY_TEST_USERNAME"],
+              let password = environment["ROAMTTY_TEST_PASSWORD"] else { return }
+        let port = Int(environment["ROAMTTY_TEST_PORT"] ?? "22") ?? 22
+        settings.desktopShowStats = true
+        let host = Host(id: "desktop-gesture-fixture", name: "Gesture test host", address: address, port: port, username: user, auth: .password)
+        let scale = UIScreen.main.scale, bounds = UIScreen.main.bounds
+        var config = DesktopSession.Config(hostName: host.name, address: address, clientWidth: Int(bounds.width * scale),
+                                           clientHeight: Int(bounds.height * scale), clientDpi: Int(160 * scale))
+        config.english = english
+        config.audio = false
+        let session = DesktopSession(config: config, manifest: try desktopManifest(), login: {
+            do {
+                let pins = try AppStore(url: URL(fileURLWithPath: ":memory:"))
+                let ssh = SSHConnection(host: host, credentials: Credentials(password: Data(password.utf8)), pinStore: pins) { prompt in
+                    if case .verifyHost = prompt { return ["verified"] }
+                    return nil
+                }
+                try ssh.connect()
+                return .host(SSHDesktopHost(connection: ssh))
+            } catch { return .failed(message: error.localizedDescription, connecting: true) }
+        })
+        var prefs = DesktopHostSettings()
+        prefs.pointerMode = environment["ROAMTTY_DESKTOP_POINTER"] == "mouse" ? "mouse" : "touch"
+        prefs.audio = false
+        let controller = DesktopController(host: host, session: session, prefs: prefs, showStats: true, english: english,
+                                           onPrefs: { _ in }, onEnded: { _ in })
+        desktops.put(controller)
+        controller.start()
         path = [.desktop(host.id)]
     }
     #endif

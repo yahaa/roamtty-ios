@@ -86,6 +86,7 @@ import RoamttyTransport
             #if DEBUG
             try installUITestFixture(store)
             try installDesktopControlsFixture()
+            try installDesktopGestureFixture()
             #endif
         } catch { self.error = error.localizedDescription }
         installAgentNotifications()
