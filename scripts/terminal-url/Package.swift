@@ -1,5 +1,5 @@
 // swift-tools-version:5.9
-// Checks the app's terminal URL finder, wide cell repair and scrollback count against SwiftTerm's real emulator;
+// Checks the app's terminal URL finder, cursor taps, wide cell repair and scrollback count against SwiftTerm's real emulator;
 // run through scripts/test-terminal-url.sh.
 import PackageDescription
 
@@ -13,5 +13,6 @@ let package = Package(
         .executableTarget(name: "TerminalUrlChecks", dependencies: [.product(name: "SwiftTerm", package: "SwiftTerm")]),
         .executableTarget(name: "TerminalWideCellChecks", dependencies: [.product(name: "SwiftTerm", package: "SwiftTerm")]),
         .executableTarget(name: "TerminalScrollbackChecks", dependencies: [.product(name: "SwiftTerm", package: "SwiftTerm")]),
+        .executableTarget(name: "TerminalCursorTapChecks", dependencies: [.product(name: "SwiftTerm", package: "SwiftTerm")]),
     ]
 )

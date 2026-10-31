@@ -167,6 +167,55 @@ final class TerminalGestureUITests: RoamttyLiveUITestCase {
         XCTAssertTrue(app.keyboards.firstMatch.exists, "The keyboard opened from the cursor row must stay up")
     }
 
+    /// As on Android, a tap on typed text moves the cursor there: along the cursor's row with ←/→, and in a multi-line
+    /// input box (Claude Code's, between ─ rules) up or down first, then along once the app has echoed the cursor.
+    func testTapMovesTheCursorInsideAMultiLineInput() throws {
+        let surface = try openTerminal()
+        try runCommand(boxEditor())
+        waitForOutput("EDITOR_READY_1", surface: surface)
+        let row = app.buttons.matching(NSPredicate(format: "identifier IN {'cursor-escape', 'cursor-enter'}")).firstMatch
+        // Bring the keyboard up first, so the box does not move under the taps. A tap past the typed text sends nothing.
+        XCTAssertTrue(row.waitForExistence(timeout: 6))
+        surface.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: surface.frame.width * 0.9, dy: row.frame.midY - surface.frame.minY)).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        // The editor parks the cursor on its output row, then on the end of the last input row: the cursor's key
+        // follows it, which measures the rows. Cells are measured from the column count, so taps stay near the left.
+        waitForOutput("EDITOR_CAL_2", surface: surface); sleep(1)
+        let output = row.frame.midY
+        waitForOutput("EDITOR_READY_2", surface: surface); sleep(1)
+        let last = row.frame.midY, rowHeight = (last - output) / 4
+        let value = surface.value as? String ?? ""
+        let size = try NSRegularExpression(pattern: "SIZE_([0-9]+)x([0-9]+)")
+        guard let match = size.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)),
+              let range = Range(match.range(at: 2), in: value), let columns = Double(value[range]), rowHeight > 4 else {
+            return XCTFail("The editor must report its size and the cursor rows must be measurable")
+        }
+        let cellWidth = surface.frame.width / columns
+        // Input rows: 0 "❯ first line abc", 1 "  second", 2 "  third 你好 tail" (row 2 is the cursor's, `last`).
+        func tap(column: Double, inputRow: Int) {
+            let y = last + CGFloat(inputRow - 2) * rowHeight - surface.frame.minY
+            surface.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: CGFloat(column) * cellWidth, dy: y)).tap()
+        }
+        // Up two rows: the editor keeps its column (the end of row 0), then 12 ← reach "first".
+        tap(column: 4, inputRow: 0)
+        waitForOutput("AT_0_4 KEYS_14", surface: surface)
+        // Down two rows onto 好: 你 is one ← / → press.
+        tap(column: 10, inputRow: 2)
+        waitForOutput("AT_2_9 KEYS_21", surface: surface)
+        // Along the cursor's own row.
+        tap(column: 3, inputRow: 2)
+        waitForOutput("AT_2_3 KEYS_27", surface: surface)
+        // Past the end of a row stops at its end.
+        tap(column: 20, inputRow: 1)
+        waitForOutput("AT_1_8 KEYS_33", surface: surface)
+        capture("Taps moved the cursor across a multi-line input")
+        // Output above the box is not the input: nothing is sent.
+        tap(column: 4, inputRow: -2)
+        sleep(2)
+        waitForOutput("AT_1_8 KEYS_33", surface: surface)
+        closeTerminal()
+    }
+
     func testBracketedPasteAndReconnectAfterRemoteShellExit() throws {
         let surface = try openTerminal(mode: "SSH")
         let payload = "one\ntwo\n"
@@ -204,6 +253,70 @@ final class TerminalGestureUITests: RoamttyLiveUITestCase {
     private func closePlainTerminal() {
         closeTerminal()
         XCTAssertEqual(homeSessionCards().count, 0, "Explicitly closing plain SSH must remove its session card")
+    }
+
+    /// A small editor drawn like Claude Code's input: an output row, a ─ rule, three input rows, a rule and a status line
+    /// at the bottom. ↑/↓ keep the column like Claude Code; ←/→ move one character, a wide one included. The status line
+    /// shows the phase and how many sizes it has seen, the cursor (input row, character) and how many arrows arrived.
+    private func boxEditor() -> String {
+        let source = """
+        import os, select, termios, time, tty
+        lines = ['\\u276f first line abc', '  second', '  third \\u4f60\\u597d tail']
+        def w(ch): return 2 if '\\u4e00' <= ch <= '\\u9fff' else 1
+        line, idx, sticky, keys, sizes, phase, since, size = 2, len(lines[2]), None, 0, 0, 'CAL', 0, None
+        def cells(l, i): return sum(w(c) for c in lines[l][:i])
+        def at(l, col):
+            i = c = 0
+            while i < len(lines[l]) and c + w(lines[l][i]) <= col:
+                c += w(lines[l][i]); i += 1
+            return i
+        def draw():
+            rows, cols = size
+            top = rows - 7
+            out = ['\\x1b[2J']
+            def put(r, text): out.append('\\x1b[%d;1H%s' % (r + 1, text))
+            put(top, 'OUTPUT_ABOVE_THE_BOX')
+            put(top + 1, '\\u2500' * cols)
+            for k, text in enumerate(lines): put(top + 2 + k, text)
+            put(top + 5, '\\u2500' * cols)
+            put(rows - 1, 'EDITOR_%s_%d AT_%d_%d KEYS_%d SIZE_%dx%d' % (phase, sizes, line, idx, keys, rows, cols))
+            out.append('\\x1b[%d;1H' % (top + 1) if phase == 'CAL' else '\\x1b[%d;%dH' % (top + 3 + line, cells(line, idx) + 1))
+            os.write(1, ''.join(out).encode())
+        saved = termios.tcgetattr(0)
+        buf = b''
+        try:
+            tty.setraw(0)
+            deadline = time.monotonic() + 300
+            while time.monotonic() < deadline:
+                now = tuple(reversed(os.get_terminal_size(0)))
+                if now != size:
+                    size, sizes, phase, since = now, sizes + 1, 'CAL', time.monotonic(); draw()
+                if phase == 'CAL' and time.monotonic() - since > 3:
+                    phase = 'READY'; draw()
+                if not select.select([0], [], [], 0.1)[0]:
+                    continue
+                buf += os.read(0, 256)
+                while buf:
+                    if buf[:1] == b'q':
+                        deadline = 0; break
+                    if buf[:1] == b'\\x1b' and len(buf) < 3:
+                        break
+                    if buf[:1] != b'\\x1b' or buf[1:2] not in (b'[', b'O'):
+                        buf = buf[1:]; continue
+                    key, buf = buf[2:3], buf[3:]
+                    keys += 1
+                    if phase != 'READY':
+                        continue
+                    if key in (b'A', b'B'):
+                        if sticky is None: sticky = cells(line, idx)
+                        line = max(0, min(2, line + (-1 if key == b'A' else 1))); idx = at(line, sticky)
+                    elif key in (b'C', b'D'):
+                        sticky = None; idx = max(0, min(len(lines[line]), idx + (1 if key == b'C' else -1)))
+                draw()
+        finally:
+            termios.tcsetattr(0, termios.TCSADRAIN, saved)
+        """
+        return "python3 -u -c \"import base64; exec(base64.b64decode('\(Data(source.utf8).base64EncodedString())'))\""
     }
 
     private func receiver(prefix: String, count: Int, bracketed: Bool = false, reportProgress: Bool = false) -> String {

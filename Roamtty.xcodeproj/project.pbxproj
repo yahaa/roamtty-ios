@@ -486,6 +486,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "D8C04439A049DB28EC095138";
 		};
+		"5D352DFC0CB3932BE4310117" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyCore/Terminal/TerminalCursorTap.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"957D41FCC3E4B9DB0735E62D" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "5D352DFC0CB3932BE4310117";
+		};
 		"B12148D47D4A403895ADAD9C" = {
 			"isa" = "PBXFileReference";
 			"path" = "Sources/RoamttyCore/Terminal/TerminalMouseTracking.swift";
@@ -594,6 +604,7 @@
 				"4E3E0A6FCA83095DCE7BEC7D",
 				"5E179FC0D45020473EAF29F3",
 				"AC686F43342E9263D06AC2B8",
+				"957D41FCC3E4B9DB0735E62D",
 				"164394B7320B127FF22F509E",
 				"6E7E1969A77D9CED3D57FF80",
 				"4A92B076A79578B5A06C82AB",
@@ -3731,6 +3742,7 @@
 				"61C76A1052AAC076E578C27B",
 				"CA40783062D85E118B48D1B3",
 				"D8C04439A049DB28EC095138",
+				"5D352DFC0CB3932BE4310117",
 				"B12148D47D4A403895ADAD9C",
 				"DEC4E88920BF88513B721B48",
 				"58D4AA42874F42E45272C0EF",
