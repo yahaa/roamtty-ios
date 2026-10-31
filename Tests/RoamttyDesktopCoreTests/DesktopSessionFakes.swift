@@ -63,7 +63,7 @@ final class FakeHost: DesktopHost, @unchecked Sendable {
 
     init(probe: String, plugin: @escaping (FakeStream, Int) -> Void) { probes = [probe]; self.plugin = plugin }
 
-    static func probe(_ desktop: String = "yes", uname: String = "Linux x86_64", version: String? = "0.9.6") -> String {
+    static func probe(_ desktop: String = "yes", uname: String = "Linux x86_64", version: String? = "0.9.7") -> String {
         "__ITERMUX_DESKTOP__=\(desktop)\n__ITERMUX_UNAME__=\(uname)\n__ITERMUX_DESKTOP_PLUGIN__=\(version.map { "roamtty-desktop \($0) proto 1" } ?? "")\n"
     }
 
@@ -141,7 +141,7 @@ enum PluginFrames {
     }
     static func hello(session: String = "s1", token: String = "tok+/=", needs: [String] = [], udp: (Int, [UInt8])? = nil,
                       audio: [String] = []) -> [String: Any] {
-        var h: [String: Any] = ["proto": 1, "ver": "0.9.6", "os": "linux", "session": session, "resume_token": token,
+        var h: [String: Any] = ["proto": 1, "ver": "0.9.7", "os": "linux", "session": session, "resume_token": token,
                                 "displays": [["id": 0, "w": 1920, "h": 1080, "primary": true, "name": "screen"]], "enc": ["h264"], "hw": "openh264", "needs": needs]
         if let (port, key) = udp { h["udp"] = ["port": port, "key": Data(key).base64EncodedString()] }
         if !audio.isEmpty { h["audio"] = audio }
