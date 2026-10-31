@@ -167,14 +167,62 @@ final class DesktopGesturesTests: XCTestCase {
 
     // MARK: Moving and scrolling
 
-    func testTouchSlideOnlyHovers() {
+    func testTouchSlideScrollsWhatIsUnderTheFinger() {
         let g = gestures()
         _ = g.began(0, 1000, 500, time: 0)
-        XCTAssertTrue(g.moved(0, 1005, 500, time: 20).isEmpty, "within the slop nothing happens yet")
-        XCTAssertEqual([.moveTo(x: 1512 + 39, y: 982)], g.moved(0, 1020, 500, time: 40))
+        XCTAssertTrue(g.moved(0, 1000, 505, time: 16).isEmpty, "within the slop nothing happens yet")
+        let first = g.moved(0, 1000, 530, time: 32)
+        XCTAssertEqual(.moveTo(x: 1512, y: 982), first.first, "the host scrolls what is under its cursor: put it under the finger")
         XCTAssertNil(g.tickAt, "a slide is never a hold")
-        XCTAssertEqual([.moveTo(x: 1512 + 196, y: 982)], g.moved(0, 1100, 500, time: 80))
-        XCTAssertTrue(g.ended(0, 1100, 500, time: 120).isEmpty, "no click after a slide")
+        var out = first
+        var y: Float = 530, t: Int64 = 32
+        while y < 800 { y += 25; t += 16; out += g.moved(0, 1000, y, time: t) }
+        XCTAssertTrue(buttons(out).isEmpty, "a slide presses nothing: \(out)")
+        XCTAssertEqual(1, moves(out).count, "the cursor stays put while scrolling")
+        XCTAssertFalse(wheels(out).isEmpty)
+        XCTAssertTrue(wheels(out).allSatisfy { $0.1 > 0 && $0.0 == 0 }, "finger down pulls the page down: \(wheels(out))")
+        XCTAssertTrue(views(out).isEmpty, "at full size the picture stays put")
+        // A flick carries on after lifting, slowing down.
+        XCTAssertTrue(buttons(g.ended(0, 1000, y, time: t + 5)).isEmpty, "no click after a slide")
+        XCTAssertEqual(t + 5 + DesktopGestures.FRAME_MS, g.tickAt)
+        var coast: [(Int, Int)] = []
+        while let at = g.tickAt, coast.count < 1000 { coast += wheels(g.tick(at)) }
+        XCTAssertGreaterThan(coast.count, 5)
+        XCTAssertTrue(coast.allSatisfy { $0.1 > 0 })
+        XCTAssertNil(g.tickAt)
+    }
+
+    func testTouchSlideStoppedBeforeLiftingDoesNotCoast() {
+        let g = gestures()
+        _ = g.began(0, 1000, 300, time: 0)
+        for i in 1...10 { _ = g.moved(0, 1000, 300 + Float(i) * 20, time: Int64(i) * 16) }
+        _ = g.ended(0, 1000, 500, time: 400)
+        XCTAssertNil(g.tickAt)
+    }
+
+    func testZoomedInTouchSlideMovesThePictureThenScrolls() {
+        let g = gestures()
+        g.viewport = view.zoomed(2, 1000, 500)
+        let before = g.viewport
+        _ = g.began(0, 1000, 500, time: 0)
+        let pan = g.moved(0, 980, 480, time: 30) + g.moved(0, 960, 460, time: 60)
+        XCTAssertFalse(views(pan).isEmpty, "the picture follows the finger, as a zoomed photo")
+        XCTAssertTrue(wheels(pan).isEmpty, "inside the picture's slack nothing scrolls: \(pan)")
+        XCTAssertLessThan(g.viewport.panY, before.panY)
+        // Far past the top edge: the picture stops there and the rest scrolls the host.
+        let past = g.moved(0, 960, -3000, time: 90)
+        guard case .view(let edge)? = past.first else { return XCTFail("\(past)") }
+        XCTAssertEqual(edge, edge.clamped())
+        XCTAssertLessThan(wheels(past).last?.1 ?? 0, 0, "past the edge the host scrolls: \(past)")
+        XCTAssertTrue(buttons(past).isEmpty)
+    }
+
+    func testTouchTwoFingerScrollPutsTheCursorBetweenTheFingers() {
+        let g = gestures()
+        _ = g.began(0, 900, 300, time: 0); _ = g.began(1, 1100, 300, time: 0)
+        let out = g.moved([(0, 900, 340), (1, 1100, 340)], time: 30)
+        XCTAssertEqual(.moveTo(x: 1512, y: 589), out.first)
+        XCTAssertFalse(wheels(out).isEmpty)
     }
 
     func testTrackpadMovesTheCursorFasterTheFasterTheFinger() {
@@ -321,7 +369,7 @@ final class DesktopGesturesTests: XCTestCase {
         XCTAssertEqual([.moveTo(x: 0, y: 0), .feedback(.shortcut)], g.moved(0, 30, 20, time: 2030), "a corner: the hot corner")
         _ = g.ended(0, 30, 20, time: 2060)
 
-        // Along the edge is not a swipe in: it hovers.
+        // Along the edge is not a swipe in: it scrolls.
         _ = g.began(0, 5, 500, time: 3000)
         XCTAssertEqual(1, moves(g.moved(0, 6, 540, time: 3030)).count)
         XCTAssertFalse(g.moved(0, 6, 560, time: 3060).contains(.feedback(.shortcut)))

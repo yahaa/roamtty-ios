@@ -120,7 +120,8 @@ public struct HoldIndicator: Equatable, Sendable {
 /// (two for the right button) until the ring fills picks it up: lift to click with that button, or
 /// move to drag. Two fingers scroll the host, with inertia; pinching zooms the picture locally.
 /// `.mouse` is trackpad mode: one finger moves the cursor, with acceleration, and clicks act where it
-/// is. `.touch` is direct touch: the cursor goes where the finger is, a slide only hovers.
+/// is. `.touch` is direct touch, as on a phone: taps and holds act where the finger is, and a slide
+/// scrolls what is under it, with inertia (zoomed in, it moves the picture first, then scrolls past its edge).
 /// The cursor is the phone's: moves go out as absolute positions, so the host adds no acceleration
 /// of its own and the cursor drawn here is where the host's is. Times are milliseconds.
 public final class DesktopGestures {
@@ -182,7 +183,8 @@ public final class DesktopGestures {
     private var lastTap: (x: Float, y: Float, rx: Int, ry: Int, at: Int64)?
     /// A two-finger tap's right click waits a moment for a second tap, which zooms instead.
     private var pendingRight: (at: Int64, x: Float, y: Float)?
-    private var inertia: (vx: Float, vy: Float, at: Int64)?
+    /// `panFirst`: a one-finger flick in touch mode, which moves a zoomed picture before scrolling.
+    private var inertia: (vx: Float, vy: Float, at: Int64, panFirst: Bool)?
     /// Touch mode: dragging near the edge of a zoomed picture moves it; when the last frame was.
     private var autoPanAt: Int64?
 
@@ -302,7 +304,7 @@ public final class DesktopGestures {
             case .scroll:
                 // A pause before lifting leaves nothing to carry on.
                 let speed = time - lastMoveAt > 60 ? 0 : hypot(vx, vy)
-                if speed > 0.05 { inertia = (vx, vy, time) }
+                if speed > 0.05 { inertia = (vx, vy, time, false) }
                 phase = .spent
             case .pinch:
                 phase = .spent
@@ -357,7 +359,7 @@ public final class DesktopGestures {
             let dt = Float(time - i.at)
             let decay = Self.powf(Self.DECELERATION, dt)
             i.vx *= decay; i.vy *= decay; i.at = time
-            out += scroll(i.vx * dt, i.vy * dt)
+            out += i.panFirst ? swipe(i.vx * dt, i.vy * dt) : scroll(i.vx * dt, i.vy * dt)
             inertia = hypot(i.vx, i.vy) < 0.02 ? nil : i
         }
         if let at = autoPanAt, time >= at + Self.FRAME_MS { out += autoPan(time: time) }
@@ -383,9 +385,11 @@ public final class DesktopGestures {
                 return out + [toEdge(e), .feedback(.shortcut)]
             }
             phase = .moving
+            // Touch mode scrolls what is under the finger: the host scrolls what is under its cursor.
+            if mode == .touch { return out + [moveTo(downX, downY)] + swipe(dx, dy) }
             return out + follow(x, y, dx, dy)
         case .moving:
-            return follow(x, y, dx, dy)
+            return mode == .touch ? swipe(dx, dy) : follow(x, y, dx, dy)
         case .holdArmed:
             guard far else { return [] }
             phase = .dragging
@@ -520,6 +524,7 @@ public final class DesktopGestures {
                 phase = .scroll
             }
             if phase != .pending2 { flushRight(&out); holdAt = nil; indicator = nil }
+            if phase == .scroll && mode == .touch { out.append(moveTo(anchorX, anchorY)) }
         }
         switch phase {
         case .scroll:
@@ -553,6 +558,20 @@ public final class DesktopGestures {
 
     /// Wheel units per point of finger travel: about what moves the content with the fingers.
     private var wheelPerPoint: Float { min(max(2.5 / viewport.scale, 2), 12) / density }
+
+    /// Touch mode, one finger: zoomed in, the picture follows the finger, and only what is left past
+    /// its edge scrolls the host, as a zoomed photo on a phone; at full size it all scrolls.
+    private func swipe(_ dx: Float, _ dy: Float) -> [GestureAction] {
+        var out: [GestureAction] = []
+        var rx = dx, ry = dy
+        if viewport.zoom > 1 {
+            let next = viewport.panned(dx, dy)
+            rx -= next.panX - viewport.panX
+            ry -= next.panY - viewport.panY
+            if next != viewport { viewport = next; out.append(.view(next)) }
+        }
+        return out + scroll(rx, ry)
+    }
 
     /// Fingers moving down pull the page down, as on a phone: the wheel scrolls up.
     private func scroll(_ dx: Float, _ dy: Float) -> [GestureAction] {
@@ -589,6 +608,9 @@ public final class DesktopGestures {
             } else {
                 out += [.button(1, down: true), .button(1, down: false)]
             }
+        case .moving where mode == .touch:
+            let speed = time - lastMoveAt > 60 ? 0 : hypot(vx, vy)
+            if speed > 0.05 { inertia = (vx, vy, time, true) }
         case .holdArmed:
             out += rightClick(downX, downY)
         case .dragging:

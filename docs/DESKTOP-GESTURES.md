@@ -8,7 +8,7 @@ gesture with real touches against a live host.
 ## 手势速查
 
 两种操作方式在 操作 › 操作方式 里切换：**鼠标指针**（触控板模式，手指像在触控板上推光标）和
-**屏幕触控**（直接点哪里就是哪里）。
+**屏幕触控**（像用手机一样：点哪里就是哪里，单指滑动滚动内容）。
 
 ### 点击（手指数量 = 鼠标按键）
 
@@ -31,8 +31,8 @@ gesture with real touches against a live host.
 
 | 手势 | 鼠标指针 | 屏幕触控 |
 |---|---|---|
-| 单指滑动 | 移动光标，越快走得越远 | 光标跟着手指走，不按键（悬停） |
-| 双指滑动 | 滚动远端，快速一划后带惯性继续滚 | 同左；放大后也是滚动 |
+| 单指滑动 | 移动光标，越快走得越远 | 滚动手指下面的内容，快速一划后带惯性；放大后先平移画面，到边缘再滚动 |
+| 双指滑动 | 滚动远端，快速一划后带惯性继续滚 | 同左；放大后也是滚动，不平移画面 |
 
 ### 画面和快捷操作
 
@@ -88,8 +88,8 @@ gesture with real touches against a live host.
 
 | Gesture | Trackpad mode | Touch mode |
 |---|---|---|
-| One finger slides | Moves the cursor, faster the faster the finger | The cursor follows the finger, nothing pressed (hover) |
-| Two fingers slide | Scrolls the host, with inertia after a flick | Same |
+| One finger slides | Moves the cursor, faster the faster the finger | Scrolls what is under the finger, with inertia, as on a phone (the cursor goes there first, since the host scrolls what is under its cursor). Zoomed in, it moves the picture first, as a zoomed photo, and scrolls the host only past the picture's edge |
+| Two fingers slide | Scrolls the host, with inertia after a flick | Same, zoomed in too; the cursor goes between the fingers first |
 
 ### The picture and shortcuts (on the phone, not sent as mouse input)
 

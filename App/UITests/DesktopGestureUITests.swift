@@ -83,6 +83,12 @@ final class DesktopGestureUITests: XCTestCase {
         CGPoint(x: surface.minX + surface.width * fx, y: surface.minY + surface.height * fy)
     }
 
+    /// A point inside the host's picture, as fractions of it (the view letterboxes it).
+    private func pic(_ fx: CGFloat, _ fy: CGFloat) -> CGPoint {
+        let width = min(surface.width, surface.height / remoteAspect), height = width * remoteAspect
+        return CGPoint(x: surface.midX - width / 2 + width * fx, y: surface.midY - height / 2 + height * fy)
+    }
+
     private func pause(_ s: Double = 0.8) { Thread.sleep(forTimeInterval: s) }
 
     /// Esc from the keyboard panel's shortcut bar: closes a menu or an overview on the host.
@@ -146,12 +152,14 @@ final class DesktopGestureUITests: XCTestCase {
         let deadline = Date().addingTimeInterval(3)
         repeat {
             let after = picture()
-            changed = zip(before, after).filter { abs(Int($0) - Int($1)) > 24 }.count
+            // Sensitive enough for a dark menu over a dark window (macOS dark mode); a still host
+            // changes under 0.2% of the samples (video noise, the clock).
+            changed = zip(before, after).filter { abs(Int($0) - Int($1)) > 16 }.count
             share = Double(changed) / Double(max(1, before.count))
-            if share > 0.01 { break }
+            if share > 0.004 { break }
             Thread.sleep(forTimeInterval: 0.2)
         } while Date() < deadline
-        XCTAssertGreaterThan(share, 0.01, "\(what): the host's picture did not change (\(changed) of \(before.count) samples)", file: file, line: line)
+        XCTAssertGreaterThan(share, 0.004, "\(what): the host's picture did not change (\(changed) of \(before.count) samples)", file: file, line: line)
     }
 
     /// Connects and looks, sending nothing: to see what is on a host before testing on it.
@@ -198,6 +206,8 @@ final class DesktopGestureUITests: XCTestCase {
     func testTrackpadModeGestures() throws {
         try launch(pointer: "mouse")
         let mid = at(0.5, 0.5)
+        // Wherever an earlier run left the cursor (on the Dock, say), the clicks start in the middle.
+        try centerCursor()
 
         try Touches.tap([mid])
         expect(["b1d", "b1u"], "one-finger tap clicks at once")
@@ -246,7 +256,7 @@ final class DesktopGestureUITests: XCTestCase {
 
         try centerCursor()
         try twoFingerScroll()
-        try pinchAndSmartZoom()
+        try pinchAndSmartZoom(touch: false)
         try edgeSwipes(trackpad: true)
         try threeFingerSwipes()
     }
@@ -270,10 +280,23 @@ final class DesktopGestureUITests: XCTestCase {
         XCTAssertEqual(moves.first, tap.first { $0.hasPrefix("m") })
         pause()
 
-        try Touches.perform([[(at(0.3, 0.5), 0), (at(0.6, 0.45), 0.35)]])
-        expect(["m*"], "a slide hovers")
+        // One finger flicks the document under it, as on a phone: the cursor goes there, then the
+        // wheel, and the scroll carries on after lifting.
+        let page = picture()
+        try Touches.perform([[(pic(0.5, 0.75), 0), (pic(0.5, 0.25), 0.15)]])
+        let slide = expect(["m*", "w*"], "one finger scrolls what is under it")
         none("b", "a slide presses nothing")
-        pause()
+        none("z", "at full size a slide leaves the picture alone")
+        XCTAssertLessThan(slide.first { $0.hasPrefix("w") }.flatMap { Int($0.split(separator: ",").last ?? "") } ?? 0, 0,
+                          "finger going up scrolls down: \(slide)")
+        let lifted = probeCount()
+        pause(0.6)
+        XCTAssertGreaterThan(probeCount(), lifted + 3, "a flick carries on after lifting")
+        assertChanged(page, "the document under the finger scrolled")
+        capture("touch: one-finger scroll")
+        pause(2)
+        try Touches.perform([[(pic(0.5, 0.25), 0), (pic(0.5, 0.75), 0.15)]])
+        pause(2.5)
 
         var before = picture()
         try Touches.perform([[(mid, 0), (mid, 0.6)]])
@@ -301,10 +324,8 @@ final class DesktopGestureUITests: XCTestCase {
         expect(["m*", "b3d", "b3u", "fclick"], "three-finger tap middle clicks")
         pause()
 
-        try Touches.perform([[(at(0.4, 0.5), 0), (mid, 0.3)]]) // hover over the document
-        pause(0.3)
         try twoFingerScroll()
-        try pinchAndSmartZoom()
+        try pinchAndSmartZoom(touch: true)
         try edgeSwipes(trackpad: false)
     }
 
@@ -313,7 +334,7 @@ final class DesktopGestureUITests: XCTestCase {
     private func twoFingerScroll() throws {
         let before = picture()
         // A flick: the wheel keeps going after the fingers lift.
-        try Touches.perform([[(at(0.45, 0.7), 0), (at(0.45, 0.3), 0.15)], [(at(0.55, 0.7), 0), (at(0.55, 0.3), 0.15)]])
+        try Touches.perform([[(pic(0.45, 0.75), 0), (pic(0.45, 0.25), 0.15)], [(pic(0.55, 0.75), 0), (pic(0.55, 0.25), 0.15)]])
         let during = expect(["w*"], "two fingers scroll")
         none("b", "scrolling presses nothing")
         none("z", "scrolling leaves the picture alone")
@@ -325,7 +346,7 @@ final class DesktopGestureUITests: XCTestCase {
         assertChanged(before, "the document under the cursor scrolled")
         capture("scrolled")
         pause(2)
-        try Touches.perform([[(at(0.45, 0.3), 0), (at(0.45, 0.7), 0.15)], [(at(0.55, 0.3), 0), (at(0.55, 0.7), 0.15)]])
+        try Touches.perform([[(pic(0.45, 0.25), 0), (pic(0.45, 0.75), 0.15)], [(pic(0.55, 0.25), 0), (pic(0.55, 0.75), 0.15)]])
         pause(2.5)
     }
 
@@ -333,7 +354,7 @@ final class DesktopGestureUITests: XCTestCase {
         Int(probe.label.split(separator: " ").first?.dropFirst() ?? "") ?? 0
     }
 
-    private func pinchAndSmartZoom() throws {
+    private func pinchAndSmartZoom(touch: Bool) throws {
         try Touches.perform([[(at(0.45, 0.5), 0), (at(0.3, 0.5), 0.4)], [(at(0.55, 0.5), 0), (at(0.7, 0.5), 0.4)]])
         let pinch = expect(["z*"], "pinch zooms")
         none("w", "pinching does not scroll")
@@ -346,6 +367,16 @@ final class DesktopGestureUITests: XCTestCase {
         expect(["w*"], "zoomed in, two fingers scroll")
         none("z", "zoomed in, scrolling leaves the picture alone")
         pause(1.5)
+        if touch {
+            // Zoomed in, one finger moves the picture, as a zoomed photo; the host does not scroll.
+            // Sideways: in portrait the zoomed picture still fits the height, so only its width can move.
+            try Touches.perform([[(at(0.5, 0.5), 0), (at(0.4, 0.5), 0.5)]])
+            expect(["m*", "z*"], "zoomed in, one finger moves the picture")
+            none("w", "inside the zoomed picture, a slide does not scroll the host")
+            none("b", "moving the picture presses nothing")
+            capture("touch: zoomed picture moved")
+            pause()
+        }
         // Two-finger double tap: out to the whole screen, then in to 2.5×, then out.
         let a = at(0.45, 0.4), b = at(0.55, 0.4)
         for (step, zoom) in [("smart zoom out", "z1.00"), ("smart zoom in", "z2.50"), ("smart zoom back out", "z1.00")] {
