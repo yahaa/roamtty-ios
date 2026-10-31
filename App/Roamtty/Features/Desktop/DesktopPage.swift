@@ -119,8 +119,9 @@ struct DesktopPage: View {
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
         // Swipes from the screen's edges are the desktop's (edge swipes, drags to the Dock): the system's
-        // own edge gestures need a second swipe, and the home indicator fades. 操作 › 返回 leaves the page.
-        .defersSystemGestures(on: .all)
+        // own edge gestures need a second swipe, and the home indicator fades. Swiping back still works
+        // from the black bars beside the picture (InteractivePopGesture), and 操作 › 返回 always does.
+        .defersSystemGestures(on: .vertical)
         .persistentSystemOverlays(.hidden)
         .task {
             try? await Task.sleep(nanoseconds: 1_500_000_000)
@@ -131,7 +132,6 @@ struct DesktopPage: View {
         }
         .onAppear {
             updateIslandSide()
-            InteractivePopGesture.blocked = true
             controller.resume()
             showStats = model.settings.desktopShowStats
             page.showStats = showStats
@@ -143,7 +143,6 @@ struct DesktopPage: View {
             // Leaving pauses and keeps the link for the keep-alive window (phase 5).
             saveThumbnail()
             resetKeyboardState()
-            InteractivePopGesture.blocked = false
             controller.pause()
         }
         .confirmationDialog(model.text("断开连接？", "Disconnect?"), isPresented: $showDisconnect, titleVisibility: .visible) {
@@ -827,8 +826,13 @@ final class DesktopGestureView: UIView {
     override var canBecomeFirstResponder: Bool { true }
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if window != nil { becomeFirstResponder(); scheduleTick() }
-        else { stopTicking() }
+        if window != nil { becomeFirstResponder(); scheduleTick(); InteractivePopGesture.desktop = self }
+        else { stopTicking(); if InteractivePopGesture.desktop === self { InteractivePopGesture.desktop = nil } }
+    }
+
+    /// Whether an edge swipe from this point (view coordinates) is the desktop's: it starts on the picture.
+    func keepsEdgeSwipe(at point: CGPoint) -> Bool {
+        controller?.remoteSize.0 ?? 0 > 0 && gestures.viewport.contains(Float(point.x), Float(point.y))
     }
 
     private func show(_ vp: Viewport) {

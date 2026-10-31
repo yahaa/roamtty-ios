@@ -465,8 +465,16 @@ public final class DesktopGestures {
         return [.view(next), moveTo(lastX, lastY)]
     }
 
+    /// The picture's edges, where they show in the view: a touch within the edge zone of one (on either
+    /// side of it, along the picture) may be an edge swipe. The black bars beside the picture are not
+    /// the picture's: swiping back from the screen's edge starts there.
     private func edgeOf(_ x: Float, _ y: Float) -> (left: Bool, right: Bool, top: Bool, bottom: Bool)? {
-        let e = (left: x < edgeZone, right: x > viewport.viewWidth - edgeZone, top: y < edgeZone, bottom: y > viewport.viewHeight - edgeZone)
+        let v = viewport
+        let pl = max(0, v.left), pr = min(v.viewWidth, v.left + v.contentWidth)
+        let pt = max(0, v.top), pb = min(v.viewHeight, v.top + v.contentHeight)
+        let alongY = y >= pt - edgeZone && y <= pb + edgeZone, alongX = x >= pl - edgeZone && x <= pr + edgeZone
+        let e = (left: alongY && abs(x - pl) < edgeZone, right: alongY && abs(x - pr) < edgeZone,
+                 top: alongX && abs(y - pt) < edgeZone, bottom: alongX && abs(y - pb) < edgeZone)
         return e.left || e.right || e.top || e.bottom ? e : nil
     }
 

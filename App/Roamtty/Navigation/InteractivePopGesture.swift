@@ -1,8 +1,9 @@
 import UIKit
 
-/// The remote desktop takes swipes from the left edge for itself: no edge swipe back while it shows.
+/// The remote desktop keeps edge swipes that start on its picture for itself (they put the cursor on
+/// the host's edge); outside the picture, on the black bars, swiping back works as on any page.
 enum InteractivePopGesture {
-    @MainActor static var blocked = false
+    @MainActor static weak var desktop: DesktopGestureView?
 }
 
 /// SwiftUI turns the edge swipe back off on pages that hide the navigation bar, such as the terminal.
@@ -14,7 +15,10 @@ extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
     }
     public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer === interactivePopGestureRecognizer else { return true }
-        return viewControllers.count > 1 && transitionCoordinator == nil && !InteractivePopGesture.blocked
+        guard viewControllers.count > 1, transitionCoordinator == nil else { return false }
+        if let desktop = InteractivePopGesture.desktop, desktop.window != nil,
+           desktop.keepsEdgeSwipe(at: gestureRecognizer.location(in: desktop)) { return false }
+        return true
     }
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool {
         gestureRecognizer === interactivePopGestureRecognizer && otherGestureRecognizer is UIPanGestureRecognizer

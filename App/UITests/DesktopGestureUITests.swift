@@ -109,8 +109,9 @@ final class DesktopGestureUITests: XCTestCase {
     /// Trackpad mode: the cursor to the middle of the host's screen, from its bottom-left corner by a slow
     /// slide (slow enough for the lowest, constant pointer gain of 0.5).
     private func centerCursor() throws {
-        try Touches.perform([[(CGPoint(x: surface.minX + 4, y: surface.maxY - 4), 0), (CGPoint(x: surface.minX + 30, y: surface.maxY - 20), 0.2)]])
-        expect(["m0,*", "fshortcut"], "a swipe in from the bottom-left corner")
+        let corner = pic(0, 1)
+        try Touches.perform([[(CGPoint(x: corner.x + 4, y: corner.y - 4), 0), (CGPoint(x: corner.x + 30, y: corner.y - 20), 0.2)]])
+        expect(["m0,*", "fshortcut"], "a swipe in from the picture's bottom-left corner")
         pause(0.3)
         // At a gain of 0.5, sliding the picture's own width moves the cursor half the host's width.
         let width = min(surface.width, surface.height / remoteAspect), height = width * remoteAspect
@@ -123,7 +124,9 @@ final class DesktopGestureUITests: XCTestCase {
     }
 
     /// Height over width of the host's screen, from the stats' size line.
+    private var fixedAspect: CGFloat?
     private var remoteAspect: CGFloat {
+        if let fixedAspect { return fixedAspect }
         let size = app.staticTexts.matching(NSPredicate(format: "label MATCHES '[0-9]+×[0-9]+ .*'")).firstMatch.label
         let parts = size.split(separator: " ").first?.split(separator: "×").compactMap { Double($0) } ?? []
         return parts.count == 2 && parts[0] > 0 ? CGFloat(parts[1] / parts[0]) : 0.625
@@ -160,6 +163,60 @@ final class DesktopGestureUITests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.2)
         } while Date() < deadline
         XCTAssertGreaterThan(share, 0.004, "\(what): the host's picture did not change (\(changed) of \(before.count) samples)", file: file, line: line)
+    }
+
+    /// Swiping back works from the black bars beside the picture, as on any page, while an edge swipe that
+    /// starts on the picture stays the desktop's. The offline layout fixture: no host needed.
+    func testSwipeBackFromOutsideThePicture() throws {
+        for landscape in [false, true] {
+            app = XCUIApplication()
+            app.terminate()
+            XCUIDevice.shared.orientation = .portrait
+            app.launchArguments = ["--desktop-controls-fixture"]
+            app.launchEnvironment["ROAMTTY_STORAGE_NAME"] = "DesktopControlsFixture"
+            app.launchEnvironment["ROAMTTY_DESKTOP_STATUS_FIXTURE"] = "connected"
+            app.launchEnvironment["ROAMTTY_DESKTOP_FIXTURE_LANGUAGE"] = "zh-Hans"
+            app.launch()
+            fixedAspect = 720.0 / 1280 // the fixture's picture
+            if landscape {
+                XCUIDevice.shared.orientation = .landscapeRight
+                let rotated = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in self.app.frame.width > self.app.frame.height }, object: nil)
+                XCTAssertEqual(XCTWaiter.wait(for: [rotated], timeout: 5), .completed)
+                pause(1)
+            }
+            let ops = app.buttons["操作"]
+            XCTAssertTrue(ops.waitForExistence(timeout: 10))
+            surface = app.otherElements["desktop-video-surface"].frame
+            let screen = app.frame
+            let mode = landscape ? "landscape" : "portrait"
+
+            // From the screen's left edge, on the picture: the desktop keeps it.
+            let onPicture = pic(0, 0.5)
+            if onPicture.x - screen.minX < 20 {
+                edgeSwipe(from: CGPoint(x: screen.minX + 1, y: onPicture.y), to: CGPoint(x: screen.minX + screen.width * 0.8, y: onPicture.y))
+                pause(1.5)
+                XCTAssertTrue(ops.exists && ops.isHittable, "\(mode): an edge swipe on the picture does not leave the page")
+            }
+
+            // From the screen's left edge, on a black bar: back to the home page.
+            let bar = landscape ? CGPoint(x: screen.minX + 2, y: screen.midY)
+                                : CGPoint(x: screen.minX + 2, y: (surface.minY + pic(0, 0).y) / 2)
+            XCTAssertFalse(app.otherElements["desktop-video-surface"].frame.isEmpty)
+            edgeSwipe(from: bar, to: CGPoint(x: screen.minX + screen.width * 0.8, y: bar.y))
+            let home = app.buttons["home-tab-hosts"].waitForExistence(timeout: 5)
+            if !home { capture("\(mode): still on the desktop after swiping back") }
+            XCTAssertTrue(home, "\(mode): swiping back from the black bar leaves the desktop")
+            capture("\(mode): back from the black bar")
+            XCUIDevice.shared.orientation = .portrait
+        }
+    }
+
+    /// A swipe in from the screen's edge through XCUITest's own drag, which the system's screen-edge
+    /// recognizers accept (touches from the event synthesizer above carry no screen-edge flag).
+    private func edgeSwipe(from: CGPoint, to: CGPoint) {
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        let start = origin.withOffset(CGVector(dx: from.x, dy: from.y))
+        start.press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: to.x, dy: to.y)), withVelocity: 600, thenHoldForDuration: 0)
     }
 
     /// Connects and looks, sending nothing: to see what is on a host before testing on it.
@@ -388,12 +445,12 @@ final class DesktopGestureUITests: XCTestCase {
     }
 
     private func edgeSwipes(trackpad: Bool) throws {
-        let y = at(0, 0.5).y
-        try Touches.perform([[(CGPoint(x: surface.minX + 4, y: y), 0), (CGPoint(x: surface.minX + 80, y: y), 0.2)]])
+        let left = pic(0, 0.5)
+        try Touches.perform([[(CGPoint(x: left.x + 4, y: left.y), 0), (CGPoint(x: left.x + 80, y: left.y), 0.2)]])
         expect(["m0,*", "fshortcut"], "a swipe in from the left edge puts the cursor on the host's left edge")
         pause()
-        let x = at(0.5, 0).x
-        try Touches.perform([[(CGPoint(x: x, y: surface.maxY - 4), 0), (CGPoint(x: x, y: surface.maxY - 80), 0.2)]])
+        let bottom = pic(0.5, 1)
+        try Touches.perform([[(CGPoint(x: bottom.x, y: bottom.y - 4), 0), (CGPoint(x: bottom.x, y: bottom.y - 80), 0.2)]])
         expect(["m*", "fshortcut"], "a swipe up from the bottom edge reaches the host's bottom edge")
         capture(trackpad ? "trackpad: cursor on the bottom edge" : "touch: cursor on the bottom edge")
         pause()

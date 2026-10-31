@@ -40,7 +40,7 @@ gesture with real touches against a live host.
 |---|---|
 | 捏合 | 缩放画面（最大 5 倍），边捏边移动可平移；只在手机上，不发给电脑 |
 | 双指连点两下 | 在当前位置放大 2.5 倍 / 恢复全屏 |
-| 从画面边缘向内滑 | 光标送到电脑屏幕那一侧的边缘（Dock、任务栏、菜单栏）；从角落滑入则送到角落（触发角） |
+| 从画面边缘向内滑 | 光标送到电脑屏幕那一侧的边缘（Dock、任务栏、菜单栏）；从角落滑入则送到角落（触发角）。以画面的边为准，不是屏幕的边 |
 | 三指上滑 | 所有窗口：调度中心 / 任务视图 / 活动概览 |
 | 三指下滑 | 显示桌面 |
 | 三指左 / 右滑 | 切换到右边 / 左边的桌面 |
@@ -48,8 +48,10 @@ gesture with real touches against a live host.
 
 放大后画面会自动跟随：鼠标指针模式下光标进入画面外圈 15% 时画面跟着移；屏幕触控模式下拖动到画面边缘时画面自动滑动。
 
-远程桌面页面会占用屏幕边缘：iOS 的边缘手势（返回、控制中心、主屏幕）需要再划一次才生效，
-离开页面用 操作 › 返回。
+返回：从屏幕左边缘的**黑边**（画面外面的区域）左滑即可返回，和其他页面一样；从画面上开始的
+边缘滑动留给远程桌面（把光标送到边缘）。竖屏时画面上下是黑边，横屏时画面左右是黑边；
+画面放大铺满时没有黑边，用 操作 › 返回。屏幕顶部和底部的系统手势（通知中心、控制中心、
+主屏幕）需要再划一次才生效。
 
 ## Principles
 
@@ -62,8 +64,9 @@ gesture with real touches against a live host.
    host; two fingers sliding always scroll the host, zoomed in or not.
 5. **The phone answers first**: the cursor is the phone's own and moves before the host answers; holds and shortcuts
    have haptics and a ring.
-6. **The desktop owns the screen's edges**: the system's edge gestures (back, Control Centre, home)
-   need a second swipe while the desktop shows. 操作 › 返回 leaves the page.
+6. **The picture owns its edges**: an edge swipe that starts on the picture is the desktop's; from
+   the black bars beside it, swiping back works as on any page. The system's top and bottom edge
+   gestures (Notification Centre, Control Centre, home) need a second swipe. 操作 › 返回 always leaves.
 
 ## The gestures
 
@@ -97,7 +100,7 @@ gesture with real touches against a live host.
 |---|---|
 | Pinch | Zooms the picture (up to 5×); moving while pinching moves it |
 | Two-finger double tap | Zooms in 2.5× on that spot, or back out to the whole screen |
-| Swipe in from an edge of the picture | Puts the cursor on the host's edge there (Dock, taskbar, menu bar); from a corner, in the corner (hot corners) |
+| Swipe in from an edge of the picture | Puts the cursor on the host's edge there (Dock, taskbar, menu bar); from a corner, in the corner (hot corners). The picture's edge, not the view's: from a black bar at the screen's left edge, it is swiping back |
 | Three fingers up | Every window: Mission Control / Task View / Activities |
 | Three fingers down | Show the desktop |
 | Three fingers left / right | The desktop on the right / left: ⌃→ on macOS, Ctrl+Win+→ on Windows, Ctrl+Alt+→ on Linux |
@@ -115,7 +118,7 @@ view; in touch mode, a drag held near the picture's edge slides it along (up to 
 | Double tap | 300 ms, 20 pt |
 | Multi-finger tap | lifted within 350 ms, no finger moved 10 pt |
 | Scroll / pinch decided by | centroid moving 12 pt / span changing 24 pt |
-| Edge zone | 16 pt from the picture view's edge, moving inward |
+| Edge zone | within 16 pt of the picture's edge (as shown in the view), moving inward |
 | Three-finger swipe | centroid moving 40 pt |
 | Pointer gain | clamp(0.8 × (v / 150 pt/s)^0.6, 0.5, 4), in picture points per finger point |
 | Wheel | 2.5 / scale units (1/120 notch) per point, 2…12; sent three or more at a time |

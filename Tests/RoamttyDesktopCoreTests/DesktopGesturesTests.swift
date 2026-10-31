@@ -355,24 +355,34 @@ final class DesktopGesturesTests: XCTestCase {
     // MARK: Shortcuts
 
     func testEdgeSwipesPutTheCursorOnTheHostsEdge() {
+        // The picture spans x 230…1770 of the 2000-wide view (black bars left and right) and all its height.
         let g = gestures()
-        _ = g.began(0, 5, 500, time: 0)
-        XCTAssertEqual([.moveTo(x: 0, y: 982), .feedback(.shortcut)], g.moved(0, 40, 502, time: 30))
-        XCTAssertTrue(g.moved(0, 300, 502, time: 60).isEmpty, "the rest of the swipe does nothing")
-        XCTAssertTrue(g.ended(0, 300, 502, time: 90).isEmpty)
+        _ = g.began(0, 235, 500, time: 0)
+        XCTAssertEqual([.moveTo(x: 0, y: 982), .feedback(.shortcut)], g.moved(0, 270, 502, time: 30))
+        XCTAssertTrue(g.moved(0, 500, 502, time: 60).isEmpty, "the rest of the swipe does nothing")
+        XCTAssertTrue(g.ended(0, 500, 502, time: 90).isEmpty)
 
         _ = g.began(0, 1000, 995, time: 1000)
         XCTAssertEqual([.moveTo(x: 1512, y: 1963), .feedback(.shortcut)], g.moved(0, 1000, 960, time: 1030))
         _ = g.ended(0, 1000, 960, time: 1060)
 
-        _ = g.began(0, 5, 5, time: 2000)
-        XCTAssertEqual([.moveTo(x: 0, y: 0), .feedback(.shortcut)], g.moved(0, 30, 20, time: 2030), "a corner: the hot corner")
-        _ = g.ended(0, 30, 20, time: 2060)
+        _ = g.began(0, 1765, 5, time: 2000)
+        XCTAssertEqual([.moveTo(x: 3023, y: 0), .feedback(.shortcut)], g.moved(0, 1740, 20, time: 2030), "a corner: the hot corner")
+        _ = g.ended(0, 1740, 20, time: 2060)
 
         // Along the edge is not a swipe in: it scrolls.
-        _ = g.began(0, 5, 500, time: 3000)
-        XCTAssertEqual(1, moves(g.moved(0, 6, 540, time: 3030)).count)
-        XCTAssertFalse(g.moved(0, 6, 560, time: 3060).contains(.feedback(.shortcut)))
+        _ = g.began(0, 235, 500, time: 3000)
+        XCTAssertEqual(1, moves(g.moved(0, 236, 540, time: 3030)).count)
+        XCTAssertFalse(g.moved(0, 236, 560, time: 3060).contains(.feedback(.shortcut)))
+        _ = g.ended(0, 236, 560, time: 3090)
+    }
+
+    func testTheScreenEdgeOutsideThePictureIsNoEdgeSwipe() {
+        // The screen's edge, on the black bar: swiping back starts there, not an edge swipe.
+        let g = gestures()
+        _ = g.began(0, 5, 500, time: 0)
+        let out = g.moved(0, 60, 502, time: 30)
+        XCTAssertFalse(out.contains(.feedback(.shortcut)), "\(out)")
     }
 
     func testThreeFingerSwipes() {

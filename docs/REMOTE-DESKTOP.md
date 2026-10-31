@@ -90,7 +90,7 @@ Xcode / a device; **todo** = not implemented yet; **n/a** = Android-only, iOS eq
 | 设置 › 远程桌面 (no switch: on for everyone since 2026-10-26) | `SettingsScreen` | done |
 | Per-host prefs (mode/quality/fps/lock); global showStats | `DesktopHostSettings` in `AppSettings.desktopHosts` | done |
 | Android notification row | Live Activity optional | n/a |
-| Back gesture excluded over the picture | Swipe-back is off on the desktop page and the system's edge gestures are deferred; 操作 › 返回 keeps the link | done |
+| Back gesture excluded over the picture | Swipe-back works from the black bars and is kept off over the picture (as Android); the system's top/bottom edge gestures are deferred; 操作 › 返回 keeps the link | done |
 
 ## Launch crash fix (post phases 3–5)
 
@@ -131,7 +131,7 @@ then open a desktop from a session card / host list / host page / terminal dock.
 Nothing large remains to claim **complete in source** for the #218 surface area, with these caveats:
 
 1. VT / SwiftUI / UIKit paths are **unverified** (no device/simulator run in this environment).
-2. Edge swipes over the picture belong to the desktop (swipe-back off, system edge gestures deferred; see DESKTOP-GESTURES.md).
+2. Edge swipes over the picture belong to the desktop; swiping back works from the black bars (see DESKTOP-GESTURES.md).
 3. Live Activity / persistent notification is explicitly n/a.
 4. Real macOS permission polling UI and Windows service “复制命令” affordances rely on `DesktopText` / needs card; polish may differ from Android screenshots until device QA.
 5. Do **not** claim device testing until someone runs the Mac/simulator checklist above.
