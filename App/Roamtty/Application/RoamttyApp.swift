@@ -22,6 +22,7 @@ import RoamttyCore
                     await DeviceValidation.runIfRequested(model: model)
                     await MemoryValidation.runIfRequested()
                     await DesktopMemoryValidation.runIfRequested()
+                    await AppLifecycleValidation.runIfRequested(model: model)
                     #endif
                 }
                 .onChange(of: scenePhase) { phase in if phase == .active { model.resume() } else if phase == .background { model.suspend() } }

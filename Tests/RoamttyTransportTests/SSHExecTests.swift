@@ -285,15 +285,13 @@ final class SSHExecTests: XCTestCase {
     }
     private func blockSends(_ client: SSHConnection, using gate: ExecSendBackpressure) -> () -> Void {
         client.locked {
-            let context = libssh2_session_abstract(client.session)!
-            let previousContext = context.pointee
-            context.pointee = Unmanaged.passUnretained(gate).toOpaque()
+            let previousContext = roam_ssh_set_user(client.session, Unmanaged.passUnretained(gate).toOpaque())
             let callback = unsafeBitCast(execBackpressuredSend, to: (@convention(c) () -> Void).self)
             let previousCallback = libssh2_session_callback_set2(client.session, LIBSSH2_CALLBACK_SEND, callback)
             return {
                 client.locked {
                     _ = libssh2_session_callback_set2(client.session, LIBSSH2_CALLBACK_SEND, previousCallback)
-                    context.pointee = previousContext
+                    _ = roam_ssh_set_user(client.session, previousContext)
                 }
                 withExtendedLifetime(gate) {}
             }
@@ -323,7 +321,7 @@ private final class ExecSendBackpressure {
 // hook. The library still builds/encrypts/retries its real pending signal packet;
 // after temporary backpressure the bytes reach the real OpenSSH fixture.
 private let execBackpressuredSend: @convention(c) (Int32, UnsafeRawPointer?, Int, Int32, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> Int = { socket, bytes, count, flags, abstract in
-    guard let pointer = abstract?.pointee else { return -Int(EINVAL) }
+    guard let pointer = roam_ssh_user(abstract) else { return -Int(EINVAL) }
     let gate = Unmanaged<ExecSendBackpressure>.fromOpaque(pointer).takeUnretainedValue()
     if gate.blocks() {
         gate.blockedSends += 1

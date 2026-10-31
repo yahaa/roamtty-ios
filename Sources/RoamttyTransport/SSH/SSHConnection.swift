@@ -23,6 +23,12 @@ public final class SSHConnection: @unchecked Sendable {
     private let creationCondition = NSCondition()
     private var creatingChannel = false
     var session: OpaquePointer?
+    /// The allocator of a session this connection made; see `roam_ssh_heap_destroy`.
+    private var heap: OpaquePointer?
+    /// Blocks libssh2 left behind in sessions since launch, released when each session went.
+    public static var reclaimedNativeBlocks: Int { reclaimedLock.lock(); defer { reclaimedLock.unlock() }; return reclaimed }
+    private static let reclaimedLock = NSLock()
+    private static var reclaimed = 0
     // Raw read/write/resize calls interleave on a worker. EAGAIN does not imply
     // that the most recent call owns libssh2's one retained transport packet.
     private struct PendingChannelIO {
@@ -60,6 +66,10 @@ public final class SSHConnection: @unchecked Sendable {
         disconnect()
         libraryLock.lock()
         if let session { _ = libssh2_session_free(session) }
+        if let heap {
+            let count = roam_ssh_heap_destroy(heap, nil)
+            Self.reclaimedLock.lock(); Self.reclaimed += count; Self.reclaimedLock.unlock()
+        }
         libraryLock.unlock()
         roam_socket_close(socket)
         credentials.clear()
@@ -308,8 +318,9 @@ public final class SSHConnection: @unchecked Sendable {
             guard fd >= 0 else { throw RoamError.transport("无法连接主机 / Cannot reach host") }
             stateLock.lock(); socket = fd; let cancelled = stopped; stateLock.unlock()
             guard !cancelled else { throw RoamError.cancelled }
-            guard let ssh = libssh2_session_init_ex(nil, nil, nil, Unmanaged.passUnretained(self).toOpaque()) else { throw RoamError.transport("SSH allocation failed") }
-            session = ssh
+            guard let heap = roam_ssh_heap_create(Unmanaged.passUnretained(self).toOpaque()) else { throw RoamError.transport("SSH allocation failed") }
+            guard let ssh = roam_ssh_session_init(heap) else { _ = roam_ssh_heap_destroy(heap, nil); throw RoamError.transport("SSH allocation failed") }
+            self.heap = heap; session = ssh
             libssh2_session_set_blocking(ssh, 0)
             libssh2_session_set_timeout(ssh, 20_000)
             // No DSA, RSA/SHA1, CBC, group1 or SHA1 key-exchange downgrade.
@@ -345,7 +356,7 @@ public final class SSHConnection: @unchecked Sendable {
                 try retry(timeout: 140) {
                     libssh2_userauth_keyboard_interactive_ex(ssh, host.username, UInt32(host.username.utf8.count)) {
                         _, _, instruction, length, count, prompts, responses, abstract in
-                        guard let opaque = abstract?.pointee, let prompts, let responses, count >= 0, count <= 128 else { return }
+                        guard let opaque = roam_ssh_user(abstract), let prompts, let responses, count >= 0, count <= 128 else { return }
                         let owner = Unmanaged<SSHConnection>.fromOpaque(opaque).takeUnretainedValue()
                         let labels = (0..<Int(count)).map { i in
                             prompts[i].text.map { String(decoding: UnsafeRawBufferPointer(start: $0, count: Int(prompts[i].length)), as: UTF8.self) } ?? ""
@@ -355,7 +366,8 @@ public final class SSHConnection: @unchecked Sendable {
                         guard let answers = owner.prompt(.keyboard(instruction: text, labels: labels, echo: echo)), answers.count == Int(count) else { return }
                         for i in 0..<answers.count {
                             let bytes = answers[i].utf8CString
-                            guard bytes.count <= 1_048_577, let memory = malloc(bytes.count) else { continue }
+                            // libssh2 frees the answers with the session's own allocator.
+                            guard bytes.count <= 1_048_577, let memory = roam_ssh_alloc(abstract, bytes.count) else { continue }
                             bytes.withUnsafeBufferPointer { buffer in _ = memcpy(memory, buffer.baseAddress!, buffer.count) }
                             responses[i].text = memory.assumingMemoryBound(to: CChar.self)
                             responses[i].length = UInt32(bytes.count - 1)

@@ -84,6 +84,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "9DA935E7F972A8D85DA74A18";
 		};
+		"12A0B07E1396A716062069BF" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/CNative/ssh_heap.c";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.c.c";
+		};
+		"748A732986B25DCBE3FE2822" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "12A0B07E1396A716062069BF";
+		};
 		"FC383AEAFC05679D7D520CC0" = {
 			"isa" = "PBXSourcesBuildPhase";
 			"buildActionMask" = "2147483647";
@@ -91,6 +101,7 @@
 				"DECB1AF52840537ECFD98A24",
 				"5CED979BE6BB92D811C54CE3",
 				"F245A039DFDD49C11184082C",
+				"748A732986B25DCBE3FE2822",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
 		};
@@ -1451,6 +1462,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "5840B97A1E2E2F0D654FAFB9";
 		};
+		"577C2081524F6D31E90EF88F" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Debug/AppLifecycleValidation.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"FCBAB353D5F0BC683B5E8229" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "577C2081524F6D31E90EF88F";
+		};
 		"404F0694E3CD88C22A958250" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/Roamtty/Debug/DesktopMemoryValidation.swift";
@@ -2368,6 +2389,7 @@
 				"1A614097A9E46C3DB794D778",
 				"C7716B50DC300605E10A3F99",
 				"DAC524378CE113C35523C793",
+				"FCBAB353D5F0BC683B5E8229",
 				"3D844E0D227A8063160AC9D1",
 				"5F29D1EC30498895BFD1E919",
 				"9107B4B12E6AE7BF68C39086",
@@ -3673,6 +3695,7 @@
 				"B6017F4F9715BEEF46CF61B5",
 				"F29D2CBFE59662B7EEDFF4CF",
 				"9DA935E7F972A8D85DA74A18",
+				"12A0B07E1396A716062069BF",
 				"DD135AE328425E2795939845",
 				"3A938337318A347BAE494B2B",
 				"ACA00831E368C5F462338997",
@@ -3738,6 +3761,7 @@
 				"E253649D0644962204A856CE",
 				"8AADF96DA52A4385487B76A0",
 				"5840B97A1E2E2F0D654FAFB9",
+				"577C2081524F6D31E90EF88F",
 				"404F0694E3CD88C22A958250",
 				"0C1A6AD0AC6F4BD341261786",
 				"C4719BB7A40C69B4BB90949C",
