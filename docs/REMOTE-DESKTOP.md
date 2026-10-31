@@ -71,7 +71,7 @@ Xcode / a device; **todo** = not implemented yet; **n/a** = Android-only, iOS eq
 | Right rail: 操作 · 键盘 · 显示桌面 · 所有窗口; portrait tab bar | `DesktopPage` SwiftUI | done (unverified) |
 | 操作 panel (退出 / 文件 / 剪贴板 / 仅观看 / 触控·指针 / 虚拟鼠标 / 帧率 / 画质 / 显示器 / 锁定 / 网络状态 / 断开) | same via `DesktopController` + `DesktopPageModel` | done (unverified) |
 | Keyboard: 输入法 + 电脑键盘 (modifiers, combos, F-keys) | `DesktopPageModel` + panels | done (unverified) |
-| Local cursor, pinch, two-finger scroll, drag, hardware keyboard | `DesktopGestures` overlay + HID from `UIKey` | done (unverified) |
+| Local cursor, pinch, two-finger scroll, drag, hardware keyboard | `DesktopGestures` overlay + HID from `UIKey`; full gesture set in [DESKTOP-GESTURES.md](DESKTOP-GESTURES.md) | done (live UI tests on the simulator against Ubuntu, Windows and macOS) |
 | Stats overlay / 网络较差 · 恢复中 | `DesktopStatsText` + overlay | done (logic verified; UI unverified) |
 | Connecting / needs / failed / recovering card | `DesktopPage` status card | done (unverified) |
 
@@ -90,7 +90,7 @@ Xcode / a device; **todo** = not implemented yet; **n/a** = Android-only, iOS eq
 | 设置 › 远程桌面 (no switch: on for everyone since 2026-10-26) | `SettingsScreen` | done |
 | Per-host prefs (mode/quality/fps/lock); global showStats | `DesktopHostSettings` in `AppSettings.desktopHosts` | done |
 | Android notification row | Live Activity optional | n/a |
-| Back gesture excluded over the picture | Edge swipe still enabled (system back); 操作 › 退出 keeps the link | done with deviation (no edge exclusion zone yet) |
+| Back gesture excluded over the picture | Swipe-back is off on the desktop page and the system's edge gestures are deferred; 操作 › 返回 keeps the link | done |
 
 ## Launch crash fix (post phases 3–5)
 
@@ -104,7 +104,6 @@ Session cards skip desktop work entirely while the flag is off. Regenerated `Roa
 - Render latency for `LatencyMeter` uses enqueue time when no VT render callback is available.
 - Desktop login opens a **dedicated** SSH connection (`makeConnection` + `connect`), not the host's shared monitor connection, matching Android's page login.
 - Experimental flag defaults **off**; session / host / terminal entry points stay hidden until enabled and `DesktopButton.derive` / `desktopSupported` allow them.
-- Edge-swipe back is not yet limited to the letterbox (Android excludes the picture); leaving via 操作 › 退出 still pauses and keeps the link.
 
 ## Verification
 
@@ -119,7 +118,7 @@ Not verified (needs Xcode on a Mac, a simulator/device, or real hosts):
 
 - Generated Xcode project build of new App sources and assets (`ic_desktop`, rail icons, …).
 - VideoToolbox decode/display on a device; real end-to-end latency numbers.
-- Desktop page layout vs design shots; hardware keyboard / pointer; edge-swipe exclusion.
+- Desktop page layout vs design shots; hardware keyboard / pointer.
 - macOS / Windows / Wayland hosts beyond scripted tests.
 - Wi-Fi ↔ cellular roaming with `NWPathMonitor` on a phone.
 - Keep-alive timer actually tearing down after 5/10/30 minutes in the background.
@@ -132,7 +131,7 @@ then open a desktop from a session card / host list / host page / terminal dock.
 Nothing large remains to claim **complete in source** for the #218 surface area, with these caveats:
 
 1. VT / SwiftUI / UIKit paths are **unverified** (no device/simulator run in this environment).
-2. Edge-swipe exclusion over the picture is not implemented (minor UX deviation).
+2. Edge swipes over the picture belong to the desktop (swipe-back off, system edge gestures deferred; see DESKTOP-GESTURES.md).
 3. Live Activity / persistent notification is explicitly n/a.
 4. Real macOS permission polling UI and Windows service “复制命令” affordances rely on `DesktopText` / needs card; polish may differ from Android screenshots until device QA.
 5. Do **not** claim device testing until someone runs the Mac/simulator checklist above.
