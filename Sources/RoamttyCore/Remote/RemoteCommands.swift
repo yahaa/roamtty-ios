@@ -4,9 +4,13 @@ import Foundation
 
 public enum RemoteCommands {
     public static func shellQuote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+    /// `script` as one command line for `/bin/sh`, whatever the login shell is.
+    public static func shell(_ script: String) -> String { "/bin/sh -c " + shellQuote(script) }
+    /// Runs the script sent on standard input, which keeps it out of the command line and the process list.
+    public static let stdinShell = "/bin/sh -s"
     public static let extraPath = "/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/home/linuxbrew/.linuxbrew/bin:/snap/bin"
     public static let pathSetup = "PATH=\"$PATH:\(extraPath)\"; export PATH"
-    public static let tmuxProbe = "/bin/sh -c " + shellQuote(pathSetup + "; command -v tmux >/dev/null 2>&1")
+    public static let tmuxProbe = shell(pathSetup + "; command -v tmux >/dev/null 2>&1")
     public static func sanitizeSessionName(_ name: String) -> String {
         let safe = String(name.unicodeScalars.filter { CharacterSet.letters.contains($0) || CharacterSet.decimalDigits.contains($0) || $0 == "-" || $0 == "_" }.prefix(64))
         return safe.isEmpty ? "roamtty" : safe
@@ -17,7 +21,7 @@ public enum RemoteCommands {
     /// attached and its status line stays; only mouse mode goes on, so swipes scroll its history.
     public static func tmuxAttach(_ name: String, existing: Bool = false) -> String {
         let name = sanitizeSessionName(name)
-        if existing { return "exec /bin/sh -c " + shellQuote(pathSetup + "; exec tmux attach-session -t =\(name) \\; set-option -t \(name) mouse on") }
+        if existing { return "exec " + shell(pathSetup + "; exec tmux attach-session -t =\(name) \\; set-option -t \(name) mouse on") }
         let pane = bottomPromptPane.replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "$", with: "\\$")
         let options = "\\; set-option -t \(name) mouse on \\; set-option -t \(name) status off"
         let script = pathSetup + "; " +
@@ -25,12 +29,12 @@ public enum RemoteCommands {
             "tmux send-keys -t \(name) -X cancel || true; fi; " +
             "case \"$(tmux -V 2>/dev/null)\" in \"tmux \"[0-2].*) exec tmux new-session -A -D -s \(name) \(options);; esac; " +
             "exec tmux new-session -A -D -s \(name) /bin/sh -c \"\(pane)\" \(options)"
-        return "exec /bin/sh -c " + shellQuote(script)
+        return "exec " + shell(script)
     }
     /// One line per tmux session on the server, `windows<TAB>attached clients<TAB>last activity<TAB>pane command<TAB>
     /// agent report<TAB>name<TAB>folder`, the report as `agentStatus` reads it (see `TmuxSessionInfo.parse`); nothing
     /// when no tmux server runs, and exit status 127 without tmux. The hook strips tabs from what it records.
-    public static let tmuxSessions = "/bin/sh -c " + shellQuote(pathSetup + "; command -v tmux >/dev/null 2>&1 || exit 127; " +
+    public static let tmuxSessions = shell(pathSetup + "; command -v tmux >/dev/null 2>&1 || exit 127; " +
         "tmux -u list-sessions -F '#{session_windows}\t#{session_attached}\t#{session_activity}\t#{pane_current_command}\t#{@roamtty_agent}|#{@roamtty_worked}|#{@roamtty_task}|#{@roamtty_reply}\t#{session_name}\t#{pane_current_path}' 2>/dev/null; exit 0")
     public static func killTmux(_ name: String) -> String {
         let name = sanitizeSessionName(name)
@@ -42,7 +46,7 @@ public enum RemoteCommands {
     /// commands without a UTF-8 locale, and tmux then prints each non-ASCII character of a prompt or a folder as "_".
     public static func agentStatus(_ name: String) -> String {
         let name = sanitizeSessionName(name)
-        return "/bin/sh -c " + shellQuote(pathSetup + "; tmux -u display-message -p -t \(name) " +
+        return shell(pathSetup + "; tmux -u display-message -p -t \(name) " +
             "\"#{pane_current_command}|#{@roamtty_agent}|#{@roamtty_worked}|#{@roamtty_task}|#{@roamtty_reply}\" 2>/dev/null && " +
             "tmux -u display-message -p -t \(name) \"#{pane_current_path}\" 2>/dev/null; date +%s")
     }
@@ -51,7 +55,7 @@ public enum RemoteCommands {
     /// has no `respawn-pane -c`, so it falls back to a plain respawn.
     public static func restartPane(_ name: String) -> String {
         let name = sanitizeSessionName(name)
-        return "/bin/sh -c " + shellQuote(pathSetup + "; " +
+        return shell(pathSetup + "; " +
             "p=$(tmux display-message -p -t \(name) \"#{pane_pid}\") && [ -n \"$p\" ] || exit 1; " +
             "d=$(tmux display-message -p -t \(name) \"#{pane_current_path}\"); " +
             "ps -A -ww -o ppid= -o stat= -o args= | while read q s a; do [ \"$q\" = \"$p\" ] || continue; " +
@@ -62,15 +66,15 @@ public enum RemoteCommands {
     public static func writeHostFile(_ name: String, executable: Bool = false) -> String? {
         guard !name.isEmpty, !name.hasPrefix("."), name.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) || "-_.".unicodeScalars.contains($0) }) else { return nil }
         let chmod = executable ? " && chmod +x \"$HOME/.roamtty/\(name)\"" : ""
-        return "/bin/sh -c " + shellQuote("mkdir -p \"$HOME/.roamtty\" && cat > \"$HOME/.roamtty/\(name)\"" + chmod)
+        return shell("mkdir -p \"$HOME/.roamtty\" && cat > \"$HOME/.roamtty/\(name)\"" + chmod)
     }
     /// Prints the folder the terminal is in: the tmux pane's, or for a plain shell the login shell of this same SSH
     /// connection (found by its `SSH_CONNECTION` and `SSH_TTY`), without typing anything into its terminal.
     public static func workingDirectory(tmux name: String?) -> String {
         if let name {
-            return "/bin/sh -c " + shellQuote(pathSetup + "; tmux -u display-message -p -t " + shellQuote("=" + sanitizeSessionName(name) + ":") + " '#{pane_current_path}'")
+            return shell(pathSetup + "; tmux -u display-message -p -t " + shellQuote("=" + sanitizeSessionName(name) + ":") + " '#{pane_current_path}'")
         }
-        return "/bin/sh -c " + shellQuote(#"""
+        return shell(#"""
             test -n "$SSH_CONNECTION" || exit 1
             for pid in $(ps -u "$(id -u)" -o pid=,sid= | awk '$1 == $2 { print $1 }'); do
                 p=/proc/$pid
@@ -86,7 +90,7 @@ public enum RemoteCommands {
     public static func tmuxAlternateScreen(_ name: String) -> String {
         // The colon selects the active pane. A session-only target produces an empty format value.
         let target = "=" + sanitizeSessionName(name) + ":"
-        return "/bin/sh -c " + shellQuote(pathSetup + "; tmux display-message -p -t " + shellQuote(target) + " '#{alternate_on}'")
+        return shell(pathSetup + "; tmux display-message -p -t " + shellQuote(target) + " '#{alternate_on}'")
     }
 }
 
@@ -237,7 +241,7 @@ public enum HostPlugin: String, Codable, CaseIterable, Sendable { case tmux, mos
 public enum HostPluginProbe {
     public static let tmuxMarker = "__ITERMUX_TMUX__="
     public static let moshMarker = "__ITERMUX_MOSH__="
-    public static let command = "/bin/sh -s"
+    public static let command = RemoteCommands.stdinShell
     public static var script: String { RemoteCommands.pathSetup + "\nm=$(command -v mosh-server 2>/dev/null)\nprintf '\(tmuxMarker)%s\\n' \"$(command -v tmux 2>/dev/null)\"\nprintf '\(moshMarker)%s\\n' \"$m\"\nexit 0" }
     public static func parse(_ output: String?) -> Set<HostPlugin>? {
         guard let lines = output?.components(separatedBy: .newlines).map({ $0.trimmingCharacters(in: .whitespaces) }),
@@ -326,7 +330,7 @@ public enum HostSystem: String, Codable, CaseIterable, Sendable {
 
 public enum HostSystemProbe {
     public static let kernelMarker = "__ITERMUX_KERNEL__", releaseMarker = "__ITERMUX_OS_RELEASE__", legacyMarker = "__ITERMUX_LEGACY_RELEASE__"
-    public static let command = "/bin/sh -s", windowsCommand = "cmd.exe /c ver"
+    public static let command = RemoteCommands.stdinShell, windowsCommand = "cmd.exe /c ver"
     public static let script = #"""
     printf '__ITERMUX_KERNEL__\n'; uname -s 2>/dev/null
     printf '__ITERMUX_OS_RELEASE__\n'

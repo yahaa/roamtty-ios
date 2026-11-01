@@ -123,8 +123,8 @@ struct ContinueSessionScreen: View {
     }
     private func homeDirectory() async -> String? {
         guard let ssh = try? await model.connection(for: host.id), let script = try? RemoteFolders.script(StartDirectory.home),
-              let result = try? await performInBackground({ try ssh.exec("/bin/sh -s", input: Data(script.utf8), timeout: 10) }),
+              let result = try? await ssh.runScript(script, timeout: 10),
               result.status == 0 else { return nil }
-        return RemoteFolders.parse(String(decoding: result.output, as: UTF8.self))?.home
+        return RemoteFolders.parse(result.text)?.home
     }
 }

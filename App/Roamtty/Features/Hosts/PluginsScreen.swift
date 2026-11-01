@@ -219,7 +219,7 @@ import RoamttyTransport
                 let result = try await performInBackground {
                     var input = Data(HostPluginInstaller.script(plugin: plugin, sudoPassword: password).utf8)
                     defer { input.resetBytes(in: 0..<input.count) }
-                    return try ssh.exec("/bin/sh -s", input: input, timeout: 15 * 60, cancellation: token) { data in
+                    return try ssh.exec(RemoteCommands.stdinShell, input: input, timeout: 15 * 60, cancellation: token) { data in
                         DispatchQueue.main.async {
                             guard operationID == id && streaming && !token.isCancelled else { return }
                             log.append(data)
@@ -229,7 +229,7 @@ import RoamttyTransport
                 try checkOperation(id, token)
                 streaming = false
                 var completeLog = PluginInstallLog(); completeLog.append(result.output); completeLog.finish(); log = completeLog
-                outcome = (plugin, HostPluginInstaller.classify(exitStatus: Int(result.status), output: String(decoding: result.output, as: UTF8.self)))
+                outcome = (plugin, HostPluginInstaller.classify(exitStatus: Int(result.status), output: result.text))
                 try await probe(id, token)
             } catch {
                 if operationID == id && !token.isCancelled {
@@ -252,17 +252,10 @@ import RoamttyTransport
     private func probe(_ id: UUID, _ token: TransferCancellation) async throws {
         let ssh = try await model.connection(for: host.id)
         try checkOperation(id, token)
-        let result = try await performInBackground { try ssh.exec(HostPluginProbe.command, input: Data(HostPluginProbe.script.utf8), cancellation: token) }
+        let plugins = try await ssh.probePlugins(timeout: 20, cancellation: token)
         try checkOperation(id, token)
-        installed = HostPluginProbe.parse(String(decoding: result.output, as: UTF8.self)); probed = true
-        let unix = try await performInBackground { try ssh.exec(HostSystemProbe.command, input: Data(HostSystemProbe.script.utf8), cancellation: token) }
-        try checkOperation(id, token)
-        var detected = HostSystemProbe.parse(unix: String(decoding: unix.output, as: UTF8.self))
-        if detected == .UNKNOWN {
-            let windows = try await performInBackground { try ssh.exec(HostSystemProbe.windowsCommand, input: Data(), cancellation: token) }
-            try checkOperation(id, token)
-            detected = HostSystemProbe.parse(unix: nil, windows: String(decoding: windows.output, as: UTF8.self))
-        }
+        installed = plugins; probed = true
+        let detected = try await ssh.probeSystem(timeout: 20, cancellation: token) { try checkOperation(id, token) }
         system = detected == .UNKNOWN ? HostSystem.fromStored(host.system) : detected
         model.updateMetadata(host: host, plugins: installed?.map(\.rawValue), system: system.rawValue)
     }

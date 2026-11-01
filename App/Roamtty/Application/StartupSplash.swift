@@ -14,7 +14,7 @@ struct StartupSplash: View {
         }.allowsHitTesting(false).accessibilityHidden(true)
             .task {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.55)) { shown = true }
-                try? await Task.sleep(nanoseconds: reduceMotion ? 300_000_000 : 1_100_000_000)
+                try? await Task.sleep(for: reduceMotion ? .milliseconds(300) : .milliseconds(1100))
                 onDone()
             }
     }

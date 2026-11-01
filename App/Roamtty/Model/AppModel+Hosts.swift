@@ -110,7 +110,6 @@ extension AppModel {
     /// Shown on a session's card while it waits for its host: the last probe found sshd silent.
     func hostOffline(_ record: SessionRecord) -> Bool {
         guard let host = host(record.hostID), runtimes[record.id]?.phase.active != true, !hostConnected(host) else { return false }
-        if case .offline = reachability[host.id] { return true }
-        return false
+        return reachability[host.id]?.isOffline == true
     }
 }

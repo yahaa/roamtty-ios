@@ -61,6 +61,13 @@ final class RemoteCommandsTests: XCTestCase {
         XCTAssertEqual(result.1, value)
     }
 
+    func testShellRunsTheWholeScriptAsOneSHCommand() throws {
+        XCTAssertEqual(RemoteCommands.shell("echo 'a'"), "/bin/sh -c 'echo '\\''a'\\'''")
+        let result = try run(RemoteCommands.shell("x='it''s'; printf '%s|' \"$x\" $((1 + 2))"))
+        XCTAssertEqual(result.0, 0)
+        XCTAssertEqual(result.1, "its|3|")
+    }
+
     func testTmuxAttachCancelsCopyModeAndKillsOnlyExactName() throws {
         try withCommands(["tmux": """
         case "$1" in

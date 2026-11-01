@@ -262,9 +262,9 @@ import RoamttyTransport
         let token = generation
         let task = Task { [weak self] () -> SSHConnection? in
             guard let connection = try? await reopenSideConnection() else { return nil }
-            guard let self, self.generation == token, self.mosh != nil else { DispatchQueue.global(qos: .utility).async { connection.disconnect() }; return nil }
+            guard let self, self.generation == token, self.mosh != nil else { connection.disconnectInBackground(); return nil }
             let previous = self.ssh; self.ssh = connection; self.sideReconnectAt = nil
-            DispatchQueue.global(qos: .utility).async { previous?.disconnect() }
+            previous?.disconnectInBackground()
             return connection
         }
         sideReconnect = task
@@ -333,7 +333,7 @@ import RoamttyTransport
         startupCancellation = cancellation
         startupTimeoutTask = Task { [weak self] in
             do {
-                try await Task.sleep(nanoseconds: 8_000_000_000)
+                try await Task.sleep(for: .seconds(8))
                 guard let self, self.generation == token, self.startupAttempt == attempt, !self.startupSent else { return }
                 self.close(); self.fail(RoamError.transport(Self.tmuxNotReadyMessage))
             } catch { }
@@ -353,7 +353,7 @@ import RoamttyTransport
                         }
                         self.finishStartup(token: token, attempt: attempt)
                         if self.startupSent { return }
-                        try await Task.sleep(nanoseconds: 50_000_000)
+                        try await Task.sleep(for: .milliseconds(50))
                     }
                     throw RoamError.transport(Self.tmuxNotReadyMessage)
                 } catch {
@@ -406,7 +406,7 @@ import RoamttyTransport
         cursorTimer?.cancel(); keyboardHide?.cancel(); cursorControls = TerminalCursorControls(); cursorRowBounds = nil; cursorRowKey = .escape
         stopAgentStatusPolling()
         sideReconnect?.cancel(); sideReconnect = nil; sideReconnectAt = nil
-        let connection = ssh; ssh = nil; DispatchQueue.global(qos: .utility).async { connection?.disconnect() }
+        ssh?.disconnectInBackground(); ssh = nil
         end = .ended; phase = .disconnected; _ = terminalView.resignFirstResponder()
     }
     func probe() { mosh?.probe() }

@@ -413,7 +413,7 @@ struct FileBrowserScreen: View {
         guard !request.prefix.isEmpty else { searchEntries = []; searching = false; return }
         searching = true; searchEntries = []
         do {
-            try await Task.sleep(nanoseconds: 200_000_000)
+            try await Task.sleep(for: .milliseconds(200))
             let ssh = try await model.connection(for: connectionTarget)
             try model.validate(connectionTarget)
             // One SFTP session for every folder the search reads, instead of a new subsystem per folder.

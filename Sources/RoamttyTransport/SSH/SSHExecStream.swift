@@ -172,7 +172,7 @@ public final class SSHDesktopHost: DesktopHost, @unchecked Sendable {
     public init(connection: SSHConnection) { self.connection = connection }
 
     public func run(_ script: String, timeout: TimeInterval, onLine: @escaping (String) -> Void) -> Int? {
-        execute("/bin/sh -s", input: Data(script.utf8), timeout: timeout, onLine: onLine)
+        execute(RemoteCommands.stdinShell, input: Data(script.utf8), timeout: timeout, onLine: onLine)
     }
 
     public func runCommand(_ command: String, timeout: TimeInterval, onLine: @escaping (String) -> Void) -> Int? {

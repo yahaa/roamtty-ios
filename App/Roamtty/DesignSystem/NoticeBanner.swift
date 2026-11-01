@@ -7,6 +7,6 @@ struct NoticeBanner: View {
     var body: some View {
         Text(notice).font(.subheadline).padding(16).frame(maxWidth: 500).background(Palette.raised, in: RoundedRectangle(cornerRadius: 20)).shadow(radius: 6).padding(16)
             .onTapGesture { model.notice = nil }
-            .task(id: notice) { try? await Task.sleep(nanoseconds: 4_000_000_000); if model.notice == notice { model.notice = nil } }
+            .task(id: notice) { try? await Task.sleep(for: .seconds(4)); if model.notice == notice { model.notice = nil } }
     }
 }

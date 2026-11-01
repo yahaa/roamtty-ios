@@ -111,7 +111,7 @@ struct TerminalScreen: View {
         .task(id: petArrowsUntil) {
             let wait = petArrowsUntil - now
             guard wait > 0 else { return }
-            do { try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)); withAnimation(.easeOut(duration: 0.2)) { petArrowsUntil = 0 } } catch { }
+            do { try await Task.sleep(for: .seconds(wait)); withAnimation(.easeOut(duration: 0.2)) { petArrowsUntil = 0 } } catch { }
         }
         // A terminal whose connection dropped, or that came back from the journal, reconnects as soon as it is shown.
         .task(id: runtime.end) { await model.reconnectOnOpen(runtime.record) }
@@ -123,7 +123,7 @@ struct TerminalScreen: View {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardVisible = false }
         .task(id: toolbox.deadline) {
             guard let deadline = toolbox.deadline else { return }
-            do { try await Task.sleep(nanoseconds: UInt64(max(0, deadline - now) * 1_000_000_000)); withAnimation(.easeOut(duration: 0.4)) { toolbox.expire(at: now) } } catch { }
+            do { try await Task.sleep(for: .seconds(max(0, deadline - now))); withAnimation(.easeOut(duration: 0.4)) { toolbox.expire(at: now) } } catch { }
         }
         .alert(model.text("重启当前会话？", "Restart this session?"), isPresented: $restartConfirm) {
             Button(model.text("取消", "Cancel"), role: .cancel) { }

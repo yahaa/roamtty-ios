@@ -40,7 +40,7 @@ struct HomeScreen: View {
             .onChange(of: compact) { _ in barHidden = 0 }
             .onChange(of: searching) { _ in barHidden = 0 }
             .task(id: model.hosts) {
-                while !Task.isCancelled { await model.probeHosts(model.hosts); do { try await Task.sleep(nanoseconds: 30_000_000_000) } catch { break } }
+                while !Task.isCancelled { await model.probeHosts(model.hosts); do { try await Task.sleep(for: .seconds(30)) } catch { break } }
             }
 
     }
@@ -54,7 +54,7 @@ struct HomeScreen: View {
         barHidden = offset >= 0 ? 0 : min(HomeCompactBar.height, max(0, barHidden - moved))
         barSnap?.cancel()
         barSnap = Task { @MainActor in
-            do { try await Task.sleep(nanoseconds: 180_000_000) } catch { return }
+            do { try await Task.sleep(for: .milliseconds(180)) } catch { return }
             withAnimation(.easeOut(duration: 0.18)) { barHidden = barHidden > HomeCompactBar.height / 2 ? HomeCompactBar.height : 0 }
         }
     }

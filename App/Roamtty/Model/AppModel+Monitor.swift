@@ -27,9 +27,9 @@ extension AppModel {
                     var series = self.metricSeries[host.id] ?? HostMetricSeries()
                     series.resetNetworkBaseline()
                     while current() {
-                        let result = try await performInBackground { try ssh.exec("/bin/sh -c " + RemoteCommands.shellQuote(HostMetrics.script), input: Data(), timeout: 10, cancellation: cancellation) }
+                        let result = try await ssh.run(RemoteCommands.shell(HostMetrics.script), timeout: 10, cancellation: cancellation)
                         guard current() else { return }
-                        let value = HostMetrics.parse(String(decoding: result.output, as: UTF8.self))
+                        let value = HostMetrics.parse(result.text)
                         // The collectors ran but returned nothing usable: the host refused the queries. A lost login
                         // (timeout, dropped connection) throws instead and reconnects, keeping the last sample.
                         guard result.status == 0, value.cpuPercent != nil || value.memPercent != nil || !value.disks.isEmpty else {
@@ -42,7 +42,7 @@ extension AppModel {
                         self.metricSeries[host.id] = series
                         self.monitorStates[host.id] = HostMonitorState(phase: .connected, sampled: true)
                         retry = 0
-                        try await Task.sleep(nanoseconds: 3_000_000_000)
+                        try await Task.sleep(for: .seconds(3))
                     }
                 } catch {
                     guard current() else { return }
@@ -56,7 +56,7 @@ extension AppModel {
                         return
                     }
                     self.monitorStates[host.id] = HostMonitorState(phase: .connecting, reconnecting: true, detail: failure.localizedDescription)
-                    do { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) } catch { return }
+                    do { try await Task.sleep(for: .seconds(delay)) } catch { return }
                 }
             }
         }

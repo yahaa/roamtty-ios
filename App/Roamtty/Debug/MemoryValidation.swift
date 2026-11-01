@@ -31,7 +31,7 @@ import RoamttyTransport
             }
         }
         save()
-        try? await Task.sleep(nanoseconds: 3_000_000_000)
+        try? await Task.sleep(for: .seconds(3))
         checks.append(["name": "baseline", "footprintMiB": Diagnostics.footprintMiB() ?? 0]); save()
         var plain: [Weak<UIView>] = []
         var gestures: [Weak<DesktopGestureView>] = []
@@ -41,7 +41,7 @@ import RoamttyTransport
                 let desktop = DesktopGestureView(frame: .zero); gestures.append(Weak(desktop))
             }
         }
-        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        try? await Task.sleep(for: .seconds(1))
         checks.append(["name": "desktop_displaylink_lifetime", "created": 10,
             "plainViewsRetained": plain.filter { $0.value != nil }.count,
             "desktopGestureViewsRetained": gestures.filter { $0.value != nil }.count,
@@ -62,7 +62,7 @@ import RoamttyTransport
                 }
             }
         }
-        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        try? await Task.sleep(for: .seconds(1))
         checks.append(["name": "desktop_displaylink_reattach_lifetime", "created": reattached.count,
             "viewsRetained": reattached.filter { $0.value != nil }.count,
             "passed": reattached.count == 10 && reattached.allSatisfy { $0.value == nil }]); save()
@@ -81,9 +81,9 @@ import RoamttyTransport
                     runtimes.append(Weak(runtime)); views.append(Weak(runtime.terminalView)); terminals.append(Weak(terminal))
                     runtime.discard()
                 }
-                try? await Task.sleep(nanoseconds: 50_000_000)
+                try? await Task.sleep(for: .milliseconds(50))
             }
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            try? await Task.sleep(for: .seconds(1))
             checks.append(["name": reset ? "terminal_reset_then_discard" : "terminal_control_discard", "created": 10,
                 "runtimesRetained": runtimes.filter { $0.value != nil }.count,
                 "viewsRetained": views.filter { $0.value != nil }.count,
@@ -103,7 +103,7 @@ import RoamttyTransport
                 let before = ProcessInfo.processInfo.systemUptime
                 if wrapped { view.feedKeepingPlace(bytes[...]) } else { view.feed(byteArray: bytes[...]) }
                 durations.append((ProcessInfo.processInfo.systemUptime - before) * 1000)
-                if index % 8 == 7 { try? await Task.sleep(nanoseconds: 1_000_000) }
+                if index % 8 == 7 { try? await Task.sleep(for: .milliseconds(1)) }
             }
             let sorted = durations.sorted()
             checks.append(["name": wrapped ? "terminal_feedKeepingPlace" : "terminal_raw_feed",
@@ -111,13 +111,13 @@ import RoamttyTransport
                 "sumMainThreadMilliseconds": durations.reduce(0, +), "p50Milliseconds": sorted[sorted.count / 2],
                 "p95Milliseconds": sorted[Int(Double(sorted.count) * 0.95)], "maxMilliseconds": sorted.last ?? 0]); save()
             runtime.discard()
-            try? await Task.sleep(nanoseconds: 500_000_000)
+            try? await Task.sleep(for: .milliseconds(500))
         }
         checks.append(accessibilityTailProbe(host: host)); save()
         do {
             let result = try await performInBackground { try uploadProbe() }
             checks.append(result); save()
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            try? await Task.sleep(for: .seconds(2))
             checks.append(["name": "post_upload_idle", "footprintMiB": Diagnostics.footprintMiB() ?? 0]); save()
         } catch {
             checks.append(["name": "upload_probe_error", "errorType": String(describing: type(of: error))]); save()

@@ -57,10 +57,10 @@ extension AppModel {
     /// The tmux sessions running on the host, most recently used first; nil when the host has no tmux.
     func tmuxSessions(on hostID: String) async throws -> [TmuxSessionInfo]? {
         let ssh = try await connection(for: hostID)
-        let result = try await performInBackground { try ssh.exec(RemoteCommands.tmuxSessions, timeout: 10) }
+        let result = try await ssh.run(RemoteCommands.tmuxSessions, timeout: 10)
         if result.status == 127 { return nil }
         guard result.status == 0 else { throw RoamError.invalid(text("无法读取 tmux 会话", "Cannot list tmux sessions")) }
-        return TmuxSessionInfo.parse(String(decoding: result.output, as: UTF8.self))
+        return TmuxSessionInfo.parse(result.text)
     }
 
     // MARK: Opening and launching
@@ -136,7 +136,7 @@ extension AppModel {
             let retained = runtime.loginSnapshot.reconnect(using: savedHost).retainedCredentials
             let creds = try await self.credentials(for: host, owner: record.id, retained: retained, useSavedCredentials: usesSavedCredentials, asking: false)
             let ssh = try self.makeConnection(host, credentials: creds, owner: record.id)
-            do { try await performInBackground { try ssh.connect() } } catch { self.disconnectSoon(ssh); throw error }
+            do { try await ssh.connectInBackground() } catch { ssh.disconnectInBackground(); throw error }
             return ssh
         }
         runtime.onAgentReport = { [weak self, weak runtime] previous, current in
@@ -209,10 +209,10 @@ extension AppModel {
             do {
                 let creds = try await credentials(for: login.host, retained: login.retainedCredentials, useSavedCredentials: login.usesSavedCredentials, asking: false)
                 let ssh = try makeConnection(login.host, credentials: creds)
-                defer { disconnectSoon(ssh) }
-                let command = "/bin/sh -c " + RemoteCommands.shellQuote(RemoteCommands.killTmux(record.remoteName))
-                let result = try await performInBackground { try ssh.connect(); return try ssh.exec(command, timeout: 15) }
-                guard result.status == 0 else { throw RoamError.transport(String(decoding: result.output, as: UTF8.self)) }
+                defer { ssh.disconnectInBackground() }
+                try await ssh.connectInBackground()
+                let result = try await ssh.run(RemoteCommands.shell(RemoteCommands.killTmux(record.remoteName)), timeout: 15)
+                guard result.status == 0 else { throw RoamError.transport(result.text) }
             } catch {
                 let reason = (error as? RoamError) == .cancelled ? text("没有已保存的登录信息", "no saved login") : error.localizedDescription
                 self.error = text("会话卡片已移除，但未能终止远端 tmux 会话：\(reason)", "The card is gone, but the remote tmux session could not be ended: \(reason)")
@@ -247,8 +247,8 @@ extension AppModel {
                 try validateTerminationTarget()
                 let ssh = try await connection(for: target)
                 try validateTerminationTarget()
-                let result = try await performInBackground { try ssh.exec("/bin/sh -c " + RemoteCommands.shellQuote(RemoteCommands.killTmux(record.remoteName))) }
-                guard result.status == 0 else { throw RoamError.transport(String(decoding: result.output, as: UTF8.self)) }
+                let result = try await ssh.run(RemoteCommands.shell(RemoteCommands.killTmux(record.remoteName)))
+                guard result.status == 0 else { throw RoamError.transport(result.text) }
                 guard runtimes[record.id] === runtime else { throw RoamError.cancelled }
                 runtimes[record.id]?.close(); removeSession(record)
             } catch {
@@ -277,7 +277,7 @@ extension AppModel {
     func reconnectOnOpen(_ record: SessionRecord) async {
         guard SessionReconnect.onOpen(sessionEnd(record)) else { return }
         let wait = SessionReconnect.delay(lastAttempt: autoReconnectedAt[record.id], now: Date())
-        if wait > 0 { try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
+        if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
         guard !Task.isCancelled, foreground, records.contains(record), SessionReconnect.onOpen(sessionEnd(record)) else { return }
         autoReconnectedAt[record.id] = Date()
         reconnect(record)
@@ -299,8 +299,7 @@ extension AppModel {
                 let since: Date
                 if let waiting = waitingForHostSince[record.id] { since = waiting }
                 else { since = now; waitingForHostSince[record.id] = now; Task { await probeHosts([host]) } }
-                let online: Bool = { if case .online = reachability[host.id] { return true }; return false }()
-                guard SessionReconnect.hostBack(online: online, checkedAt: reachabilityCheckedAt[host.id], since: since) else { continue }
+                guard SessionReconnect.hostBack(online: reachability[host.id]?.isOnline == true, checkedAt: reachabilityCheckedAt[host.id], since: since) else { continue }
             }
             waitingForHostSince.removeValue(forKey: record.id)
             // A host still out of reach is tried once per visit, not every few seconds.

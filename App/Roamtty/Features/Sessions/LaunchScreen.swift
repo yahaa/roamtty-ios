@@ -320,12 +320,10 @@ struct LaunchScreen: View {
             let ssh = try await model.connection(for: host.id)
             try Task.checkCancellation()
             let script = try RemoteFolders.script(path)
-            let result = try await performInBackground {
-                try ssh.exec("/bin/sh -s", input: Data(script.utf8), cancellation: cancellation)
-            }
+            let result = try await ssh.runScript(script, cancellation: cancellation)
             try Task.checkCancellation()
             guard revision == loadRevision else { return }
-            guard result.status == 0, let folders = RemoteFolders.parse(String(decoding: result.output, as: UTF8.self)) else { throw RoamError.invalid(model.text("无法读取文件夹，请检查路径与访问权限", "Cannot read this folder. Check its path and access permissions.")) }
+            guard result.status == 0, let folders = RemoteFolders.parse(result.text) else { throw RoamError.invalid(model.text("无法读取文件夹，请检查路径与访问权限", "Cannot read this folder. Check its path and access permissions.")) }
             homeDirectory = folders.home
             directory = StartDirectory.normalize(folders.display)
             pathDraft = directory; entries = folders.directory.entries; filter = ""

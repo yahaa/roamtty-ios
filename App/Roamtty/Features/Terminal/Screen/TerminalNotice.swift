@@ -258,6 +258,6 @@ private struct InsertedNotice: View {
         .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
         .transition(.move(edge: .top).combined(with: .opacity))
         .allowsHitTesting(false).accessibilityIdentifier("top-notice")
-        .task(id: message) { try? await Task.sleep(nanoseconds: 2_000_000_000); onDismiss() }
+        .task(id: message) { try? await Task.sleep(for: .seconds(2)); onDismiss() }
     }
 }

@@ -124,10 +124,10 @@ struct DesktopPage: View {
         .defersSystemGestures(on: .vertical)
         .persistentSystemOverlays(.hidden)
         .task {
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            try? await Task.sleep(for: .milliseconds(1500))
             while !Task.isCancelled {
                 saveThumbnail()
-                do { try await Task.sleep(nanoseconds: 10_000_000_000) } catch { break }
+                do { try await Task.sleep(for: .seconds(10)) } catch { break }
             }
         }
         .onAppear {

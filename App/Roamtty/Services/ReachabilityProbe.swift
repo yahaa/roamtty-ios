@@ -4,6 +4,9 @@ import RoamttyCore
 
 enum HostReachability: Sendable {
     case checking, online(Double), offline
+
+    var isOnline: Bool { if case .online = self { return true }; return false }
+    var isOffline: Bool { if case .offline = self { return true }; return false }
 }
 /// Whether a saved host's sshd answers, with the DNS resolution and TCP connection time when it does. No key exchange
 /// or login happens. A proxy or VPN app on the phone can accept every TCP connect locally, so the host counts as

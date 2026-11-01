@@ -64,7 +64,7 @@ import RoamttyTransport
         save()
         do {
             let host = try await installFixture(model)
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            try? await Task.sleep(for: .seconds(3))
             checks.append(["name": "baseline", "footprintMiB": footprint(), "terminalCensus": TerminalCensus.live]); save()
             // ROAMTTY_LIFECYCLE_ONLY (shell, tmux, host, idle, terminal; comma separated) runs only those, to keep a trace small.
             let only = ProcessInfo.processInfo.environment["ROAMTTY_LIFECYCLE_ONLY"].map { Set($0.split(separator: ",").map(String.init)) }
@@ -76,7 +76,7 @@ import RoamttyTransport
             if wanted("idle") { checks.append(try await idleWithSessions(model, host: host)); save() }
             if wanted("terminal") { checks.append(try await idleTerminal(model, host: host)); save() }
             model.path = []
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            try? await Task.sleep(for: .seconds(3))
             checks.append(["name": "after_all", "footprintMiB": footprint(), "terminalCensus": TerminalCensus.live,
                            "runtimes": model.runtimes.count, "records": model.records.count,
                            "sshBlocksReclaimed": SSHConnection.reclaimedNativeBlocks]); save()
@@ -119,7 +119,7 @@ import RoamttyTransport
         let deadline = ProcessInfo.processInfo.systemUptime + seconds
         while ProcessInfo.processInfo.systemUptime < deadline {
             if condition() { return true }
-            try? await Task.sleep(nanoseconds: 50_000_000)
+            try? await Task.sleep(for: .milliseconds(50))
         }
         return condition()
     }
@@ -146,7 +146,7 @@ import RoamttyTransport
                 connectSeconds.append(ProcessInfo.processInfo.systemUptime - start)
                 runtimes.append(Weak(runtime)); views.append(Weak(runtime.terminalView)); terminals.append(Weak(runtime.terminalView.getTerminal()))
                 if let ssh = runtime.ssh { connections.append(Weak(ssh)) }
-                try? await Task.sleep(nanoseconds: 500_000_000)
+                try? await Task.sleep(for: .milliseconds(500))
                 // About 2.5 MB of output, as a build log or `cat` of a big file would print.
                 let marker = "LIFECYCLE\(cycle)"
                 let watch = FrameWatch(); watch.start()
@@ -159,13 +159,13 @@ import RoamttyTransport
                 floods.append(flood)
                 // The file browser on this session's folder, then back to the terminal.
                 model.path.append(.files(host.id, sessionID: record.id))
-                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                try? await Task.sleep(for: .milliseconds(2500))
                 model.path.removeLast()
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                try? await Task.sleep(for: .seconds(1))
                 model.closeSession(record)
                 _ = await wait(15, until: { !model.records.contains(where: { $0.id == record.id }) })
             }
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            try? await Task.sleep(for: .milliseconds(1500))
             footprints.append(footprint())
         }
         // Shared host connections (files, metrics) are the model's to keep; only the sessions' own must go.
@@ -188,11 +188,11 @@ import RoamttyTransport
         let watch = FrameWatch(); watch.start()
         for _ in 0..<cycles {
             model.path = [.host(host.id)]
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            try? await Task.sleep(for: .seconds(4))
             model.path = [.host(host.id), .files(host.id)]
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            try? await Task.sleep(for: .seconds(2))
             model.path = []
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            try? await Task.sleep(for: .milliseconds(1500))
             footprints.append(footprint())
         }
         let frames = watch.stop()
@@ -214,10 +214,10 @@ import RoamttyTransport
             opened.append(record)
             model.leaveTerminal()
         }
-        try? await Task.sleep(nanoseconds: 3_000_000_000)
+        try? await Task.sleep(for: .seconds(3))
         // No frame watch here: its own display link would cost CPU of its own.
         let start = footprint(), cpuStart = cpuSeconds()
-        try? await Task.sleep(nanoseconds: 30_000_000_000)
+        try? await Task.sleep(for: .seconds(30))
         let cpu = cpuSeconds() - cpuStart, end = footprint()
         for record in opened { model.closeSession(record) }
         _ = await wait(20, until: { opened.allSatisfy { record in !model.records.contains(where: { $0.id == record.id }) } })
@@ -232,9 +232,9 @@ import RoamttyTransport
         model.launch(host, mode: .tmux, directory: "~", agent: nil, mosh: false)
         guard let record = model.records.first(where: { !before.contains($0.id) }), let runtime = model.runtimes[record.id],
               await wait(25, until: { runtime.phase == .connected }) else { throw RoamError.invalid("idle terminal did not connect") }
-        try? await Task.sleep(nanoseconds: 5_000_000_000)
+        try? await Task.sleep(for: .seconds(5))
         let cpuStart = cpuSeconds()
-        try? await Task.sleep(nanoseconds: 20_000_000_000)
+        try? await Task.sleep(for: .seconds(20))
         let cpu = cpuSeconds() - cpuStart
         model.closeSession(record)
         _ = await wait(15, until: { !model.records.contains(where: { $0.id == record.id }) })

@@ -40,7 +40,7 @@ struct HostCard: View {
     @State private var deleteConfirm = false
     private var state: DesktopButton { model.desktopButton(for: host, sessionConnected: true, preserveOffline: true) }
     private var hasDesktop: Bool { state != .hidden }
-    private var offline: Bool { if case .offline = model.reachability[host.id] { return true }; return false }
+    private var offline: Bool { model.reachability[host.id]?.isOffline == true }
     private var live: Bool { [.connected, .poor, .recovering, .connecting].contains(state) }
     private var green: Color { Color(uiColor: UIColor(hex: 0x7FD19B)) }
     private var warning: Color { Color(uiColor: UIColor(hex: 0xF2C46D)) }

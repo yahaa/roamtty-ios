@@ -255,10 +255,7 @@ extension AppModel {
     func desktopButton(for host: Host, sessionConnected: Bool, preserveOffline: Bool = false) -> DesktopButton {
         guard let manifest = try? PluginManifest.bundled() else { return .hidden }
         let phase = desktops[host.id]?.phase ?? .idle
-        let offline: Bool = {
-            if case .offline = reachability[host.id] ?? .checking { return true }
-            return false
-        }()
+        let offline = reachability[host.id]?.isOffline == true
         return DesktopButton.derive(
             hostOnline: preserveOffline || !offline,
             sessionConnected: sessionConnected,

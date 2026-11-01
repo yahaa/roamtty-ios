@@ -17,15 +17,14 @@ extension AppModel {
         connectionTokens.removeValue(forKey: hostID)
         connectionTasks.removeValue(forKey: hostID)?.cancel()
         metadataJobs.removeValue(forKey: hostID)?.cancel()
-        if let ssh = connectingSSH.removeValue(forKey: hostID) { disconnectSoon(ssh) }
-        if let ssh = connections.removeValue(forKey: hostID) { disconnectSoon(ssh) }
+        connectingSSH.removeValue(forKey: hostID)?.disconnectInBackground()
+        connections.removeValue(forKey: hostID)?.disconnectInBackground()
         for record in records where record.hostID == hostID {
             cancelLaunch(record.id)
             if let runtime = runtimes[record.id], runtime.phase.active && runtime.phase != .connected { runtime.close() }
         }
         hostPhases[hostID] = .disconnected
     }
-    func disconnectSoon(_ ssh: SSHConnection) { DispatchQueue.global(qos: .utility).async { ssh.disconnect() } }
 
     // MARK: Credentials
 
@@ -133,7 +132,7 @@ extension AppModel {
         if let task = connectionTasks[hostID] { return try await task.value }
         if let ssh = connections[hostID], hostPhases[hostID] == .connected, ssh.isConnected { return ssh }
         guard let host = host(hostID) else { throw RoamError.invalid("Host no longer exists") }
-        if let stale = connections.removeValue(forKey: hostID) { disconnectSoon(stale) }
+        connections.removeValue(forKey: hostID)?.disconnectInBackground()
         let hostGeneration = generations.host(hostID), ownerGeneration = generations.owner(hostID), token = UUID()
         connectionTokens[hostID] = token
         func current() -> Bool { connectionTokens[hostID] == token && isCurrent(hostID: hostID, generation: hostGeneration, owner: hostID, ownerGeneration: ownerGeneration) }
@@ -149,13 +148,13 @@ extension AppModel {
                 }
             }
             do {
-                try await performInBackground { try ssh.connect() }
+                try await ssh.connectInBackground()
                 guard !Task.isCancelled, current() else { throw RoamError.cancelled }
                 self.connections[hostID] = ssh
                 self.hostPhases[hostID] = .connected
                 self.detectMetadata(host: host, ssh: ssh, hostGeneration: hostGeneration, ownerGeneration: ownerGeneration, token: token)
                 return ssh
-            } catch { self.disconnectSoon(ssh); throw error }
+            } catch { ssh.disconnectInBackground(); throw error }
         }
         connectionTasks[hostID] = task
         defer { if connectionTokens[hostID] == token { connectionTasks.removeValue(forKey: hostID); connectingSSH.removeValue(forKey: hostID) } }
@@ -176,18 +175,13 @@ extension AppModel {
                 @MainActor func current() -> Bool { !Task.isCancelled && self.connectionTokens[host.id] == token && self.connections[host.id] === ssh && self.isCurrent(hostID: host.id, generation: hostGeneration, owner: host.id, ownerGeneration: ownerGeneration) }
                 do {
                     guard current() else { return }
-                    let pluginResult = try await performInBackground { try ssh.exec(HostPluginProbe.command, input: Data(HostPluginProbe.script.utf8), timeout: 8, cancellation: cancellation) }
+                    let plugins = try await ssh.probePlugins(timeout: 8, cancellation: cancellation)
                     guard current() else { return }
-                    if let plugins = HostPluginProbe.parse(String(decoding: pluginResult.output, as: UTF8.self)), let latest = self.host(host.id) {
+                    if let plugins, let latest = self.host(host.id) {
                         self.updateMetadata(host: host, plugins: plugins.map(\.rawValue).sorted(), system: latest.system)
                     }
-                    let unix = try await performInBackground { try ssh.exec(HostSystemProbe.command, input: Data(HostSystemProbe.script.utf8), timeout: 8, cancellation: cancellation) }
-                    guard current() else { return }
-                    var system = HostSystemProbe.parse(unix: String(decoding: unix.output, as: UTF8.self))
-                    if system == .UNKNOWN {
-                        let windows = try await performInBackground { try ssh.exec(HostSystemProbe.windowsCommand, input: Data(), timeout: 8, cancellation: cancellation) }
-                        guard current() else { return }
-                        system = HostSystemProbe.parse(unix: nil, windows: String(decoding: windows.output, as: UTF8.self))
+                    let system = try await ssh.probeSystem(timeout: 8, cancellation: cancellation) {
+                        guard current() else { throw RoamError.cancelled }
                     }
                     if system != .UNKNOWN, let latest = self.host(host.id) { self.updateMetadata(host: host, plugins: latest.plugins, system: system.rawValue) }
                 } catch { /* Metadata probes are optional; an authenticated terminal remains usable. */ }

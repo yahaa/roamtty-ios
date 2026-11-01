@@ -103,7 +103,7 @@ struct CommandSheet: View {
                     try model.validate(connectionTarget)
                     // Keep history in memory and read a bounded tail, including a truncation marker.
                     let script = "f=\"$HOME/\(path)\"; [ -r \"$f\" ] || exit 1; n=$(wc -c < \"$f\") || exit 1; printf '%s\\n' \"$n\"; tail -c 262144 \"$f\""
-                    let response = try await performInBackground { try ssh.exec("/bin/sh -c " + RemoteCommands.shellQuote(script), input: Data(), timeout: 8, cancellation: cancellation) }
+                    let response = try await ssh.run(RemoteCommands.shell(script), timeout: 8, cancellation: cancellation)
                     guard response.status == 0, let newline = response.output.firstIndex(of: 10) else { return nil }
                     let sizeLine = String(decoding: response.output[..<newline], as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
                     guard let size = Int64(sizeLine) else { return nil }
@@ -129,8 +129,8 @@ struct CommandSheet: View {
                 if runtime.record.mode == .tmux {
                     let ssh = try await model.connection(for: target)
                     let script = RemoteCommands.tmuxAlternateScreen(runtime.record.remoteName)
-                    let result = try await performInBackground { try ssh.exec(script, input: Data(), timeout: 8, cancellation: cancellation) }
-                    fullScreen = result.status != 0 || String(decoding: result.output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) != "0"
+                    let result = try await ssh.run(script, timeout: 8, cancellation: cancellation)
+                    fullScreen = result.status != 0 || result.trimmedText != "0"
                 }
                 try model.validate(target)
                 guard !fullScreen else { runtime.message = model.text("请先退出全屏程序，再执行 shell 历史命令。", "Exit the full-screen program before running a shell history command."); return }

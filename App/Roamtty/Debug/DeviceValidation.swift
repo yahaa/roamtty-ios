@@ -41,14 +41,14 @@ enum DeviceValidation {
             if let metrics = runner.displayMetrics { model.metrics[host.id] = metrics }
             model.path = []; model.homeTab = .sessions
             _ = await waitUntilActive()
-            try? await Task.sleep(nanoseconds: 800_000_000)
+            try? await Task.sleep(for: .milliseconds(800))
             runner.check("home_sessions_snapshot") { try snapshot(model, folder: folder, name: "home-sessions.png", screen: "HomeSessionsTab") }
             model.homeTab = .hosts
-            try? await Task.sleep(nanoseconds: 800_000_000)
+            try? await Task.sleep(for: .milliseconds(800))
             runner.check("home_hosts_snapshot") { try snapshot(model, folder: folder, name: "home-hosts.png", screen: "HomeHostsTab") }
             model.path = [.host(host.id)]
             _ = await waitUntilActive()
-            try? await Task.sleep(nanoseconds: 800_000_000)
+            try? await Task.sleep(for: .milliseconds(800))
             runner.check("app_window_snapshot") {
                 guard model.authentication == nil, model.sheet == nil, model.error == nil,
                       !model.drawer, UIApplication.shared.applicationState == .active,
@@ -88,7 +88,7 @@ enum DeviceValidation {
         let deadline = Date().addingTimeInterval(15)
         while UIApplication.shared.applicationState != .active {
             guard Date() < deadline, !Task.isCancelled else { return false }
-            do { try await Task.sleep(nanoseconds: 100_000_000) } catch { return false }
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { return false }
         }
         return true
     }
@@ -226,8 +226,8 @@ private final class DeviceValidationRunner {
         }
         check("remote_metrics") {
             guard let ssh = client else { throw DeviceFailure("Password connection unavailable") }
-            let result = try ssh.exec("/bin/sh -c " + RemoteCommands.shellQuote(HostMetrics.script), timeout: 10)
-            let metrics = HostMetrics.parse(String(decoding: result.output, as: UTF8.self))
+            let result = try ssh.exec(RemoteCommands.shell(HostMetrics.script), timeout: 10)
+            let metrics = HostMetrics.parse(result.text)
             try require(result.status == 0 && (metrics.cpus ?? 0) > 0 && (metrics.memTotalBytes ?? 0) > 0, "Metrics response was incomplete")
             // Only numeric system readings enter the screenshot. Process names,
             // remote paths, hostname, user lists and raw output are discarded.
@@ -263,8 +263,8 @@ private final class DeviceValidationRunner {
     private func agentHooks(_ ssh: SSHConnection) {
         check("agent_hooks_status_restart_kill") {
             func sh(_ script: String) throws -> (Int32, String) {
-                let result = try ssh.exec("/bin/sh -s", input: Data((RemoteCommands.pathSetup + "\n" + script).utf8), timeout: 15)
-                return (result.status, String(decoding: result.output, as: UTF8.self))
+                let result = try ssh.exec(RemoteCommands.stdinShell, input: Data((RemoteCommands.pathSetup + "\n" + script).utf8), timeout: 15)
+                return (result.status, result.text)
             }
             try require(try sh("command -v tmux").0 == 0, "Fixture tmux unavailable")
             let name = "roamtty-" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased()
@@ -278,11 +278,11 @@ private final class DeviceValidationRunner {
             for (event, json) in [("prompt", #"{"prompt":"device check"}"#), ("tool", #"{"tool_name":"Bash","tool_input":{"command":"make test"}}"#)] {
                 try require(try sh("printf '%s' '\(json)' | TMUX_PANE='\(pane)' sh \"$HOME/.roamtty/agent-hook.sh\" claude \(event)").0 == 0, "Hook \(event) failed")
             }
-            let poll = String(decoding: try ssh.exec(RemoteCommands.agentStatus(name), input: Data(), timeout: 10).output, as: UTF8.self)
+            let poll = try ssh.exec(RemoteCommands.agentStatus(name), input: Data(), timeout: 10).text
             guard let status = AgentStatus.parse(poll) else { throw DeviceFailure("No agent status reported") }
             try require(status.state == .working && status.task == "device check" && agentActivity(status) == "Running make test", "Agent status mismatch")
             let restart = try ssh.exec(RemoteCommands.restartPane(name), input: Data(), timeout: 10)
-            try require(restart.status == 0 && String(decoding: restart.output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == "sleep 600", "Pane restart did not report its program")
+            try require(restart.status == 0 && restart.trimmedText == "sleep 600", "Pane restart did not report its program")
             try require(try sh(RemoteCommands.killTmux(name)).0 == 0 && (try sh("tmux has-session -t =\(name) 2>/dev/null").0) != 0, "tmux session was not ended")
             return ["hooksInstalled": "true", "statusWorking": "true", "restartReportedProgram": "true", "sessionEnded": "true"]
         }
@@ -395,7 +395,7 @@ private final class DeviceValidationRunner {
                 try require(create.status == 0, "Owned tmux session creation failed"); created.append(name)
                 let identity = try ssh.exec("tmux display-message -p -t " + RemoteCommands.shellQuote("=" + name + ":") + " '#{session_id}'", timeout: 8)
                 try require(identity.status == 0, "tmux identity query failed")
-                ids.insert(String(decoding: identity.output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
+                ids.insert(identity.trimmedText)
             }
             try require(ids.count == 8, "tmux session identities were not independent")
             try terminal(mode: .tmux, name: names[0]) { channel, output in
@@ -443,7 +443,7 @@ private final class DeviceValidationRunner {
             var resized = false
             while Date() < resizeDeadline {
                 let size = try ssh.exec(sizeCommand, timeout: 2)
-                if String(decoding: size.output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == "33 91" { resized = true; break }
+                if size.trimmedText == "33 91" { resized = true; break }
                 Thread.sleep(forTimeInterval: 0.05)
             }
             try require(resized, "mosh tmux pane resize timed out")
@@ -455,7 +455,7 @@ private final class DeviceValidationRunner {
             var sizeMatched = false
             while Date() < resultDeadline {
                 let result = try ssh.exec("cat -- " + RemoteCommands.shellQuote(sizeFile) + " 2>/dev/null", timeout: 2)
-                if result.status == 0 && String(decoding: result.output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == "33 91" { sizeMatched = true; break }
+                if result.status == 0 && result.trimmedText == "33 91" { sizeMatched = true; break }
                 try output.throwIfFailed()
                 Thread.sleep(forTimeInterval: 0.05)
             }

@@ -91,7 +91,7 @@ struct DesktopStatusOverlay: View {
             guard let since = recoverySince else { return }
             let elapsed = Int64(Date().timeIntervalSince1970 * 1000) - since
             let remaining = max(0, 2_000 - elapsed)
-            do { try await Task.sleep(nanoseconds: UInt64(remaining) * 1_000_000) } catch { return }
+            do { try await Task.sleep(for: .milliseconds(remaining)) } catch { return }
             guard !Task.isCancelled else { return }
             recoveryShownFor = since
         }

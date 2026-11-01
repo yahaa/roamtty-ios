@@ -15,7 +15,7 @@ struct ReachabilityLabel: View {
     }
     var body: some View {
         // Android colours only the online label; offline and checking text stays secondary beside its dot.
-        let online: Bool = { if case .online = state { return true }; return false }()
+        let online = state.isOnline
         HStack(spacing: 6) { Circle().fill(tone).frame(width: 8, height: 8); Text(label).font(.system(size: fontSize, weight: .medium)).foregroundStyle(online ? tone : onImage ? .white.opacity(0.72) : Palette.secondary) }
     }
 }

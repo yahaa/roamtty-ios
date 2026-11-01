@@ -74,7 +74,7 @@ extension SessionRuntime {
         keyboardHide?.cancel()
         keyboardHide = Task { [weak self] in
             // Enter puts the keyboard away after 15 s without typing, so a follow-up line can still be typed.
-            do { try await Task.sleep(nanoseconds: 15_000_000_000); _ = self?.terminalView.resignFirstResponder() } catch { }
+            do { try await Task.sleep(for: .seconds(15)); _ = self?.terminalView.resignFirstResponder() } catch { }
         }
     }
 
@@ -95,8 +95,8 @@ extension SessionRuntime {
         cursorTimer?.cancel()
         cursorTimer = Task { [weak self] in
             do {
-                if typing { try await Task.sleep(nanoseconds: 700_000_000); self?.updateCursorKey() }
-                try await Task.sleep(nanoseconds: 3_000_000_000); self?.updateCursorKey()
+                if typing { try await Task.sleep(for: .milliseconds(700)); self?.updateCursorKey() }
+                try await Task.sleep(for: .seconds(3)); self?.updateCursorKey()
             } catch { }
         }
     }

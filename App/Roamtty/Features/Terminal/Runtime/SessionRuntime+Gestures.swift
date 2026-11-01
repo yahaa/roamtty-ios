@@ -184,7 +184,7 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
         let token = generation
         swipeHold = Task { [weak self, weak recognizer] in
             do {
-                try await Task.sleep(nanoseconds: 500_000_000)
+                try await Task.sleep(for: .milliseconds(500))
                 guard let self, let recognizer, self.generation == token, self.swipeGeneration == token, self.writableViewport,
                       recognizer.state == .began || recognizer.state == .changed else { return }
                 let point = recognizer.translation(in: self.terminalView)
