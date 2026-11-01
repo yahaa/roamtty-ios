@@ -116,6 +116,7 @@ extension SessionRuntime {
         let visible = frame.height > 0 && frame.maxY > 0 && frame.minY < view.bounds.height && !view.selectionActive
         let value = visible ? frame : nil
         if cursorRowBounds != value { cursorRowBounds = value }
+        finishCursorTap()
         if visible {
             let terminal = view.getTerminal()
             if let row = terminal.getLine(row: terminal.getCursorLocation().y) { cursorControls.observe(row: row.screenText) }

@@ -6,6 +6,7 @@ HARNESS="$ROOT/scripts/terminal-url"
 SWIFT="${ROAMTTY_SWIFT:-swift}"
 cd "$HARNESS"
 GITHUB_ACTIONS=true "$SWIFT" run -c release TerminalUrlChecks
+GITHUB_ACTIONS=true "$SWIFT" run -c release TerminalCursorTapChecks
 GITHUB_ACTIONS=true "$SWIFT" run -c release TerminalWideCellChecks
 GITHUB_ACTIONS=true "$SWIFT" run -c release TerminalScrollbackChecks
 GITHUB_ACTIONS=true "$SWIFT" run -c release TerminalMemoryChecks

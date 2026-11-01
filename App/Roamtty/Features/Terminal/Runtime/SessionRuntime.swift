@@ -107,6 +107,8 @@ import RoamttyTransport
     // MARK: Gestures (SessionRuntime+Gestures)
 
     weak var selectionTap: UITapGestureRecognizer?
+    /// A tap on another row of a multi-line input: ↑/↓ went out, ←/→ follow once the cursor is drawn on that row.
+    var pendingCursorTap: PendingCursorTap?
     weak var horizontalPan: UIPanGestureRecognizer?
     weak var verticalPan: UIPanGestureRecognizer?
     /// The recognizers this runtime put on the terminal view, taken off again by `discard`.

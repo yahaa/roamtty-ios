@@ -12,6 +12,15 @@ struct ScrollFling {
     let disposition: TerminalScrollDisposition
 }
 
+/// A row change sent by a tap on a multi-line input, waiting for the app to echo the cursor onto `row`.
+struct PendingCursorTap {
+    let row: Int
+    let column: Int
+    let deadline: CFTimeInterval
+    /// The connection it was sent on; a reconnect drops it.
+    let generation: UUID
+}
+
 /// Android's terminal gestures: taps place the cursor, complete or paste; a sideways swipe sends arrows; a vertical
 /// swipe scrolls the host's screen; a pinch zooms the font.
 extension SessionRuntime: UIGestureRecognizerDelegate {
@@ -190,6 +199,7 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
     @objc private func cursorTap(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended else { return }
         if let link = link(at: recognizer.location(in: terminalView)) { open(link); return }
+        pendingCursorTap = nil
         guard phase == .connected else { return }
         (SwiftTermMenu() as SwiftTermEditMenu).hide()
         refreshCursor()
@@ -198,13 +208,49 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
         if (terminalView as? AccessibleTerminalView)?.hostHidCursor == true && !terminalView.isFirstResponder {
             keyboardHide?.cancel(); _ = terminalView.becomeFirstResponder(); return
         }
+        let movedCursor = moveCursor(toTap: recognizer.location(in: terminalView))
         guard let row = cursorRowBounds else { return }
         // The user now decides about the keyboard: an earlier Enter's delayed hide must not undo it.
         keyboardHide?.cancel()
         let y = recognizer.location(in: terminalView).y - terminalView.contentOffset.y
-        if TerminalCursorControls.tapHitsCursor(y: y, rowTop: row.minY, rowHeight: row.height, viewportHeight: terminalView.bounds.height) { _ = terminalView.becomeFirstResponder() }
+        // A tap into the input box, however far from the cursor, is typing there.
+        if movedCursor || TerminalCursorControls.tapHitsCursor(y: y, rowTop: row.minY, rowHeight: row.height, viewportHeight: terminalView.bounds.height) { _ = terminalView.becomeFirstResponder() }
         // iPhone keyboards have no dismiss key and there is no Back button: a reading tap elsewhere puts it away.
         else if terminalView.isFirstResponder { _ = terminalView.resignFirstResponder() }
+    }
+    /// Like tapping into a text field, a tap on typed text moves the cursor there with arrow keys; see
+    /// `TerminalCursorTap`. Returns whether the tap landed on the input.
+    private func moveCursor(toTap point: CGPoint) -> Bool {
+        let cell = cellSize
+        let x = point.x - terminalView.contentOffset.x, y = point.y - terminalView.contentOffset.y
+        guard writableViewport, (terminalView as? AccessibleTerminalView)?.hostHidCursor != true,
+              cell.width > 0, cell.height > 0, x >= 0, y >= 0 else { return false }
+        let terminal = terminalView.getTerminal(), cursor = terminal.getCursorLocation()
+        let column = Int((x / cell.width).rounded()), row = Int(y / cell.height)
+        switch TerminalCursorTap.move(SwiftTermTextGrid(terminal: terminal), cursorColumn: cursor.x, cursorRow: cursor.y, column: column, row: row) {
+        case nil: return false
+        case .along(let steps)?: sendArrows(steps, negative: "D", positive: "C")
+        case .rows(let rows)?:
+            sendArrows(rows, negative: "A", positive: "B")
+            pendingCursorTap = PendingCursorTap(row: row, column: column, deadline: CACurrentMediaTime() + TerminalCursorTap.echoTimeout, generation: generation)
+        }
+        return true
+    }
+    /// Finishes a pending row change once the app has drawn the cursor on the tapped row.
+    func finishCursorTap() {
+        guard let pending = pendingCursorTap else { return }
+        guard pending.generation == generation, writableViewport, (terminalView as? AccessibleTerminalView)?.hostHidCursor != true,
+              CACurrentMediaTime() <= pending.deadline else { pendingCursorTap = nil; return }
+        let terminal = terminalView.getTerminal(), cursor = terminal.getCursorLocation()
+        guard cursor.y == pending.row else { return }
+        pendingCursorTap = nil
+        let steps = TerminalCursorTap.steps(SwiftTermTextGrid(terminal: terminal), cursorColumn: cursor.x, cursorRow: cursor.y, column: pending.column)
+        sendArrows(steps, negative: "D", positive: "C")
+    }
+    private func sendArrows(_ count: Int, negative: String, positive: String) {
+        guard count != 0 else { return }
+        let key = TerminalKeys.arrow(count < 0 ? negative : positive, applicationCursor: terminalView.getTerminal().applicationCursor, control: false, shift: false)
+        _ = send(String(repeating: key, count: abs(count)))
     }
     @objc private func completionTap(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended, phase == .connected else { return }
