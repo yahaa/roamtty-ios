@@ -128,6 +128,7 @@
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
 				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -184,6 +185,7 @@
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
 				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -657,6 +659,7 @@
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
 				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -711,6 +714,7 @@
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
 				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -919,6 +923,7 @@
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
 				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -973,6 +978,7 @@
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
 				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -1346,6 +1352,7 @@
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
 				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -1400,6 +1407,7 @@
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
 				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -2941,6 +2949,7 @@
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
 				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -3001,6 +3010,7 @@
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
 				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -3208,6 +3218,7 @@
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
 				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -3265,6 +3276,7 @@
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
 				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -3647,6 +3659,7 @@
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
 				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -3695,6 +3708,7 @@
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
 				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -4037,6 +4051,7 @@
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
 				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -4085,6 +4100,7 @@
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
 				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
