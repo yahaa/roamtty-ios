@@ -1,5 +1,20 @@
 # Simulator acceptance coverage
 
+## 2026-11-01 (later): the remaining items
+
+Same simulator and fixtures. Changes: `tmux -u` on attach, `LM_SKIP_METADATA_EXTRACTION`, the desktop gesture tests' own opt-in and runner (`scripts/test-desktop-gestures.sh`).
+
+| Evidence | Result |
+| --- | --- |
+| Full UI run, `TestResults/Simulator-20261101-104356.xcresult` | **86 total: 67 passed, 15 skipped, 4 failed.** The 8 live-desktop tests now skip instead of failing against the SSH container. |
+| The 4 failures | `HomeLandscapeUITests.testCardsShareHeightAndLandscapeBarSlides` and `TerminalSettingsUITests.testPinnedToolsReserveWidthAndFunctionShortcutsReachRemote` passed when rerun. The two TerminalGesture keyboard tests kept failing, also with `RemoteCommands.swift` from the previous round (so not `tmux -u`). The cause was simulator state left by hardware key events (XCUITest `typeKey`, used by the old ⌃⌘F test): the software keyboard stopped coming back. After `xcrun simctl erase`, TerminalGesture passed **9/9**. |
+| Live desktop gestures, Ubuntu VM | `testTrackpadModeGestures`, `testTouchModeGestures`, `testSwipeBackFromOutsideThePicture` and `testLookAtHost` passed. The trackpad test now flicks back up when the page under the cursor is already at its end. |
+| Live desktop gestures, the Mac | `testShowDesktopButtonEveryTap`, `testShowDesktopFromFullScreenTappedTwice` (Chrome in full screen first), `testToggleHostFullScreen`, `testTapHostPoints` and `testLookAtHost` passed. `testUnlockHost` was not run: the Mac was unlocked, and the test would type the password into the front app. |
+| Unit tests (`swift test`) | **440 total: 426 passed, 14 skipped, 0 failed.** |
+| Lint and build | `scripts/lint.sh` 0 warnings (Linux and Mac). A clean Debug xcodebuild prints no warnings and no AppIntents note. |
+
+If keyboard tests fail on a simulator that had hardware key events, erase it (`xcrun simctl erase <udid>`); `scripts/test-simulator.sh` sets it up again.
+
 ## 2026-11-01: deep review refactor (`refactor/deep-review`)
 
 Simulator: Roamtty Validation (iPhone 17, iOS 26.4), the Docker SSH fixture on the Mac, recovery and plugin fixtures on the dev box.
