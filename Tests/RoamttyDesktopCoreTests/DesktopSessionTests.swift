@@ -139,7 +139,7 @@ final class DesktopSessionTests: XCTestCase {
         let cases: [(String, String)] = [
             (FakeHost.probe("no"), "这台主机没有图形桌面"),
             (FakeHost.probe(uname: "SunOS sparc"), "暂不支持这台主机的系统"),
-            ("garbage", "无法检测这台主机的桌面"),
+            ("garbage", "无法检测这台主机的桌面")
         ]
         for (probe, expected) in cases {
             let host = FakeHost(probe: probe, plugin: Self.goodPlugin)
@@ -193,8 +193,7 @@ final class DesktopSessionTests: XCTestCase {
     /// macOS permissions: the hello's needs show the guide, and serve is asked again until they are granted.
     func testMacPermissionsArePolledUntilGranted() {
         let host = FakeHost(probe: FakeHost.probe(uname: "Darwin arm64"), plugin: { s, n in
-            if n < 3 { s.hello(PluginFrames.hello(needs: n == 1 ? ["screen-recording", "accessibility"] : ["accessibility"])) }
-            else { Self.goodPlugin(s, n) }
+            if n < 3 { s.hello(PluginFrames.hello(needs: n == 1 ? ["screen-recording", "accessibility"] : ["accessibility"])) } else { Self.goodPlugin(s, n) }
         })
         let s = session(host)
         s.start()
@@ -326,7 +325,9 @@ final class DesktopSessionTests: XCTestCase {
         let stream = try XCTUnwrap(host.allStreams.first)
         // The phone told the host its UDP port over SSH.
         XCTAssertTrue(waitUntil(2) { stream.received.contains { f in
-            f.type == DesktopProtocol.CONFIG && String(decoding: f.payload, as: UTF8.self).contains("\"udp_client_port\":40000") } })
+            f.type == DesktopProtocol.CONFIG && String(decoding: f.payload, as: UTF8.self).contains("\"udp_client_port\":40000")
+        }
+        })
         XCTAssertTrue(waitUntil(3) { s.onUdp }, "heartbeats answered")
         udp.video(PluginFrames.video(2))
         XCTAssertTrue(waitUntil(3) { s.stats.link == "UDP" })

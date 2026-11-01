@@ -10,9 +10,9 @@ struct LaunchScreen: View {
     let forAgent: Bool
     var initialDirectory = "~"
     /// The agent already picked (the new-session sheet asks for it first); otherwise the last one used.
-    var initialAgent: CodingAgent? = nil
+    var initialAgent: CodingAgent?
     /// Replaces the heading when the sheet is a step of a longer flow.
-    var title: String? = nil
+    var title: String?
     @State private var agent = CodingAgent.codex
     @State private var agentMode = AgentMode.yolo
     @State private var sessionMode = SessionMode.tmux
@@ -41,7 +41,11 @@ struct LaunchScreen: View {
     private var folderName: String { StartDirectory.isHome(directory) ? model.text("主目录", "home") : (directory.split(separator: "/").last.map(String.init) ?? "/") }
     private var launchTitle: String {
         let home = StartDirectory.isHome(directory)
-        if forAgent { return home ? model.text("在主目录启动 \(agent.shortLabel)", "Start \(agent.shortLabel) in home") : model.text("在 \(folderName) 启动 \(agent.shortLabel)", "Start \(agent.shortLabel) in \(folderName)") }
+        if forAgent {
+            return home ? model.text("在主目录启动 \(agent.shortLabel)",
+                "Start \(agent.shortLabel) in home") : model.text("在 \(folderName) 启动 \(agent.shortLabel)",
+                "Start \(agent.shortLabel) in \(folderName)")
+        }
         return home ? model.text("在主目录打开终端", "Open terminal in home") : model.text("在 \(folderName) 打开终端", "Open terminal in \(folderName)")
     }
     private var heading: String { title ?? (forAgent ? model.text("用 Agent 打开", "Open with Agent") : model.text("打开终端", "Open terminal")) }
@@ -88,9 +92,11 @@ struct LaunchScreen: View {
             if filtering { filterBar } else { pathBar }
             Divider().overlay(Palette.outline)
             ZStack(alignment: .top) {
-                if let error { centerNote(error, id: "launch-error", action: StartDirectory.isHome(directory) ? model.text("重试", "Retry") : model.text("回到主目录", "Back to home")) { navigate("~") } }
-                else if entries.isEmpty && busy { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
-                else { folderList }
+                if let error {
+                    centerNote(error, id: "launch-error", action: StartDirectory.isHome(directory) ? model.text("重试", "Retry") : model.text("回到主目录", "Back to home")) { navigate("~") }
+                } else if entries.isEmpty && busy {
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else { folderList }
                 if busy && !entries.isEmpty { ProgressView().progressViewStyle(.linear).tint(Palette.accent) }
             }.frame(maxHeight: .infinity)
         }.background(Palette.panel, in: RoundedRectangle(cornerRadius: 16)).clipShape(RoundedRectangle(cornerRadius: 16))
@@ -292,9 +298,14 @@ struct LaunchScreen: View {
     /// UI tests only: Android has no per-launch mode, mosh or typed path, but the suite needs them deterministically.
     private var testControls: some View {
         VStack(spacing: 6) {
-            Picker("", selection: Binding(get: { sessionMode }, set: { sessionMode = $0; sessionModeExplicit = true })) { Text("tmux").tag(SessionMode.tmux); Text("SSH").tag(SessionMode.shell) }.pickerStyle(.segmented).accessibilityIdentifier("launch-mode")
+            Picker("", selection: Binding(get: { sessionMode }, set: { sessionMode = $0; sessionModeExplicit = true })) {
+                Text("tmux").tag(SessionMode.tmux)
+                Text("SSH").tag(SessionMode.shell)
+            }.pickerStyle(.segmented).accessibilityIdentifier("launch-mode")
             HStack {
-                TextField("", text: $pathDraft).font(.caption.monospaced()).textInputAutocapitalization(.never).autocorrectionDisabled().onSubmit { navigate(pathDraft) }.accessibilityIdentifier("launch-directory")
+                TextField("", text: $pathDraft).font(.caption.monospaced()).textInputAutocapitalization(.never).autocorrectionDisabled().onSubmit {
+                    navigate(pathDraft)
+                }.accessibilityIdentifier("launch-directory")
                 Toggle("mosh", isOn: Binding(get: { mosh }, set: { mosh = $0; moshExplicit = true })).font(.caption).fixedSize().accessibilityIdentifier("launch-mosh")
             }
             if forAgent {
@@ -323,7 +334,9 @@ struct LaunchScreen: View {
             let result = try await ssh.runScript(script, cancellation: cancellation)
             try Task.checkCancellation()
             guard revision == loadRevision else { return }
-            guard result.status == 0, let folders = RemoteFolders.parse(result.text) else { throw RoamError.invalid(model.text("无法读取文件夹，请检查路径与访问权限", "Cannot read this folder. Check its path and access permissions.")) }
+            guard result.status == 0, let folders = RemoteFolders.parse(result.text) else {
+                throw RoamError.invalid(model.text("无法读取文件夹，请检查路径与访问权限", "Cannot read this folder. Check its path and access permissions."))
+            }
             homeDirectory = folders.home
             directory = StartDirectory.normalize(folders.display)
             pathDraft = directory; entries = folders.directory.entries; filter = ""

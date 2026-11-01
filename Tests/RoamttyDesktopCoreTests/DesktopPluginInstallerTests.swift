@@ -67,7 +67,7 @@ final class DesktopPluginInstallerTests: XCTestCase {
     func testPhoneDownloadFailureIsADownloadFailure() {
         struct Offline: Error {}
         let installer = DesktopPluginInstaller(remote: local, fetch: { _ in throw Offline() })
-        guard case .failed(.download, _) = installer.install(.init(version: "0.1.0", url: "http://127.0.0.1:9/x.gz", sha256: sha, openh264Url: nil)) else { return XCTFail() }
+        guard case .failed(.download, _) = installer.install(.init(version: "0.1.0", url: "http://127.0.0.1:9/x.gz", sha256: sha, openh264Url: nil)) else { return XCTFail("an unreachable download must fail as a download") }
     }
 
     func testPlaceScriptRejectsATamperedUpload() throws {

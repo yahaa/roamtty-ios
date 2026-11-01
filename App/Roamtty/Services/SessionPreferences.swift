@@ -23,8 +23,7 @@ enum MoshPreference {
     static func set(_ status: AgentStatus?, for recordID: String) {
         guard cache[recordID] != .some(status) else { return }
         cache[recordID] = .some(status)
-        if let status, let data = try? JSONEncoder().encode(status) { UserDefaults.standard.set(data, forKey: key(recordID)) }
-        else { UserDefaults.standard.removeObject(forKey: key(recordID)) }
+        if let status, let data = try? JSONEncoder().encode(status) { UserDefaults.standard.set(data, forKey: key(recordID)) } else { UserDefaults.standard.removeObject(forKey: key(recordID)) }
     }
 }
 

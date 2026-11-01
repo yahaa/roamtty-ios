@@ -154,8 +154,7 @@ final class SSHMemoryTests: XCTestCase {
         } }
         let creation = expectation(description: "pending channel creation unwinds")
         DispatchQueue.global().async {
-            do { let stream = try connection.openStream("true"); stream.close(); XCTFail("Disconnected channel creation must throw") }
-            catch { XCTAssertEqual(error as? RoamError, .cancelled) }
+            do { let stream = try connection.openStream("true"); stream.close(); XCTFail("Disconnected channel creation must throw") } catch { XCTAssertEqual(error as? RoamError, .cancelled) }
             creation.fulfill()
         }
         XCTAssertEqual(gate.blocked.wait(timeout: .now() + 2), .success)
@@ -245,8 +244,12 @@ final class SSHMemoryTests: XCTestCase {
         let finished = expectation(description: "exec cancels despite its earlier retained stdin packet")
         let started = Date()
         DispatchQueue.global().async {
-            do { _ = try connection.exec("cat", input: Data(repeating: 42, count: 65536), timeout: 8, cancellation: token); XCTFail("Expected cancellation") }
-            catch { XCTAssertEqual(error as? RoamError, .cancelled) }
+            do {
+                _ = try connection.exec("cat", input: Data(repeating: 42, count: 65536), timeout: 8, cancellation: token)
+                XCTFail("Expected cancellation")
+            } catch {
+                XCTAssertEqual(error as? RoamError, .cancelled)
+            }
             finished.fulfill()
         }
         XCTAssertEqual(gate.blocked.wait(timeout: .now() + 3), .success)
@@ -299,7 +302,8 @@ final class SSHMemoryTests: XCTestCase {
             return { connection.locked {
                 _ = libssh2_session_callback_set2(connection.session, LIBSSH2_CALLBACK_SEND, old)
                 _ = roam_ssh_set_user(connection.session, previous)
-            }; withExtendedLifetime(gate) {} }
+            }; withExtendedLifetime(gate) {}
+            }
         }
     }
 
@@ -319,8 +323,7 @@ final class SSHMemoryTests: XCTestCase {
             autoreleasepool {
                 let before = Self.residentBytes()
                 var peak = before
-                do { try connection.upload(file, to: remote, progress: { _, _ in peak = max(peak, Self.residentBytes()) }) }
-                catch { XCTFail("Upload failed: \(error)") }
+                do { try connection.upload(file, to: remote, progress: { _, _ in peak = max(peak, Self.residentBytes()) }) } catch { XCTFail("Upload failed: \(error)") }
                 print("upload bytes=67108864 rss_growth=\(peak - before)")
                 XCTAssertLessThan(peak - before, 24 * 1024 * 1024, "64 MiB upload must retain only current chunks")
             }
@@ -332,7 +335,9 @@ final class SSHMemoryTests: XCTestCase {
     private static func residentBytes() -> UInt64 {
         var info = mach_task_basic_info()
         var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<integer_t>.size)
-        let status = withUnsafeMutablePointer(to: &info) { pointer in pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count) } }
+        let status = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count) }
+        }
         return status == KERN_SUCCESS ? info.resident_size : 0
     }
     #endif

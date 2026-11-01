@@ -84,7 +84,7 @@ struct TerminalConnectionNotice: View {
     let onShell: () -> Void
     let onReverify: () -> Void
     /// iOS has no Back button and the terminal no navigation bar: the notice leads back to where it was opened from.
-    var onLeave: (() -> Void)? = nil
+    var onLeave: (() -> Void)?
     var body: some View {
         TerminalNoticeCard(title: model.phaseText(phase), id: "terminal-connection-notice") {
             if let message, !message.isEmpty {
@@ -157,8 +157,7 @@ struct ImageInsertStatus: View {
         let followed = followed(in: all)
         guard !followed.isEmpty, !followed.contains(where: { $0.state == .running }) else { return }
         let outcomes = followed.map(outcome)
-        if outcomes.contains(where: { if case .cancelled = $0 { return true }; return false }) { jobs = [] }
-        else if outcomes.allSatisfy({ if case .inserted = $0 { return true }; return false }) {
+        if outcomes.contains(where: { if case .cancelled = $0 { return true }; return false }) { jobs = [] } else if outcomes.allSatisfy({ if case .inserted = $0 { return true }; return false }) {
             notice = model.text("已插入 \(followed.count) 张图片", followed.count == 1 ? "Photo inserted" : "\(followed.count) photos inserted")
             jobs = []
         }

@@ -5,7 +5,8 @@ import XCTest
 final class RemoteCommandsTests: XCTestCase {
     func testAgentLaunchQuotesDirectoryAndMatchesAndroidModes() {
         XCTAssertEqual(AgentLaunch(agent: .codex, directory: "/work/a'b", mode: .readOnly).commandLine, "cd -- '/work/a'\\''b' && ~/.roamtty/codex --sandbox read-only")
-        XCTAssertEqual(AgentLaunch(agent: .claude, directory: "~/work dir/", mode: .yolo).commandLine, "cd -- ~/'work dir' && claude --dangerously-skip-permissions --settings ~/.roamtty/claude-hooks.json")
+        XCTAssertEqual(AgentLaunch(agent: .claude, directory: "~/work dir/", mode: .yolo).commandLine,
+            "cd -- ~/'work dir' && claude --dangerously-skip-permissions --settings ~/.roamtty/claude-hooks.json")
         XCTAssertEqual(AgentLaunch(agent: .grok, directory: "~").commandLine, "~/.roamtty/grok")
         XCTAssertEqual(AgentLaunch(agent: .codex, directory: "/work/demo/").title, "Codex · demo")
         XCTAssertEqual(AgentLaunch(agent: .claude, directory: "/").title, "Claude · /")
@@ -104,7 +105,8 @@ final class RemoteCommandsTests: XCTestCase {
             let sessions = TmuxSessionInfo.parse(list.1)
             XCTAssertEqual(sessions.map(\.name), ["my session", "work"])
             XCTAssertEqual(sessions[1], TmuxSessionInfo(name: "work", windows: 2, attached: 1, activity: Date(timeIntervalSince1970: 1_700_000_000), directory: "/home/me/a|b",
-                                                        command: "claude", agent: AgentStatus(state: .working, agent: "claude", tool: "Bash", detail: "npm test", task: "fix the build", directory: "/home/me/a|b")))
+                                                        command: "claude", agent: AgentStatus(state: .working, agent: "claude", tool: "Bash", detail: "npm test",
+                                                                                              task: "fix the build", directory: "/home/me/a|b")))
             XCTAssertEqual(sessions.map(\.attachable), [false, true])
             XCTAssertEqual(sessions.map(\.idleShell), [true, false])
             XCTAssertNil(sessions[0].agent)

@@ -38,11 +38,13 @@ struct TerminalFileActions: View {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).pageBackground()
             } else if action == .download {
                 NavigationStack {
-                    FileBrowserScreen(host: runtime.host, sessionID: runtime.record.id, initialDirectory: directory, downloadSelection: true, connectionTarget: connectionTarget, onLaunchDirectory: onLaunchDirectory)
+                    FileBrowserScreen(host: runtime.host, sessionID: runtime.record.id, initialDirectory: directory, downloadSelection: true,
+                        connectionTarget: connectionTarget, onLaunchDirectory: onLaunchDirectory)
                         .toolbar { ToolbarItem(placement: .cancellationAction) { Button(model.text("完成", "Done")) { dismiss() }.accessibilityIdentifier("files-picker-done") } }
                 }
             } else if action == .upload && !urls.isEmpty {
-                UploadFilesSheet(host: runtime.host, urls: urls, initialDirectory: directory, sessionID: runtime.record.id, insertionRuntime: runtime, connectionTarget: connectionTarget) { transfers = true }
+                UploadFilesSheet(host: runtime.host, urls: urls, initialDirectory: directory, sessionID: runtime.record.id, insertionRuntime: runtime,
+                    connectionTarget: connectionTarget) { transfers = true }
             } else {
                 NavigationStack {
                     VStack(spacing: 20) {
@@ -88,7 +90,8 @@ struct UploadFilesSheet: View {
     @State private var failure: String?
     @State private var cancellation: TransferCancellation?
 
-    init(host: Host, urls: [URL], initialDirectory: String, sessionID: String? = nil, insertionRuntime: SessionRuntime? = nil, connectionTarget: RemoteConnectionTarget, onStarted: @escaping () -> Void) {
+    init(host: Host, urls: [URL], initialDirectory: String, sessionID: String? = nil, insertionRuntime: SessionRuntime? = nil,
+         connectionTarget: RemoteConnectionTarget, onStarted: @escaping () -> Void) {
         self.host = host; self.urls = urls; self.sessionID = sessionID; self.insertionRuntime = insertionRuntime; self.onStarted = onStarted
         _connectionTarget = State(initialValue: connectionTarget)
         _directory = State(initialValue: initialDirectory); _names = State(initialValue: urls.map(\.lastPathComponent))
@@ -113,7 +116,8 @@ struct UploadFilesSheet: View {
                     ForEach(urls.indices, id: \.self) { index in
                         VStack(alignment: .leading, spacing: 6) {
                             Text(urls[index].lastPathComponent).font(.caption).foregroundStyle(Palette.secondary)
-                            TextField(model.text("远程文件名", "Remote file name"), text: $names[index]).textInputAutocapitalization(.never).autocorrectionDisabled().disabled(busy).accessibilityIdentifier("files-upload-name-\(index)")
+                            TextField(model.text("远程文件名", "Remote file name"), text: $names[index]).textInputAutocapitalization(.never)
+                                .autocorrectionDisabled().disabled(busy).accessibilityIdentifier("files-upload-name-\(index)")
                         }
                     }
                 }
@@ -122,7 +126,8 @@ struct UploadFilesSheet: View {
                 Section {
                     Button { startUpload() } label: {
                         HStack { if busy { ProgressView() }; Text(model.text("开始上传", "Upload")) }.frame(maxWidth: .infinity)
-                    }.buttonStyle(RoamButtonStyle(primary: true)).disabled(busy || directory.isEmpty || urls.isEmpty || !names.allSatisfy(isSafeRemoteEntryName)).accessibilityIdentifier("files-start-upload")
+                    }.buttonStyle(RoamButtonStyle(primary: true))
+                        .disabled(busy || directory.isEmpty || urls.isEmpty || !names.allSatisfy(isSafeRemoteEntryName)).accessibilityIdentifier("files-start-upload")
                 }
             }.scrollContentBackground(.hidden).pageBackground().navigationTitle(model.text("上传文件", "Upload files")).navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button(model.text("取消", "Cancel")) { cancellation?.cancel(); dismiss() } } }
@@ -145,7 +150,8 @@ struct UploadFilesSheet: View {
                 try model.validate(connectionTarget)
                 directory = listing.path
                 for (index, url) in urls.enumerated() {
-                    model.files.upload(url, directory: listing.path, host: host, model: model, insert: insertPath && canInsert, targetSessionID: sessionID, name: selectedNames[index], targetRuntime: insertionRuntime, connectionTarget: connectionTarget)
+                    model.files.upload(url, directory: listing.path, host: host, model: model, insert: insertPath && canInsert,
+                        targetSessionID: sessionID, name: selectedNames[index], targetRuntime: insertionRuntime, connectionTarget: connectionTarget)
                 }
                 onStarted()
             } catch { if !token.isCancelled { failure = error.localizedDescription } }
@@ -171,7 +177,8 @@ private struct UploadDirectoryPicker: View {
         NavigationStack {
             VStack(spacing: 12) {
                 HStack {
-                    TextField(model.text("远程目录", "Remote folder"), text: $draft).textInputAutocapitalization(.never).autocorrectionDisabled().onSubmit { load(draft) }.accessibilityIdentifier("files-upload-folder-path")
+                    TextField(model.text("远程目录", "Remote folder"), text: $draft).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .onSubmit { load(draft) }.accessibilityIdentifier("files-upload-folder-path")
                     Button(model.text("前往", "Go")) { load(draft) }
                 }.padding(.horizontal, 16)
                 HStack {
@@ -183,7 +190,11 @@ private struct UploadDirectoryPicker: View {
                 List(entries.filter { $0.isDirectory && (model.settings.showHiddenFiles || !$0.name.hasPrefix(".")) }) { entry in
                     Button { load(entry.path) } label: { Label(entry.name, systemImage: "folder") }.accessibilityIdentifier("files-upload-folder-\(entry.path)")
                 }.scrollContentBackground(.hidden)
-                Button(model.text("选择此文件夹", "Use this folder")) { onSelect(directory); dismiss() }.buttonStyle(RoamButtonStyle(primary: true)).disabled(loading || failure != nil || directory.isEmpty || draft != directory).padding(16).accessibilityIdentifier("files-upload-use-folder")
+                Button(model.text("选择此文件夹", "Use this folder")) {
+                    onSelect(directory)
+                    dismiss()
+                }.buttonStyle(RoamButtonStyle(primary: true)).disabled(loading || failure != nil || directory.isEmpty || draft != directory)
+                    .padding(16).accessibilityIdentifier("files-upload-use-folder")
             }.pageBackground().navigationTitle(model.text("选择文件夹", "Choose folder")).navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button(model.text("取消", "Cancel")) { dismiss() } } }
         }.modifier(ChildModalPresence()).overlay { AuthenticationOverlay() }
@@ -210,8 +221,7 @@ private struct UploadDirectoryPicker: View {
 private func uploadDirectory(_ requestedPath: String, ssh: SSHConnection, cancellation: TransferCancellation) throws -> RemoteDirectory {
     guard !cancellation.isCancelled else { throw RoamError.cancelled }
     let path: String
-    if requestedPath == "~" || requestedPath == "." { path = "." }
-    else if requestedPath.hasPrefix("~/") {
+    if requestedPath == "~" || requestedPath == "." { path = "." } else if requestedPath.hasPrefix("~/") {
         let home = try ssh.listDirectory(".", cancellation: cancellation)
         path = joinRemotePath(directory: home.path, name: String(requestedPath.dropFirst(2)))
     } else { path = requestedPath }
@@ -241,7 +251,10 @@ struct PickedTerminalImage: Transferable {
     func png(cancellation: TransferCancellation) throws -> URL {
         guard !cancellation.isCancelled else { throw RoamError.cancelled }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 4096] as CFDictionary) else { throw RoamError.invalid("Unable to decode the selected image") }
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0,
+                  [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 4096] as CFDictionary) else {
+                  throw RoamError.invalid("Unable to decode the selected image")
+              }
         guard !cancellation.isCancelled else { throw RoamError.cancelled }
         let target = url.deletingLastPathComponent().appendingPathComponent("attachment.png")
         guard let destination = CGImageDestinationCreateWithURL(target as CFURL, UTType.png.identifier as CFString, 1, nil) else { throw RoamError.invalid("Unable to create PNG attachment") }

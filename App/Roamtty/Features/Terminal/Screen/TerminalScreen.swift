@@ -48,14 +48,22 @@ struct TerminalScreen: View {
                             NativeTerminal(runtime: runtime, settings: model.settings).clipped()
                                 .overlay {
                                     CursorRowReader(cursor: runtime.cursorRow) {
-                                        if connected && !editor { CursorRowButtons(runtime: runtime, trailingInset: Self.inset.trailing, bottomInset: keyboardVisible ? 0 : (runtime.terminalView.window?.safeAreaInsets.bottom ?? page.safeAreaInsets.bottom), avoid: petArrowsShown ? petArrowBounds(in: page.size).offsetBy(dx: -Self.inset.leading, dy: -Self.inset.top) : nil, keyboardVisible: keyboardVisible) }
+                                        if connected && !editor {
+                                            CursorRowButtons(runtime: runtime, trailingInset: Self.inset.trailing,
+                                                bottomInset: keyboardVisible ? 0 : (runtime.terminalView.window?.safeAreaInsets.bottom ?? page.safeAreaInsets.bottom),
+                                                avoid: petArrowsShown ? petArrowBounds(in: page.size).offsetBy(dx: -Self.inset.leading, dy: -Self.inset.top) : nil,
+                                                keyboardVisible: keyboardVisible)
+                                        }
                                     }
                                 }
                                 .padding(Self.inset)
                             notice.padding(.top, page.safeAreaInsets.top)
                         }.frame(maxWidth: .infinity, maxHeight: .infinity)
                         // The bar's controls keep clear of the camera housing that the landscape grid runs under.
-                        if editor { editorBar(landscape: landscape).padding(.leading, page.safeAreaInsets.leading).padding(.trailing, page.safeAreaInsets.trailing).padding(.bottom, keyboardVisible ? 0 : page.safeAreaInsets.bottom) }
+                        if editor {
+                            editorBar(landscape: landscape).padding(.leading, page.safeAreaInsets.leading)
+                                .padding(.trailing, page.safeAreaInsets.trailing).padding(.bottom, keyboardVisible ? 0 : page.safeAreaInsets.bottom)
+                        }
                     }
                     if reserved {
                         dock(in: CGSize(width: twoColumns ? 96 : 48, height: page.size.height), twoColumns: twoColumns, reserved: true)
@@ -65,8 +73,7 @@ struct TerminalScreen: View {
                 // The dock and the pet step aside from the cursor row, so they follow it without the page.
                 CursorRowReader(cursor: runtime.cursorRow) {
                     if dockAvailable && !reserved {
-                        if toolbox.dockVisible { dock(in: page.size, twoColumns: twoColumns, reserved: false) }
-                        else if toolbox.ghostVisible || petArrowsShown {
+                        if toolbox.dockVisible { dock(in: page.size, twoColumns: twoColumns, reserved: false) } else if toolbox.ghostVisible || petArrowsShown {
                             let center = petCenter(in: page.size)
                             ZStack(alignment: .topLeading) {
                                 GhostShortcuts(runtime: runtime, toolbox: $toolbox, center: center, viewport: page.size) {
@@ -102,8 +109,7 @@ struct TerminalScreen: View {
         .onDisappear { toolbox.closeRing(); runtime.pendingPaste = nil; _ = runtime.terminalView.resignFirstResponder() }
         .onChange(of: runtime.workspaceTouches) { _ in if dockAvailable { toolbox.workspaceTouch(at: now) } }
         .onChange(of: runtime.phase) { phase in
-            if phase == .connected { toolbox.wake(at: now) }
-            else { toolbox.closeRing(); runtime.pendingPaste = nil }
+            if phase == .connected { toolbox.wake(at: now) } else { toolbox.closeRing(); runtime.pendingPaste = nil }
         }
         .onChange(of: model.settings.toolboxPinned) { pinned in if pinned != toolbox.pinned { toolbox.setPinned(pinned, at: now) } }
         .onChange(of: commandSheet) { _ in toolbox.closeRing() }
@@ -303,7 +309,9 @@ struct TerminalScreen: View {
         Menu {
             Button(model.text("返回主机详情", "Back to host details")) { model.path = model.host(runtime.host.id) == nil ? [] : [.host(runtime.host.id)] }
             // Closing ends the session on the server, without asking, and returns to the session list.
-            Button(runtime.record.external ? model.text("断开当前会话", "Detach session") : model.text("关闭当前会话", "Close session")) { model.closeSession(runtime.record) }.accessibilityIdentifier("close-session")
+            Button(runtime.record.external ? model.text("断开当前会话", "Detach session") : model.text("关闭当前会话", "Close session")) {
+                model.closeSession(runtime.record)
+            }.accessibilityIdentifier("close-session")
             // A tmux pane restarts over the live connection; a plain shell restarts by reconnecting.
             Button(model.text("重启当前会话", "Restart session")) { restartConfirm = true }
                 .disabled(runtime.record.mode == .tmux && !connected).accessibilityIdentifier("restart-session")
@@ -353,9 +361,17 @@ private struct TerminalPasteConfirmation: ViewModifier {
     var enabled = true
     var onSent: () -> Void = { }
     func body(content: Content) -> some View {
-        content.alert(model.text("发送多行文本？", "Send multiple lines?"), isPresented: Binding(get: { enabled && runtime.pendingPaste != nil }, set: { if !$0 { runtime.pendingPaste = nil } }), presenting: runtime.pendingPaste) { text in
-            Button(model.text("发送", "Send")) { runtime.pendingPaste = nil; if runtime.pasteText(text, confirmed: true) { onSent() } }.disabled(runtime.phase != .connected).accessibilityIdentifier("terminal-paste-send")
+        content.alert(model.text("发送多行文本？", "Send multiple lines?"),
+            isPresented: Binding(get: { enabled && runtime.pendingPaste != nil }, set: { if !$0 { runtime.pendingPaste = nil } }),
+            presenting: runtime.pendingPaste) { text in
+            Button(model.text("发送", "Send")) {
+                runtime.pendingPaste = nil
+                if runtime.pasteText(text, confirmed: true) { onSent() }
+            }.disabled(runtime.phase != .connected).accessibilityIdentifier("terminal-paste-send")
             Button(model.text("取消", "Cancel"), role: .cancel) { runtime.pendingPaste = nil }.accessibilityIdentifier("terminal-paste-cancel")
-        } message: { _ in Text(model.text("远端尚未启用 bracketed paste。文本中的换行可能立即执行命令，请确认当前程序能安全接收多行输入。", "The remote program has not enabled bracketed paste. Newlines may run commands immediately. Confirm that it can safely receive multiple lines.")) }
+        } message: { _ in
+            Text(model.text("远端尚未启用 bracketed paste。文本中的换行可能立即执行命令，请确认当前程序能安全接收多行输入。",
+                "The remote program has not enabled bracketed paste. Newlines may run commands immediately. Confirm that it can safely receive multiple lines."))
+        }
     }
 }

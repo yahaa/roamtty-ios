@@ -8,7 +8,12 @@ public struct HostMetrics: Equatable, Sendable {
         public var usedBytes: Int64
         public var availableBytes: Int64
         public var percent: Double { let total = Double(usedBytes) + Double(availableBytes); return total > 0 ? 100 * Double(usedBytes) / total : 0 }
-        public init(mount: String, totalBytes: Int64, usedBytes: Int64, availableBytes: Int64) { self.mount = mount; self.totalBytes = totalBytes; self.usedBytes = usedBytes; self.availableBytes = availableBytes }
+        public init(mount: String, totalBytes: Int64, usedBytes: Int64, availableBytes: Int64) {
+            self.mount = mount
+            self.totalBytes = totalBytes
+            self.usedBytes = usedBytes
+            self.availableBytes = availableBytes
+        }
     }
     public struct Process: Equatable, Sendable {
         public var name: String
@@ -28,7 +33,8 @@ public struct HostMetrics: Equatable, Sendable {
         public var freqMHz: Double?
         public var freqMaxMHz: Double?
         public var memPercent: Double? { guard let used = memUsedBytes, let total = memTotalBytes, total > 0 else { return nil }; return 100 * Double(used) / Double(total) }
-        public init(index: Int, name: String, utilPercent: Double? = nil, memUsedBytes: Int64? = nil, memTotalBytes: Int64? = nil, temperatureC: Double? = nil, powerWatts: Double? = nil, powerLimitWatts: Double? = nil, freqMHz: Double? = nil, freqMaxMHz: Double? = nil) {
+        public init(index: Int, name: String, utilPercent: Double? = nil, memUsedBytes: Int64? = nil, memTotalBytes: Int64? = nil,
+                    temperatureC: Double? = nil, powerWatts: Double? = nil, powerLimitWatts: Double? = nil, freqMHz: Double? = nil, freqMaxMHz: Double? = nil) {
             self.index = index; self.name = name; self.utilPercent = utilPercent; self.memUsedBytes = memUsedBytes; self.memTotalBytes = memTotalBytes
             self.temperatureC = temperatureC; self.powerWatts = powerWatts; self.powerLimitWatts = powerLimitWatts; self.freqMHz = freqMHz; self.freqMaxMHz = freqMaxMHz
         }
@@ -104,7 +110,13 @@ public struct HostMetrics: Equatable, Sendable {
         m.swapTotalBytes = bytes("kb_SwapTotal"); m.swapFreeBytes = bytes("kb_SwapFree")
         m.disks = (values["disk"] ?? []).compactMap { row in
             let parts = fields(row, limit: 4)
-            guard parts.count == 4, let total = Int64(parts[0]).flatMap({ multiply($0, 1024) }), let used = Int64(parts[1]).flatMap({ multiply($0, 1024) }), let available = Int64(parts[2]).flatMap({ multiply($0, 1024) }) else { return nil }
+            guard parts.count == 4, let total = Int64(parts[0]).flatMap({
+                multiply($0, 1024)
+            }), let used = Int64(parts[1]).flatMap({
+                multiply($0, 1024)
+            }), let available = Int64(parts[2]).flatMap({
+                multiply($0, 1024)
+            }) else { return nil }
             return Disk(mount: parts[3], totalBytes: total, usedBytes: used, availableBytes: available)
         }
         let net = fields(one("net") ?? "").compactMap(Int64.init)
@@ -148,11 +160,15 @@ public struct HostMetrics: Equatable, Sendable {
         guard parts.count >= 8, let rawIndex = Int32(parts[0]) else { return nil }
         let index = Int(rawIndex)
         let tail = Array(parts.suffix(6)), name = parts.dropFirst().dropLast(6).joined(separator: ", ")
-        return Gpu(index: index, name: name.isEmpty ? "GPU \(index)" : name, utilPercent: reading(tail[0]), memUsedBytes: mib(tail[1]), memTotalBytes: mib(tail[2]), temperatureC: reading(tail[3]), powerWatts: reading(tail[4]), powerLimitWatts: reading(tail[5]))
+        return Gpu(index: index, name: name.isEmpty ? "GPU \(index)" : name, utilPercent: reading(tail[0]), memUsedBytes: mib(tail[1]),
+            memTotalBytes: mib(tail[2]), temperatureC: reading(tail[3]), powerWatts: reading(tail[4]), powerLimitWatts: reading(tail[5]))
     }
     private static func amdGpu(_ row: String) -> Gpu? {
         let parts = fields(row, limit: 7); guard parts.count >= 6 else { return nil }
-        return Gpu(index: 0, name: parts.count > 6 ? parts[6] : "AMD GPU", utilPercent: reading(parts[0]), memUsedBytes: reading(parts[1]).flatMap(integer), memTotalBytes: reading(parts[2]).flatMap(integer), temperatureC: reading(parts[3]).map { $0 / 1000 }, powerWatts: reading(parts[4]).map { $0 / 1_000_000 }, powerLimitWatts: reading(parts[5]).flatMap { $0 > 0 ? $0 / 1_000_000 : nil })
+        return Gpu(index: 0, name: parts.count > 6 ? parts[6] : "AMD GPU", utilPercent: reading(parts[0]),
+                   memUsedBytes: reading(parts[1]).flatMap(integer), memTotalBytes: reading(parts[2]).flatMap(integer),
+                   temperatureC: reading(parts[3]).map { $0 / 1000 }, powerWatts: reading(parts[4]).map { $0 / 1_000_000 },
+                   powerLimitWatts: reading(parts[5]).flatMap { $0 > 0 ? $0 / 1_000_000 : nil })
     }
     private static func intelGpu(_ row: String, before: [String], after: [String]) -> Gpu? {
         let parts = fields(row, limit: 4); guard parts.count >= 3 else { return nil }

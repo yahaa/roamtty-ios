@@ -200,7 +200,9 @@ import RoamttyTransport
         let hooks = agent.flatMap { $0.reportsStatus ? $0.agent : nil }
         let token = generation
         // Once mosh carries the terminal, SSH only does side work: its drop must not stop a terminal that still works.
-        ssh.onPhase = { [weak self] value in DispatchQueue.main.async { guard self?.generation == token, self?.mosh == nil else { return }; self?.phase = value == .connected && self?.startupSent == false ? .connecting : value } }
+        ssh.onPhase = { [weak self] value in
+            DispatchQueue.main.async { guard self?.generation == token, self?.mosh == nil else { return }; self?.phase = value == .connected && self?.startupSent == false ? .connecting : value }
+        }
         let startup: String? = agent?.commandLine ?? StartDirectory.command(directory)
         let mode = record.mode, name = record.remoteName, existing = record.external, cols = columns, rows = rows
         let lifetime = lifetimeCancellation
@@ -275,8 +277,7 @@ import RoamttyTransport
     static let sideReconnectInterval: TimeInterval = 30
     private func receive(_ data: Data, token: UUID, attempt: UUID) {
         guard generation == token, startupAttempt == attempt else { return }
-        if let view = terminalView as? AccessibleTerminalView { view.feedKeepingPlace(Array(data)[...]) }
-        else { terminalView.feed(byteArray: Array(data)[...]) }
+        if let view = terminalView as? AccessibleTerminalView { view.feedKeepingPlace(Array(data)[...]) } else { terminalView.feed(byteArray: Array(data)[...]) }
         mouseTracking.consume(data); restoreMouseTracking()
         queueCursorRefresh()
         if !startupSent {

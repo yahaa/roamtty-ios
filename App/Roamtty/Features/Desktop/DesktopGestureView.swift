@@ -177,8 +177,14 @@ final class DesktopGestureView: UIView {
     override var canBecomeFirstResponder: Bool { true }
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if window != nil { becomeFirstResponder(); scheduleTick(); InteractivePopGesture.desktop = self }
-        else { stopTicking(); if InteractivePopGesture.desktop === self { InteractivePopGesture.desktop = nil } }
+        if window != nil {
+            becomeFirstResponder()
+            scheduleTick()
+            InteractivePopGesture.desktop = self
+        } else {
+            stopTicking()
+            if InteractivePopGesture.desktop === self { InteractivePopGesture.desktop = nil }
+        }
     }
 
     /// Whether an edge swipe from this point (view coordinates) is the desktop's: it starts on the picture.

@@ -204,8 +204,7 @@ enum ShareInboxStore {
     }
     private static func consume(into root: URL, transactionID: String?, reportError: (Error) -> Void = { _ in }) -> [URL] {
         let records: [Account]
-        do { records = try accounts() }
-        catch { reportError(error); return ShareImportLedger.pending(in: root) }
+        do { records = try accounts() } catch { reportError(error); return ShareImportLedger.pending(in: root) }
         let names = records.map(\.name)
         for account in names where account.hasSuffix("/ready") && (transactionID == nil || account == transactionID! + "/ready") {
             do {
@@ -263,8 +262,10 @@ enum ShareInboxStore {
         try ShareImportLedger.acknowledge([empty], in: imports)
         guard consume(into: imports, transactionID: id).isEmpty else { throw failure("Completed shared imports were replayed") }
         let cancelled = ShareInboxCancellation(); cancelled.cancel()
-        do { _ = try save(directory: source, cancellation: cancelled); throw failure("Cancelled shared transaction was published") }
-        catch let error as NSError where error.code == NSUserCancelledError { }
+        do {
+            _ = try save(directory: source, cancellation: cancelled)
+            throw failure("Cancelled shared transaction was published")
+        } catch let error as NSError where error.code == NSUserCancelledError { }
         return "Shared Keychain: 3 data chunks plus empty file preserved; rediscovery, acknowledgement and cancellation passed"
     }
     #endif

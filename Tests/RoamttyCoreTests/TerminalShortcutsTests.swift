@@ -132,6 +132,7 @@ final class TerminalShortcutsTests: XCTestCase {
     func testAgentTablesPreserveAndroidOrderHintsAndWireBytes() {
         // Wire bytes are deliberately numeric: confusing Ctrl+P with Alt+P or replacing
         // Shift arrows with plain arrows changes the remote application's action.
+        // swiftlint:disable:next large_tuple - one row per app: keys, labels, titles and bytes
         let fixtures: [(ScreenApp, [String], [String], [String], [[UInt8]])] = [
             (.claude, ["^T", "^O", "Esc²", "⇧Tab", "^C", "^B", "⌥P"],
              ["任务", "详情", "回退", "模式", "取消", "后台", "模型"],

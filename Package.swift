@@ -26,7 +26,7 @@ let package = Package(
     products: [
         .library(name: "RoamttyCore", targets: ["RoamttyCore"]),
         .library(name: "RoamttyTransport", targets: ["RoamttyTransport"]),
-        .library(name: "RoamttyDesktopCore", targets: ["RoamttyDesktopCore"]),
+        .library(name: "RoamttyDesktopCore", targets: ["RoamttyDesktopCore"])
     ],
     dependencies: desktopDependencies,
     targets: [
@@ -38,7 +38,7 @@ let package = Package(
         .target(name: "RoamttyDesktopCore", dependencies: desktopCrypto, resources: [.copy("Resources/desktop-plugin.json")]),
         .testTarget(name: "RoamttyCoreTests", dependencies: ["RoamttyCore"], swiftSettings: nativeSwift),
         .testTarget(name: "RoamttyTransportTests", dependencies: ["RoamttyTransport", "RoamttyDesktopCore"], swiftSettings: nativeSwift),
-        .testTarget(name: "RoamttyDesktopCoreTests", dependencies: ["RoamttyDesktopCore"], resources: [.copy("Resources/desktop-proto")]),
+        .testTarget(name: "RoamttyDesktopCoreTests", dependencies: ["RoamttyDesktopCore"], resources: [.copy("Resources/desktop-proto")])
     ],
     swiftLanguageModes: [.v5]
 )

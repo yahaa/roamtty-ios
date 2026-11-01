@@ -13,6 +13,6 @@ let package = Package(
         .executableTarget(name: "TerminalUrlChecks", dependencies: [.product(name: "SwiftTerm", package: "SwiftTerm")]),
         .executableTarget(name: "TerminalWideCellChecks", dependencies: [.product(name: "SwiftTerm", package: "SwiftTerm")]),
         .executableTarget(name: "TerminalScrollbackChecks", dependencies: [.product(name: "SwiftTerm", package: "SwiftTerm")]),
-        .executableTarget(name: "TerminalCursorTapChecks", dependencies: [.product(name: "SwiftTerm", package: "SwiftTerm")]),
+        .executableTarget(name: "TerminalCursorTapChecks", dependencies: [.product(name: "SwiftTerm", package: "SwiftTerm")])
     ]
 )

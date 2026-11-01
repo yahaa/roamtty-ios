@@ -21,6 +21,7 @@ final class NativeFileWorkflowUITests: RoamttyLiveUITestCase {
         capture("Native Files folder imported and uploaded recursively")
         app.buttons["transfer-done"].tap()
         closeRemoteBrowser()
+        // swiftlint:disable:next line_length - a Python one-liner run on the fixture host
         let script = "import pathlib; p=pathlib.Path(" + pythonString(base + "/uploaded-folder") + "); assert (p/'readme.txt').read_bytes()==b'Roamtty native folder fixture\\n'; assert (p/'nested'/'bytes.bin').read_bytes()==bytes(range(256))"
         try command("python3 -c " + quote(script), marker: "FOLDER_BYTES_VERIFIED")
         for action in ["files-open-terminal", "files-open-agent"] {
@@ -165,8 +166,7 @@ final class NativeFileWorkflowUITests: RoamttyLiveUITestCase {
         for _ in 0..<6 {
             let top = app.navigationBars.firstMatch.frame.maxY
             if item.exists && item.isHittable && item.frame.minY > top && item.frame.maxY < app.frame.maxY { return }
-            if item.exists && item.frame.minY <= top { scroll.swipeDown() }
-            else { scroll.swipeUp() }
+            if item.exists && item.frame.minY <= top { scroll.swipeDown() } else { scroll.swipeUp() }
         }
         XCTAssertTrue(item.isHittable)
     }

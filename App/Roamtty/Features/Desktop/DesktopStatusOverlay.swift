@@ -97,7 +97,7 @@ struct DesktopStatusOverlay: View {
     }
 
     private func card<Body: View, Footer: View>(_ title: DesktopText, size: CGSize, id: String = "desktop-status",
-                                              @ViewBuilder body: () -> Body, @ViewBuilder footer: () -> Footer) -> some View {
+                                                @ViewBuilder body: () -> Body, @ViewBuilder footer: () -> Footer) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(host).font(font(12)).foregroundStyle(dim).lineLimit(1).truncationMode(.tail)
             Text(text(title)).font(font(17, weight: .semibold)).foregroundStyle(ink)

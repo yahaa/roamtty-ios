@@ -48,7 +48,7 @@ struct AgentIcon: View {
     @Environment(\.colorScheme) private var scheme
     let agent: CodingAgent
     var size: CGFloat = 40
-    var state: AgentStatus.State? = nil
+    var state: AgentStatus.State?
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             ZStack {
@@ -81,10 +81,9 @@ struct SessionIcon: View {
     @EnvironmentObject var model: AppModel
     let record: SessionRecord
     var size: CGFloat = 40
-    var state: AgentStatus.State? = nil
+    var state: AgentStatus.State?
     var body: some View {
-        if let agent = model.sessionAgent(record) { AgentIcon(agent: agent, size: size, state: state) }
-        else { TerminalTile(size: size) }
+        if let agent = model.sessionAgent(record) { AgentIcon(agent: agent, size: size, state: state) } else { TerminalTile(size: size) }
     }
 }
 
@@ -101,7 +100,7 @@ struct AgentNameBadge: View {
 struct DotLabel: View {
     let label: String
     let color: Color
-    var labelColor: Color? = nil
+    var labelColor: Color?
     var body: some View {
         HStack(spacing: 6) {
             Circle().fill(color).frame(width: 8, height: 8)
@@ -185,7 +184,8 @@ struct MarqueeTitle: View {
                     }
                 } else { label }
             }.frame(width: line, alignment: .leading).clipped()
-                .mask(overflow ? AnyView(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: max(0, 1 - 18 / max(line, 1))), .init(color: .clear, location: 1)], startPoint: .leading, endPoint: .trailing)) : AnyView(Color.black))
+                .mask(overflow ? AnyView(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: max(0, 1 - 18 / max(line, 1))), .init(color: .clear, location: 1)],
+                    startPoint: .leading, endPoint: .trailing)) : AnyView(Color.black))
         }.frame(height: 22)
             .background(label.hidden().background(GeometryReader { Color.clear.preference(key: TitleWidth.self, value: $0.size.width) }).fixedSize())
             .onPreferenceChange(TitleWidth.self) { full = $0 }
@@ -201,8 +201,8 @@ struct MarqueeTitle: View {
 /// A small pill button on a row's status line: filled with `fill`, text only when `plain`, else on a neutral wash.
 struct RowAction: View {
     let label: String
-    var icon: String? = nil
-    var fill: Color? = nil
+    var icon: String?
+    var fill: Color?
     var plain = false
     /// Uses the same compact icon tag as host-card actions; the label stays for VoiceOver.
     var iconOnly = false

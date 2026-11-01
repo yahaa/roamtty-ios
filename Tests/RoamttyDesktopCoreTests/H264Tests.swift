@@ -19,7 +19,7 @@ final class H264Tests: XCTestCase {
             (256, [0, 0, 1, 0]),
             (65_535, [0, 0, 255, 255]),
             (65_536, [0, 1, 0, 0]),
-            (141_887, [0, 2, 42, 63]),
+            (141_887, [0, 2, 42, 63])
         ]
         for (size, prefix) in cases {
             let payload = [UInt8(0x65)] + Array(repeating: UInt8(0xAB), count: size - 1)
@@ -163,8 +163,8 @@ final class DesktopVideoDecoderTests: XCTestCase {
         XCTAssertEqual(sink.frames.last?.0, 14)
     }
 
-    func testSupportMatrix() {
-        let m = try! PluginManifest.bundled()
+    func testSupportMatrix() throws {
+        let m = try PluginManifest.bundled()
         XCTAssertTrue(DesktopSupport.osSupported("MACOS", manifest: m))
         XCTAssertTrue(DesktopSupport.osSupported("WINDOWS", manifest: m))
         XCTAssertTrue(DesktopSupport.osSupported("UBUNTU", manifest: m))

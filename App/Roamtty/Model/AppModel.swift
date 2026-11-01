@@ -72,7 +72,7 @@ import RoamttyTransport
     var waitingForHostSince: [String: Date] = [:]
     /// Remote desktops' thumbnails, and their controllers once the first desktop opens.
     let desktopThumbnails = DesktopThumbnails()
-    var desktopStore: DesktopStore? = nil
+    var desktopStore: DesktopStore?
     var desktopPathMonitor: NWPathMonitor?
 
     init() {

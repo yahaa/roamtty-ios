@@ -197,7 +197,6 @@ final class TerminalSettingsUITests: RoamttyLiveUITestCase {
         XCTAssertTrue(app.buttons["settings-done"].waitForExistence(timeout: 5))
     }
 
-
     private func openShortcutRing(surface: XCUIElement) {
         surface.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.2)).tap()
         let ghost = app.buttons["terminal-ghost"]

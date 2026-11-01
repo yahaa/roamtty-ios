@@ -74,6 +74,7 @@ import Foundation
         precondition(TerminalPaste.needsConfirmation("a\rb", bracketed: false))
         precondition(!TerminalPaste.needsConfirmation("a\nb", bracketed: true))
         precondition(!TerminalPaste.needsConfirmation("a\tb", bracketed: false))
+        // swiftlint:disable:next force_try - a failure here is the check failing
         precondition(try! TerminalPaste.input("a\r\nb\nc\rd\t\u{1b}[201~\u{3}\u{7f}\u{85}", bracketed: true) == "\u{1b}[200~a\rb\rc\rd\t[201~\u{1b}[201~")
         do { _ = try TerminalPaste.input(String(repeating: "x", count: 131_073), bracketed: false); preconditionFailure("Oversize paste must be rejected") } catch { }
         var capture = TerminalPasteCapture(bracketed: true)

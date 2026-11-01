@@ -114,7 +114,10 @@ final class SyntaxPreviewTests: XCTestCase {
 
     func testKotlinCommentsStringsDeclarationsAndImportPaths() {
         let result = tokens("@Composable\nfun greet(name: String): Int {\nval count = 42 // answer\nprintln(\"hi $name\")\nreturn count.size\n}\nimport kotlinx.coroutines.* // all", Languages.kotlin)
-        for (word, expected) in [("@Composable", TokenType.meta), ("fun", .keyword), ("greet", .function), ("String", .type), ("42", .number), ("// answer", .comment), ("println", .function), ("\"hi $name\"", .string), ("size", .property)] { XCTAssertEqual(type(word, in: result), expected, word) }
+        for (word, expected) in [("@Composable", TokenType.meta), ("fun", .keyword), ("greet", .function), ("String", .type), ("42", .number),
+            ("// answer", .comment), ("println", .function), ("\"hi $name\"", .string), ("size", .property)] {
+            XCTAssertEqual(type(word, in: result), expected, word)
+        }
         XCTAssertNil(type("coroutines", in: result))
         XCTAssertEqual(type("// all", in: result), .comment)
         let multiline = SyntaxHighlighter.highlight("a /* one\ntwo */ b\n\"\"\"x\ny\"\"\"", Languages.kotlin)
@@ -148,9 +151,13 @@ final class SyntaxPreviewTests: XCTestCase {
 
     func testMarkupMarkdownDiffAndLogTokens() {
         let markup = tokens("<!-- c --><div class=\"x\">&amp;<script>let a = 1</script></div>", Languages.html)
-        for (word, expected) in [("<!-- c -->", TokenType.comment), ("div", .tag), ("class", .attribute), ("\"x\"", .string), ("&amp;", .constant), ("let", .keyword)] { XCTAssertEqual(type(word, in: markup), expected, word) }
+        for (word, expected) in [("<!-- c -->", TokenType.comment), ("div", .tag), ("class", .attribute), ("\"x\"", .string), ("&amp;", .constant), ("let", .keyword)] {
+            XCTAssertEqual(type(word, in: markup), expected, word)
+        }
         let markdown = tokens("# Title\n- item with `code` and **bold** [link](http://x)\n```kotlin\nval x = 1\n```", Languages.markdown)
-        for (word, expected) in [("# Title", TokenType.heading), ("- ", .keyword), ("`code`", .string), ("**bold**", .strong), ("[link]", .link), ("val", .keyword), ("```kotlin", .meta)] { XCTAssertEqual(type(word, in: markdown), expected, word) }
+        for (word, expected) in [("# Title", TokenType.heading), ("- ", .keyword), ("`code`", .string), ("**bold**", .strong), ("[link]", .link), ("val", .keyword), ("```kotlin", .meta)] {
+            XCTAssertEqual(type(word, in: markdown), expected, word)
+        }
         let diff = tokens("@@ -1 +1 @@\n-old\n+new", Languages.diff)
         XCTAssertEqual(type("-old", in: diff), .deleted)
         XCTAssertEqual(type("+new", in: diff), .inserted)
@@ -166,7 +173,9 @@ final class SyntaxPreviewTests: XCTestCase {
         XCTAssertEqual(document.lines[0].text, "a   b")
         XCTAssertEqual(document.maxColumns, 2000)
         XCTAssertEqual(SyntaxHighlighter.highlight("中文ab", Languages.plain).maxColumns, 6)
-        let samples = [(Languages.kotlin, "class A { fun b() = \"\"\"\nx\n\"\"\" /* c\n */ }"), (Languages.markdown, "# h\n```py\ndef f():\n pass\n```\ntext *em* `c`"), (Languages.html, "<style>a { color: red }</style><p a=b>t</p>"), (Languages.swift, "let emoji = \"😀\"; let x = 4")]
+        let samples = [(Languages.kotlin, "class A { fun b() = \"\"\"\nx\n\"\"\" /* c\n */ }"),
+            (Languages.markdown, "# h\n```py\ndef f():\n pass\n```\ntext *em* `c`"), (Languages.html, "<style>a { color: red }</style><p a=b>t</p>"),
+            (Languages.swift, "let emoji = \"😀\"; let x = 4")]
         for (language, text) in samples {
             for row in SyntaxHighlighter.highlight(text, language).lines {
                 var previous = 0
@@ -190,7 +199,8 @@ final class SyntaxPreviewTests: XCTestCase {
     }
 
     func testLanguageAliasesAndShebangsFollowAndroidDetection() {
-        for (name, expected) in [("CMakeLists.txt", "makefile"), ("Cargo.lock", "toml"), ("view.svelte", "html"), ("analysis.ipynb", "json"), ("styles.scss", "scss"), (".zsh_history", "shell"), ("config", "ini")] {
+        for (name, expected) in [("CMakeLists.txt", "makefile"), ("Cargo.lock", "toml"), ("view.svelte", "html"), ("analysis.ipynb", "json"),
+            ("styles.scss", "scss"), (".zsh_history", "shell"), ("config", "ini")] {
             XCTAssertEqual(Languages.detect(fileName: name).id, expected)
         }
         XCTAssertEqual(Languages.forFence("typescript{.numberLines}")?.id, "typescript")
@@ -214,7 +224,7 @@ final class MarkdownPreviewTests: XCTestCase {
             ("/repo//docs/.", "", "/repo/docs"),
             ("/repo/docs", "?raw=1#preview", "/repo/docs"),
             ("/repo/docs", "image.png#preview?ignored", "/repo/docs/image.png"),
-            ("/repo/docs", "图片%23literal.png", "/repo/docs/图片%23literal.png"),
+            ("/repo/docs", "图片%23literal.png", "/repo/docs/图片%23literal.png")
         ]
         for (directory, source, expected) in cases {
             XCTAssertEqual(resolveRelativeRemotePath(directory: directory, source: source), expected,
@@ -239,7 +249,7 @@ final class MarkdownPreviewTests: XCTestCase {
             ("unknown://host/image.png", "/repo/unknown:/host/image.png"),
             ("HTTPS://example.invalid/image.png", "/repo/HTTPS:/example.invalid/image.png"),
             ("http:image.png", "/repo/http:image.png"),
-            ("https:image.png", "/repo/https:image.png"),
+            ("https:image.png", "/repo/https:image.png")
         ]
         for (source, expected) in remoteOnly {
             XCTAssertNil(markdownExternalURL(source), "Only Android's explicit web/mail prefixes may open")
@@ -294,6 +304,7 @@ final class MarkdownPreviewTests: XCTestCase {
     }
 
     func testReadmeHTMLImagesAndCommentsBecomeSafeNativeBlocks() {
+        // swiftlint:disable:next line_length - one Markdown document
         let blocks = MarkdownParser.parse("![logo](img/logo.png \"Logo\")\n\n---\n\n<p align=\"center\">\n<img src=\"docs/shot.png\" alt=\"Shot\">\n<br>Mobile <b>SSH</b>\n</p>\n\n<!-- hidden\ncomment -->")
         XCTAssertEqual(blocks, [.image("logo", "img/logo.png"), .rule, .image("Shot", "docs/shot.png"), .paragraph(MdText(text: "Mobile SSH", spans: []))])
     }

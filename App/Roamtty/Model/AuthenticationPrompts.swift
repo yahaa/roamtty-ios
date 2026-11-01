@@ -7,7 +7,7 @@ struct AuthenticationRequest: Identifiable {
     let labels: [String]
     let echo: [Bool]
     let fingerprint: String?
-    var owner: String? = nil
+    var owner: String?
     let answer: ([String]?) -> Void
 }
 

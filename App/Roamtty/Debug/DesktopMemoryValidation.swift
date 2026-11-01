@@ -40,8 +40,7 @@ import RoamttyDesktopCore
             }
         }
         save() // A new run must not leave an old successful report visible while it is running.
-        do { result.merge(try await run(folder: folder)) { _, new in new } }
-        catch { result["passed"] = false; result["error"] = String(describing: error) }
+        do { result.merge(try await run(folder: folder)) { _, new in new } } catch { result["passed"] = false; result["error"] = String(describing: error) }
         result["status"] = "finished"
         result["finishedAt"] = ISO8601DateFormatter().string(from: Date())
         save()

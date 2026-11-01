@@ -197,7 +197,9 @@ extension HostDetailScreen {
     private func summary(_ metrics: HostMetrics) -> some View {
         var cells: [(String, String)] = [(model.text("负载 1/5/15", "Load 1/5/15"), metrics.load.isEmpty ? "—" : metrics.load.map { String(format: "%.2f", $0) }.joined(separator: " · "))]
         if let tasks = metrics.tasks { cells.append((model.text("任务", "Tasks"), tasks)) }
-        if let total = metrics.swapTotalBytes, total > 0 { cells.append((model.text("交换分区", "Swap"), "\(MetricFormat.bytes(Double(metrics.swapUsedBytes ?? 0))) / \(MetricFormat.bytes(Double(total)))")) }
+        if let total = metrics.swapTotalBytes, total > 0 {
+            cells.append((model.text("交换分区", "Swap"), "\(MetricFormat.bytes(Double(metrics.swapUsedBytes ?? 0))) / \(MetricFormat.bytes(Double(total)))"))
+        }
         if let users = metrics.users { cells.append((model.text("登录会话", "Login sessions"), String(users))) }
         return HStack(spacing: 0) {
             ForEach(Array(cells.enumerated()), id: \.offset) { index, cell in

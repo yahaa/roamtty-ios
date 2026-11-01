@@ -58,7 +58,8 @@ extension AppModel {
             credentialCache.forget(host.id)
             credentialCache.acceptSavedPassword(host.id)
             if !password.isEmpty || !passphrase.isEmpty {
-                credentialCache.store(Credentials(password: password.isEmpty ? nextPassword : Data(password.utf8), privateKey: nextKey, passphrase: passphrase.isEmpty ? nil : passphrase), for: host.id)
+                credentialCache.store(Credentials(password: password.isEmpty ? nextPassword : Data(password.utf8), privateKey: nextKey, passphrase: passphrase.isEmpty ? nil : passphrase),
+                    for: host.id)
             }
         }
         hosts = try store.hosts()
@@ -82,7 +83,14 @@ extension AppModel {
             journal.removeHost(host.id); persistJournal(); hosts.removeAll { $0.id == host.id }; path = []
         } catch { self.error = error.localizedDescription }
     }
-    func forgetPin(_ host: Host) { do { try store?.forgetPin(endpoint: host.endpoint); notice = text("已移除指纹，下次连接时重新验证", "Fingerprint removed. Verify it on the next connection.") } catch { self.error = error.localizedDescription } }
+    func forgetPin(_ host: Host) {
+        do {
+            try store?.forgetPin(endpoint: host.endpoint)
+            notice = text("已移除指纹，下次连接时重新验证", "Fingerprint removed. Verify it on the next connection.")
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
 
     /// A host whose login needs nothing typed: a saved password, a key without a passphrase, or a login still cached.
     func canLoginSilently(_ host: Host) -> Bool {

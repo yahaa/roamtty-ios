@@ -155,13 +155,24 @@ public enum Languages {
     ]
 }
 
+/// UTF-16 units drawn two columns wide: Hangul Jamo, CJK, Hangul syllables, compatibility ideographs, CJK forms and
+/// fullwidth forms.
+private let wideUnits: [ClosedRange<UInt16>] = [0x1100...0x115f, 0x2e80...0xa4cf, 0xac00...0xd7a3, 0xf900...0xfaff, 0xfe30...0xfe4f,
+                                                0xff00...0xff60, 0xffe0...0xffe6]
+
 public enum SyntaxHighlighter {
     public static let maxRowLength = 2000
     public static func highlight(_ rawText: String, _ language: CodeLanguage) -> CodeDocument {
         var expanded: [UInt16] = [], column = 0
         for unit in rawText.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n").utf16 {
-            if unit == 9 { let count = 4 - column % 4; expanded.append(contentsOf: repeatElement(32, count: count)); column += count }
-            else { expanded.append(unit); column = unit == 10 ? 0 : column + 1 }
+            if unit == 9 {
+                let count = 4 - column % 4
+                expanded.append(contentsOf: repeatElement(32, count: count))
+                column += count
+            } else {
+                expanded.append(unit)
+                column = unit == 10 ? 0 : column + 1
+            }
         }
         let lexer = PreviewLexer(expanded)
         switch language.mode {
@@ -216,23 +227,32 @@ private final class PreviewLexer {
         return bounded ? nil : to
     }
 
+    // swiftlint:disable:next cyclomatic_complexity - one pass over the text; its branches share the scan's position and state
     func code(_ language: CodeLanguage, from: Int, to: Int) {
         let id = language.id, dash = ["shell", "powershell", "css", "scss"].contains(language.id)
-        let block: [(String, String)] = id == "powershell" ? [("<#", "#>")] : id == "lua" ? [("--[[", "]]")] : id == "ruby" ? [("=begin", "=end")] : ["python", "shell", "yaml", "toml", "ini", "makefile", "dockerfile", "bat", "log", "diff"].contains(id) ? [] : [("/*", "*/")]
+        let block: [(String, String)] = id == "powershell" ? [("<#", "#>")] : id == "lua" ? [("--[[", "]]")] : id == "ruby" ? [("=begin", "=end")] : [
+            "python", "shell", "yaml", "toml", "ini", "makefile", "dockerfile", "bat", "log", "diff"].contains(id) ? [] : [("/*", "*/")]
         let words = (androidPreviewWords[id] ?? [:]).merging(language.words) { exact, _ in exact }
         let caseInsensitive = ["sql", "powershell", "bat"].contains(id)
         var i = from, lineStart = from, depth = 0, previous: TokenType?, last: UInt16 = 32
-        let declarators: [String: TokenType] = ["class": .type, "interface": .type, "struct": .type, "enum": .type, "trait": .type, "object": .type, "protocol": .type, "typealias": .type, "type": .type, "fun": .function, "function": .function, "func": .function, "fn": .function, "def": .function]
+        let declarators: [String: TokenType] = ["class": .type, "interface": .type, "struct": .type, "enum": .type, "trait": .type, "object": .type,
+            "protocol": .type, "typealias": .type, "type": .type, "fun": .function, "function": .function, "func": .function, "fn": .function,
+            "def": .function]
         scan: while i < to {
             let c = units[i]
             if c == 10 { i += 1; lineStart = i; previous = nil; continue }
             if space(c) { i += 1; continue }
             if id == "diff" {
                 let end = lineEnd(i, to), line = text(i, end)
-                if line.hasPrefix("+++") || line.hasPrefix("---") { add(i, end, .strong) }
-                else if line.hasPrefix("+") { add(i, end, .inserted) }
-                else if line.hasPrefix("-") { add(i, end, .deleted) }
-                else if line.hasPrefix("@@") || line.hasPrefix("diff ") || line.hasPrefix("index ") { add(i, end, .meta) }
+                if line.hasPrefix("+++") || line.hasPrefix("---") {
+                    add(i, end, .strong)
+                } else if line.hasPrefix("+") {
+                    add(i, end, .inserted)
+                } else if line.hasPrefix("-") {
+                    add(i, end, .deleted)
+                } else if line.hasPrefix("@@") || line.hasPrefix("diff ") || line.hasPrefix("index ") {
+                    add(i, end, .meta)
+                }
                 i = end; continue
             }
             for (open, close) in block where starts(open, at: i, to: to) {
@@ -260,8 +280,12 @@ private final class PreviewLexer {
             }
             if c == 36 && ["shell", "powershell", "php", "ruby", "makefile", "scss"].contains(id), i + 1 < to {
                 var end = i + 1
-                if units[end] == 123 || (units[end] == 40 && id == "makefile") { end = find(units[end] == 123 ? "}" : ")", from: end + 1, to: lineEnd(i, to)).map { $0 + 1 } ?? end }
-                else { while end < to && identifier(units[end]) { end += 1 }; if end == i + 1 && "@#?$!*-".utf16.contains(units[end]) { end += 1 } }
+                if units[end] == 123 || (units[end] == 40 && id == "makefile") {
+                    end = find(units[end] == 123 ? "}" : ")", from: end + 1, to: lineEnd(i, to)).map { $0 + 1 } ?? end
+                } else {
+                    while end < to && identifier(units[end]) { end += 1 }
+                    if end == i + 1 && "@#?$!*-".utf16.contains(units[end]) { end += 1 }
+                }
                 if end > i + 1 { add(i, end, .variable); i = end; continue }
             }
             if digit(c), i == from || !identifier(units[i - 1], dash: dash) {
@@ -272,7 +296,11 @@ private final class PreviewLexer {
             if letter(c) || c == 95 {
                 var end = i + 1; while end < to && identifier(units[end], dash: dash) { end += 1 }
                 let word = text(i, end), nextChar = next(end, to)
-                if id == "python", end - i <= 2, word.allSatisfy({ "rRbBfFuU".contains($0) }), end < to, let stringEnd = scanString(end, to, language: id) { add(i, stringEnd, .string); i = stringEnd; continue }
+                if id == "python", end - i <= 2, word.allSatisfy({ "rRbBfFuU".contains($0) }), end < to, let stringEnd = scanString(end, to, language: id) {
+                    add(i, stringEnd, .string)
+                    i = stringEnd
+                    continue
+                }
                 if ["kotlin", "java", "go"].contains(id) && ["package", "import"].contains(word) {
                     add(i, end, .keyword)
                     var pathEnd = end
@@ -282,12 +310,20 @@ private final class PreviewLexer {
                 }
                 var kind = words[caseInsensitive ? word.lowercased() : word] ?? previous
                 if kind == nil {
-                    if id == "rust" && end < to && units[end] == 33 { kind = .function; end += 1 }
-                    else if id == "css" || id == "scss" { if depth == 0 { kind = .tag } else if nextChar == 58 { kind = .property } }
-                    else if ["yaml", "toml", "ini"].contains(id) && (nextChar == 58 || nextChar == 61) { kind = .property }
-                    else if nextChar == 40 { kind = .function }
-                    else if last == 46 { kind = .property }
-                    else if ["kotlin", "java", "python", "rust", "swift", "csharp", "typescript"].contains(id), word.first?.isUppercase == true { kind = word.count > 1 && word.allSatisfy { $0.isUppercase || $0.isNumber || $0 == "_" } ? .constant : .type }
+                    if id == "rust" && end < to && units[end] == 33 {
+                        kind = .function
+                        end += 1
+                    } else if id == "css" || id == "scss" {
+                        if depth == 0 { kind = .tag } else if nextChar == 58 { kind = .property }
+                    } else if ["yaml", "toml", "ini"].contains(id) && (nextChar == 58 || nextChar == 61) {
+                        kind = .property
+                    } else if nextChar == 40 {
+                        kind = .function
+                    } else if last == 46 {
+                        kind = .property
+                    } else if ["kotlin", "java", "python", "rust", "swift", "csharp", "typescript"].contains(id), word.first?.isUppercase == true {
+                        kind = word.count > 1 && word.allSatisfy { $0.isUppercase || $0.isNumber || $0 == "_" } ? .constant : .type
+                    }
                 }
                 if let kind { add(i, end, kind) }
                 previous = declarators[word]; i = end; last = 97; continue
@@ -314,7 +350,13 @@ private final class PreviewLexer {
                     while i < to {
                         if units[i] == 62 { add(i, i + 1, .punctuation); i += 1; break }
                         if starts("/>", at: i, to: to) { add(i, i + 2, .punctuation); i += 2; selfClosing = true; break }
-                        if units[i] == 34 || units[i] == 39 { let quote = String(decoding: [units[i]], as: UTF16.self); let end = find(quote, from: i + 1, to: to).map { $0 + 1 } ?? to; add(i, end, .string); i = end; continue }
+                        if units[i] == 34 || units[i] == 39 {
+                            let quote = String(decoding: [units[i]], as: UTF16.self)
+                            let end = find(quote, from: i + 1, to: to).map { $0 + 1 } ?? to
+                            add(i, end, .string)
+                            i = end
+                            continue
+                        }
                         if space(units[i]) || units[i] == 61 { i += 1; continue }
                         let start = i
                         while i < to && !" \t\n/>=\"'".utf16.contains(units[i]) { i += 1 }
@@ -346,16 +388,23 @@ private final class PreviewLexer {
                     if text(cursor, nextEnd).trimmingCharacters(in: .whitespaces).hasPrefix(marker) { bodyEnd = cursor; closingEnd = nextEnd; break }
                     cursor = nextEnd + 1
                 }
-                if let language = Languages.forFence(info), language.mode == .code { code(language, from: bodyStart, to: bodyEnd) }
-                else if let language = Languages.forFence(info), language.mode == .markup { markup(from: bodyStart, to: bodyEnd) }
-                else { add(bodyStart, bodyEnd, .string) }
+                if let language = Languages.forFence(info), language.mode == .code {
+                    code(language, from: bodyStart, to: bodyEnd)
+                } else if let language = Languages.forFence(info), language.mode == .markup {
+                    markup(from: bodyStart, to: bodyEnd)
+                } else {
+                    add(bodyStart, bodyEnd, .string)
+                }
                 if bodyEnd < units.count { add(bodyEnd, closingEnd, .meta) }
                 start = closingEnd + 1; continue
             }
-            if regex(#" {0,3}#{1,6}(?:\s|$)"#, at: start, to: end) != nil { add(start, end, .heading) }
-            else if regex(#" {0,3}([-*_])(?:\s*\1){2,}\s*$"#, at: start, to: end) != nil { add(start, end, .punctuation) }
-            else if text(start, end).trimmingCharacters(in: .whitespaces).hasPrefix(">") { add(start, end, .comment) }
-            else {
+            if regex(#" {0,3}#{1,6}(?:\s|$)"#, at: start, to: end) != nil {
+                add(start, end, .heading)
+            } else if regex(#" {0,3}([-*_])(?:\s*\1){2,}\s*$"#, at: start, to: end) != nil {
+                add(start, end, .punctuation)
+            } else if text(start, end).trimmingCharacters(in: .whitespaces).hasPrefix(">") {
+                add(start, end, .comment)
+            } else {
                 var inlineStart = start
                 if let marker = regex(#"\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s)?"#, at: start, to: end) { inlineStart = NSMaxRange(marker.range); add(start, inlineStart, .keyword) }
                 inline(from: inlineStart, to: end)
@@ -399,7 +448,7 @@ private final class PreviewLexer {
                     if to > from { rowSpans += [from, to, span.type.rawValue] }; at += 1
                 }
                 var columns = rowEnd - rowStart
-                for unit in units[rowStart..<rowEnd] where (0x1100...0x115f).contains(unit) || (0x2e80...0xa4cf).contains(unit) || (0xac00...0xd7a3).contains(unit) || (0xf900...0xfaff).contains(unit) || (0xfe30...0xfe4f).contains(unit) || (0xff00...0xff60).contains(unit) || (0xffe0...0xffe6).contains(unit) { columns += 1 }
+                for unit in units[rowStart..<rowEnd] where wideUnits.contains(where: { $0.contains(unit) }) { columns += 1 }
                 maxColumns = max(maxColumns, columns)
                 rows.append(CodeLine(number: rowStart == start ? line : 0, text: text(rowStart, rowEnd), spans: rowSpans)); rowStart = rowEnd
             } while rowStart < end
@@ -410,32 +459,59 @@ private final class PreviewLexer {
 }
 
 // Language word lists ported directly from Android CodeLanguage.kt.
+// swiftlint:disable line_length - word tables, one language per line, as in the Android source.
 private let androidPreviewWords: [String: [String: TokenType]] = [
     "kotlin": ["package": .keyword, "import": .keyword, "class": .keyword, "interface": .keyword, "fun": .keyword, "val": .keyword, "var": .keyword, "object": .keyword, "typealias": .keyword, "if": .keyword, "else": .keyword, "when": .keyword, "for": .keyword, "while": .keyword, "do": .keyword, "return": .keyword, "break": .keyword, "continue": .keyword, "throw": .keyword, "try": .keyword, "catch": .keyword, "finally": .keyword, "in": .keyword, "is": .keyword, "as": .keyword, "by": .keyword, "get": .keyword, "set": .keyword, "constructor": .keyword, "init": .keyword, "companion": .keyword, "data": .keyword, "sealed": .keyword, "enum": .keyword, "annotation": .keyword, "open": .keyword, "abstract": .keyword, "override": .keyword, "private": .keyword, "protected": .keyword, "public": .keyword, "internal": .keyword, "lateinit": .keyword, "inline": .keyword, "noinline": .keyword, "crossinline": .keyword, "reified": .keyword, "suspend": .keyword, "operator": .keyword, "infix": .keyword, "tailrec": .keyword, "external": .keyword, "const": .keyword, "vararg": .keyword, "where": .keyword, "out": .keyword, "actual": .keyword, "expect": .keyword, "value": .keyword, "this": .keyword, "super": .keyword, "it": .keyword, "true": .constant, "false": .constant, "null": .constant],
+
     "java": ["abstract": .keyword, "assert": .keyword, "break": .keyword, "case": .keyword, "catch": .keyword, "class": .keyword, "continue": .keyword, "default": .keyword, "do": .keyword, "else": .keyword, "enum": .keyword, "extends": .keyword, "final": .keyword, "finally": .keyword, "for": .keyword, "if": .keyword, "implements": .keyword, "import": .keyword, "instanceof": .keyword, "interface": .keyword, "native": .keyword, "new": .keyword, "package": .keyword, "private": .keyword, "protected": .keyword, "public": .keyword, "return": .keyword, "static": .keyword, "strictfp": .keyword, "super": .keyword, "switch": .keyword, "synchronized": .keyword, "this": .keyword, "throw": .keyword, "throws": .keyword, "transient": .keyword, "try": .keyword, "volatile": .keyword, "while": .keyword, "var": .keyword, "record": .keyword, "yield": .keyword, "sealed": .keyword, "permits": .keyword, "void": .type, "boolean": .type, "byte": .type, "char": .type, "double": .type, "float": .type, "int": .type, "long": .type, "short": .type, "true": .constant, "false": .constant, "null": .constant],
+
     "javascript": ["true": .constant, "false": .constant, "null": .constant, "undefined": .constant, "NaN": .constant, "Infinity": .constant],
     "typescript": ["break": .keyword, "case": .keyword, "catch": .keyword, "class": .keyword, "const": .keyword, "continue": .keyword, "debugger": .keyword, "default": .keyword, "delete": .keyword, "do": .keyword, "else": .keyword, "export": .keyword, "extends": .keyword, "finally": .keyword, "for": .keyword, "from": .keyword, "function": .keyword, "if": .keyword, "import": .keyword, "in": .keyword, "instanceof": .keyword, "let": .keyword, "new": .keyword, "of": .keyword, "return": .keyword, "static": .keyword, "super": .keyword, "switch": .keyword, "this": .keyword, "throw": .keyword, "try": .keyword, "typeof": .keyword, "var": .keyword, "void": .keyword, "while": .keyword, "with": .keyword, "yield": .keyword, "async": .keyword, "await": .keyword, "get": .keyword, "set": .keyword, "as": .keyword, "interface": .keyword, "type": .keyword, "enum": .keyword, "implements": .keyword, "namespace": .keyword, "declare": .keyword, "abstract": .keyword, "private": .keyword, "protected": .keyword, "public": .keyword, "readonly": .keyword, "keyof": .keyword, "infer": .keyword, "is": .keyword, "satisfies": .keyword, "module": .keyword, "string": .type, "number": .type, "boolean": .type, "any": .type, "unknown": .type, "never": .type, "object": .type, "symbol": .type, "bigint": .type, "true": .constant, "false": .constant, "null": .constant, "undefined": .constant, "NaN": .constant, "Infinity": .constant],
+
     "python": ["and": .keyword, "as": .keyword, "assert": .keyword, "async": .keyword, "await": .keyword, "break": .keyword, "class": .keyword, "continue": .keyword, "def": .keyword, "del": .keyword, "elif": .keyword, "else": .keyword, "except": .keyword, "finally": .keyword, "for": .keyword, "from": .keyword, "global": .keyword, "if": .keyword, "import": .keyword, "in": .keyword, "is": .keyword, "lambda": .keyword, "nonlocal": .keyword, "not": .keyword, "or": .keyword, "pass": .keyword, "raise": .keyword, "return": .keyword, "try": .keyword, "while": .keyword, "with": .keyword, "yield": .keyword, "match": .keyword, "case": .keyword, "int": .type, "float": .type, "str": .type, "bool": .type, "list": .type, "dict": .type, "set": .type, "tuple": .type, "bytes": .type, "object": .type, "type": .type, "True": .constant, "False": .constant, "None": .constant, "self": .constant, "cls": .constant],
+
     "go": ["break": .keyword, "case": .keyword, "chan": .keyword, "const": .keyword, "continue": .keyword, "default": .keyword, "defer": .keyword, "else": .keyword, "fallthrough": .keyword, "for": .keyword, "func": .keyword, "go": .keyword, "goto": .keyword, "if": .keyword, "import": .keyword, "interface": .keyword, "map": .keyword, "package": .keyword, "range": .keyword, "return": .keyword, "select": .keyword, "struct": .keyword, "switch": .keyword, "type": .keyword, "var": .keyword, "bool": .type, "byte": .type, "complex64": .type, "complex128": .type, "error": .type, "float32": .type, "float64": .type, "int": .type, "int8": .type, "int16": .type, "int32": .type, "int64": .type, "rune": .type, "string": .type, "uint": .type, "uint8": .type, "uint16": .type, "uint32": .type, "uint64": .type, "uintptr": .type, "any": .type, "true": .constant, "false": .constant, "nil": .constant, "iota": .constant],
+
     "rust": ["as": .keyword, "async": .keyword, "await": .keyword, "break": .keyword, "const": .keyword, "continue": .keyword, "crate": .keyword, "dyn": .keyword, "else": .keyword, "enum": .keyword, "extern": .keyword, "fn": .keyword, "for": .keyword, "if": .keyword, "impl": .keyword, "in": .keyword, "let": .keyword, "loop": .keyword, "match": .keyword, "mod": .keyword, "move": .keyword, "mut": .keyword, "pub": .keyword, "ref": .keyword, "return": .keyword, "self": .keyword, "static": .keyword, "struct": .keyword, "super": .keyword, "trait": .keyword, "type": .keyword, "unsafe": .keyword, "use": .keyword, "where": .keyword, "while": .keyword, "i8": .type, "i16": .type, "i32": .type, "i64": .type, "i128": .type, "isize": .type, "u8": .type, "u16": .type, "u32": .type, "u64": .type, "u128": .type, "usize": .type, "f32": .type, "f64": .type, "bool": .type, "char": .type, "str": .type, "Self": .type, "true": .constant, "false": .constant, "None": .constant, "Some": .constant, "Ok": .constant, "Err": .constant],
+
     "c": ["true": .constant, "false": .constant, "NULL": .constant],
     "cpp": ["auto": .keyword, "break": .keyword, "case": .keyword, "const": .keyword, "continue": .keyword, "default": .keyword, "do": .keyword, "else": .keyword, "enum": .keyword, "extern": .keyword, "for": .keyword, "goto": .keyword, "if": .keyword, "inline": .keyword, "register": .keyword, "restrict": .keyword, "return": .keyword, "signed": .keyword, "sizeof": .keyword, "static": .keyword, "struct": .keyword, "switch": .keyword, "typedef": .keyword, "union": .keyword, "unsigned": .keyword, "volatile": .keyword, "while": .keyword, "alignas": .keyword, "alignof": .keyword, "and": .keyword, "asm": .keyword, "catch": .keyword, "class": .keyword, "constexpr": .keyword, "const_cast": .keyword, "decltype": .keyword, "delete": .keyword, "dynamic_cast": .keyword, "explicit": .keyword, "export": .keyword, "friend": .keyword, "mutable": .keyword, "namespace": .keyword, "new": .keyword, "noexcept": .keyword, "operator": .keyword, "or": .keyword, "private": .keyword, "protected": .keyword, "public": .keyword, "reinterpret_cast": .keyword, "static_assert": .keyword, "static_cast": .keyword, "template": .keyword, "this": .keyword, "thread_local": .keyword, "throw": .keyword, "try": .keyword, "typeid": .keyword, "typename": .keyword, "using": .keyword, "virtual": .keyword, "override": .keyword, "final": .keyword, "concept": .keyword, "requires": .keyword, "co_await": .keyword, "co_return": .keyword, "co_yield": .keyword, "char": .type, "double": .type, "float": .type, "int": .type, "long": .type, "short": .type, "void": .type, "bool": .type, "size_t": .type, "ssize_t": .type, "int8_t": .type, "int16_t": .type, "int32_t": .type, "int64_t": .type, "uint8_t": .type, "uint16_t": .type, "uint32_t": .type, "uint64_t": .type, "FILE": .type, "string": .type, "vector": .type, "map": .type, "std": .type, "true": .constant, "false": .constant, "NULL": .constant, "nullptr": .constant],
+
     "csharp": ["abstract": .keyword, "as": .keyword, "base": .keyword, "break": .keyword, "case": .keyword, "catch": .keyword, "checked": .keyword, "class": .keyword, "const": .keyword, "continue": .keyword, "default": .keyword, "delegate": .keyword, "do": .keyword, "else": .keyword, "enum": .keyword, "event": .keyword, "explicit": .keyword, "extern": .keyword, "finally": .keyword, "fixed": .keyword, "for": .keyword, "foreach": .keyword, "goto": .keyword, "if": .keyword, "implicit": .keyword, "in": .keyword, "interface": .keyword, "internal": .keyword, "is": .keyword, "lock": .keyword, "namespace": .keyword, "new": .keyword, "operator": .keyword, "out": .keyword, "override": .keyword, "params": .keyword, "private": .keyword, "protected": .keyword, "public": .keyword, "readonly": .keyword, "ref": .keyword, "return": .keyword, "sealed": .keyword, "sizeof": .keyword, "stackalloc": .keyword, "static": .keyword, "struct": .keyword, "switch": .keyword, "this": .keyword, "throw": .keyword, "try": .keyword, "typeof": .keyword, "unchecked": .keyword, "unsafe": .keyword, "using": .keyword, "virtual": .keyword, "volatile": .keyword, "while": .keyword, "async": .keyword, "await": .keyword, "var": .keyword, "get": .keyword, "set": .keyword, "init": .keyword, "record": .keyword, "yield": .keyword, "when": .keyword, "where": .keyword, "bool": .type, "byte": .type, "char": .type, "decimal": .type, "double": .type, "float": .type, "int": .type, "long": .type, "object": .type, "sbyte": .type, "short": .type, "string": .type, "uint": .type, "ulong": .type, "ushort": .type, "void": .type, "dynamic": .type, "true": .constant, "false": .constant, "null": .constant],
+
     "swift": ["associatedtype": .keyword, "class": .keyword, "deinit": .keyword, "enum": .keyword, "extension": .keyword, "fileprivate": .keyword, "func": .keyword, "import": .keyword, "init": .keyword, "inout": .keyword, "internal": .keyword, "let": .keyword, "open": .keyword, "operator": .keyword, "private": .keyword, "protocol": .keyword, "public": .keyword, "rethrows": .keyword, "static": .keyword, "struct": .keyword, "subscript": .keyword, "typealias": .keyword, "var": .keyword, "break": .keyword, "case": .keyword, "continue": .keyword, "default": .keyword, "defer": .keyword, "do": .keyword, "else": .keyword, "fallthrough": .keyword, "for": .keyword, "guard": .keyword, "if": .keyword, "in": .keyword, "repeat": .keyword, "return": .keyword, "switch": .keyword, "where": .keyword, "while": .keyword, "as": .keyword, "catch": .keyword, "is": .keyword, "super": .keyword, "self": .keyword, "Self": .keyword, "throw": .keyword, "throws": .keyword, "try": .keyword, "async": .keyword, "await": .keyword, "some": .keyword, "any": .keyword, "true": .constant, "false": .constant, "nil": .constant],
+
     "dart": ["abstract": .keyword, "as": .keyword, "assert": .keyword, "async": .keyword, "await": .keyword, "break": .keyword, "case": .keyword, "catch": .keyword, "class": .keyword, "const": .keyword, "continue": .keyword, "covariant": .keyword, "default": .keyword, "deferred": .keyword, "do": .keyword, "dynamic": .keyword, "else": .keyword, "enum": .keyword, "export": .keyword, "extends": .keyword, "extension": .keyword, "external": .keyword, "factory": .keyword, "final": .keyword, "finally": .keyword, "for": .keyword, "get": .keyword, "if": .keyword, "implements": .keyword, "import": .keyword, "in": .keyword, "interface": .keyword, "is": .keyword, "late": .keyword, "library": .keyword, "mixin": .keyword, "new": .keyword, "on": .keyword, "operator": .keyword, "part": .keyword, "required": .keyword, "rethrow": .keyword, "return": .keyword, "set": .keyword, "show": .keyword, "static": .keyword, "super": .keyword, "switch": .keyword, "sync": .keyword, "this": .keyword, "throw": .keyword, "try": .keyword, "typedef": .keyword, "var": .keyword, "void": .keyword, "while": .keyword, "with": .keyword, "yield": .keyword, "int": .type, "double": .type, "num": .type, "bool": .type, "true": .constant, "false": .constant, "null": .constant],
+
     "php": ["abstract": .keyword, "and": .keyword, "array": .keyword, "as": .keyword, "break": .keyword, "callable": .keyword, "case": .keyword, "catch": .keyword, "class": .keyword, "clone": .keyword, "const": .keyword, "continue": .keyword, "declare": .keyword, "default": .keyword, "do": .keyword, "echo": .keyword, "else": .keyword, "elseif": .keyword, "empty": .keyword, "extends": .keyword, "final": .keyword, "finally": .keyword, "fn": .keyword, "for": .keyword, "foreach": .keyword, "function": .keyword, "global": .keyword, "goto": .keyword, "if": .keyword, "implements": .keyword, "include": .keyword, "include_once": .keyword, "instanceof": .keyword, "insteadof": .keyword, "interface": .keyword, "isset": .keyword, "list": .keyword, "match": .keyword, "namespace": .keyword, "new": .keyword, "or": .keyword, "print": .keyword, "private": .keyword, "protected": .keyword, "public": .keyword, "readonly": .keyword, "require": .keyword, "require_once": .keyword, "return": .keyword, "static": .keyword, "switch": .keyword, "throw": .keyword, "trait": .keyword, "try": .keyword, "unset": .keyword, "use": .keyword, "var": .keyword, "while": .keyword, "xor": .keyword, "yield": .keyword, "true": .constant, "false": .constant, "null": .constant],
+
     "ruby": ["alias": .keyword, "and": .keyword, "begin": .keyword, "break": .keyword, "case": .keyword, "class": .keyword, "def": .keyword, "do": .keyword, "else": .keyword, "elsif": .keyword, "end": .keyword, "ensure": .keyword, "for": .keyword, "if": .keyword, "in": .keyword, "module": .keyword, "next": .keyword, "not": .keyword, "or": .keyword, "redo": .keyword, "rescue": .keyword, "retry": .keyword, "return": .keyword, "self": .keyword, "super": .keyword, "then": .keyword, "undef": .keyword, "unless": .keyword, "until": .keyword, "when": .keyword, "while": .keyword, "yield": .keyword, "require": .keyword, "require_relative": .keyword, "attr_accessor": .keyword, "attr_reader": .keyword, "attr_writer": .keyword, "true": .constant, "false": .constant, "nil": .constant],
+
     "lua": ["and": .keyword, "break": .keyword, "do": .keyword, "else": .keyword, "elseif": .keyword, "end": .keyword, "for": .keyword, "function": .keyword, "goto": .keyword, "if": .keyword, "in": .keyword, "local": .keyword, "not": .keyword, "or": .keyword, "repeat": .keyword, "return": .keyword, "then": .keyword, "until": .keyword, "while": .keyword, "true": .constant, "false": .constant, "nil": .constant],
+
     "sql": ["select": .keyword, "from": .keyword, "where": .keyword, "and": .keyword, "or": .keyword, "not": .keyword, "insert": .keyword, "into": .keyword, "values": .keyword, "update": .keyword, "set": .keyword, "delete": .keyword, "create": .keyword, "table": .keyword, "drop": .keyword, "alter": .keyword, "add": .keyword, "column": .keyword, "index": .keyword, "view": .keyword, "join": .keyword, "inner": .keyword, "left": .keyword, "right": .keyword, "outer": .keyword, "full": .keyword, "cross": .keyword, "on": .keyword, "as": .keyword, "group": .keyword, "by": .keyword, "order": .keyword, "having": .keyword, "limit": .keyword, "offset": .keyword, "distinct": .keyword, "union": .keyword, "all": .keyword, "case": .keyword, "when": .keyword, "then": .keyword, "else": .keyword, "end": .keyword, "is": .keyword, "like": .keyword, "in": .keyword, "between": .keyword, "exists": .keyword, "primary": .keyword, "key": .keyword, "foreign": .keyword, "references": .keyword, "default": .keyword, "constraint": .keyword, "unique": .keyword, "if": .keyword, "begin": .keyword, "commit": .keyword, "rollback": .keyword, "transaction": .keyword, "grant": .keyword, "revoke": .keyword, "with": .keyword, "returning": .keyword, "database": .keyword, "schema": .keyword, "use": .keyword, "show": .keyword, "describe": .keyword, "explain": .keyword, "asc": .keyword, "desc": .keyword, "cascade": .keyword, "trigger": .keyword, "procedure": .keyword, "function": .keyword, "returns": .keyword, "declare": .keyword, "replace": .keyword, "temporary": .keyword, "int": .type, "integer": .type, "bigint": .type, "smallint": .type, "tinyint": .type, "varchar": .type, "char": .type, "text": .type, "boolean": .type, "bool": .type, "date": .type, "datetime": .type, "timestamp": .type, "float": .type, "double": .type, "decimal": .type, "numeric": .type, "serial": .type, "json": .type, "jsonb": .type, "uuid": .type, "blob": .type, "real": .type, "true": .constant, "false": .constant, "null": .constant],
+
     "shell": ["if": .keyword, "then": .keyword, "else": .keyword, "elif": .keyword, "fi": .keyword, "case": .keyword, "esac": .keyword, "for": .keyword, "select": .keyword, "while": .keyword, "until": .keyword, "do": .keyword, "done": .keyword, "in": .keyword, "function": .keyword, "time": .keyword, "return": .keyword, "exit": .keyword, "break": .keyword, "continue": .keyword, "local": .keyword, "export": .keyword, "readonly": .keyword, "declare": .keyword, "typeset": .keyword, "unset": .keyword, "shift": .keyword, "source": .keyword, "alias": .keyword, "eval": .keyword, "exec": .keyword, "trap": .keyword, "set": .keyword, "echo": .function, "printf": .function, "cd": .function, "pwd": .function, "read": .function, "test": .function, "sudo": .function, "grep": .function, "sed": .function, "awk": .function, "cat": .function, "ls": .function, "rm": .function, "mkdir": .function, "cp": .function, "mv": .function, "chmod": .function, "chown": .function, "curl": .function, "wget": .function, "git": .function, "docker": .function, "kubectl": .function, "apt": .function, "apt-get": .function, "yum": .function, "dnf": .function, "brew": .function, "ssh": .function, "scp": .function, "tar": .function, "make": .function, "npm": .function, "pip": .function, "python3": .function, "systemctl": .function, "true": .constant, "false": .constant],
+
     "powershell": ["begin": .keyword, "break": .keyword, "catch": .keyword, "class": .keyword, "continue": .keyword, "data": .keyword, "define": .keyword, "do": .keyword, "dynamicparam": .keyword, "else": .keyword, "elseif": .keyword, "end": .keyword, "exit": .keyword, "filter": .keyword, "finally": .keyword, "for": .keyword, "foreach": .keyword, "from": .keyword, "function": .keyword, "if": .keyword, "in": .keyword, "param": .keyword, "process": .keyword, "return": .keyword, "switch": .keyword, "throw": .keyword, "trap": .keyword, "try": .keyword, "until": .keyword, "using": .keyword, "var": .keyword, "while": .keyword],
+
     "bat": ["echo": .keyword, "set": .keyword, "if": .keyword, "else": .keyword, "goto": .keyword, "call": .keyword, "exit": .keyword, "for": .keyword, "in": .keyword, "do": .keyword, "not": .keyword, "exist": .keyword, "defined": .keyword, "errorlevel": .keyword, "setlocal": .keyword, "endlocal": .keyword, "pause": .keyword, "shift": .keyword, "off": .keyword, "on": .keyword],
+
     "dockerfile": ["FROM": .keyword, "RUN": .keyword, "CMD": .keyword, "LABEL": .keyword, "MAINTAINER": .keyword, "EXPOSE": .keyword, "ENV": .keyword, "ADD": .keyword, "COPY": .keyword, "ENTRYPOINT": .keyword, "VOLUME": .keyword, "USER": .keyword, "WORKDIR": .keyword, "ARG": .keyword, "ONBUILD": .keyword, "STOPSIGNAL": .keyword, "HEALTHCHECK": .keyword, "SHELL": .keyword, "AS": .keyword, "from": .keyword, "run": .keyword, "cmd": .keyword, "label": .keyword, "expose": .keyword, "env": .keyword, "add": .keyword, "copy": .keyword, "entrypoint": .keyword, "volume": .keyword, "user": .keyword, "workdir": .keyword, "arg": .keyword, "as": .keyword],
+
     "makefile": ["ifeq": .keyword, "ifneq": .keyword, "ifdef": .keyword, "ifndef": .keyword, "else": .keyword, "endif": .keyword, "include": .keyword, "define": .keyword, "endef": .keyword, "export": .keyword, "override": .keyword, "unexport": .keyword, "vpath": .keyword],
+
     "json": ["true": .constant, "false": .constant, "null": .constant],
     "yaml": ["true": .constant, "false": .constant, "null": .constant, "yes": .constant, "no": .constant, "on": .constant, "off": .constant, "True": .constant, "False": .constant, "TRUE": .constant, "FALSE": .constant, "Null": .constant, "NULL": .constant, "Yes": .constant, "No": .constant],
+
     "toml": ["true": .constant, "false": .constant],
     "ini": ["true": .constant, "false": .constant, "yes": .constant, "no": .constant, "on": .constant, "off": .constant, "True": .constant, "False": .constant],
     "css": ["inherit": .constant, "initial": .constant, "unset": .constant, "none": .constant, "auto": .constant, "transparent": .constant, "currentColor": .constant, "important": .constant],
-    "log": ["ERROR": .error, "ERR": .error, "FATAL": .error, "CRITICAL": .error, "CRIT": .error, "PANIC": .error, "SEVERE": .error, "EMERG": .error, "ALERT": .error, "Error": .error, "Fatal": .error, "Panic": .error, "error": .error, "fatal": .error, "panic": .error, "failed": .error, "Failed": .error, "FAILED": .error, "FAILURE": .error, "Exception": .error, "WARN": .warning, "WARNING": .warning, "Warning": .warning, "Warn": .warning, "warning": .warning, "warn": .warning, "INFO": .info, "NOTICE": .info, "Info": .info, "Notice": .info, "info": .info, "notice": .info, "DEBUG": .comment, "TRACE": .comment, "VERBOSE": .comment, "Debug": .comment, "Trace": .comment, "debug": .comment, "trace": .comment],
+    "log": ["ERROR": .error, "ERR": .error, "FATAL": .error, "CRITICAL": .error, "CRIT": .error, "PANIC": .error, "SEVERE": .error, "EMERG": .error,
+        "ALERT": .error, "Error": .error, "Fatal": .error, "Panic": .error, "error": .error, "fatal": .error, "panic": .error, "failed": .error,
+        "Failed": .error, "FAILED": .error, "FAILURE": .error, "Exception": .error, "WARN": .warning, "WARNING": .warning, "Warning": .warning,
+        "Warn": .warning, "warning": .warning, "warn": .warning, "INFO": .info, "NOTICE": .info, "Info": .info, "Notice": .info, "info": .info,
+        "notice": .info, "DEBUG": .comment, "TRACE": .comment, "VERBOSE": .comment, "Debug": .comment, "Trace": .comment, "debug": .comment,
+        "trace": .comment]
 ]
+// swiftlint:enable line_length

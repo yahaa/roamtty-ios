@@ -14,12 +14,10 @@ struct AppRouteDestination: View {
                 // Reconnect retains the journal ID but owns a new renderer.
                 // Recreate UIKit and sheet state with that runtime instance.
                 TerminalScreen(runtime: runtime).id(ObjectIdentifier(runtime))
-            }
-            else if let record = model.records.first(where: { $0.id == id }) {
+            } else if let record = model.records.first(where: { $0.id == id }) {
                 // A session restored from the journal reconnects as soon as it is shown.
                 Color.clear.onAppear { model.openRestored(record) }
-            }
-            else { EmptyMessage(title: model.text("会话已关闭", "Session closed"), message: model.text("返回会话列表重新连接。", "Return to the session list to connect again.")) }
+            } else { EmptyMessage(title: model.text("会话已关闭", "Session closed"), message: model.text("返回会话列表重新连接。", "Return to the session list to connect again.")) }
         case .files(let id, let sessionID, let directory):
             if let host = model.host(id) {
                 let target = model.connectionTarget(hostID: id, sessionID: sessionID)

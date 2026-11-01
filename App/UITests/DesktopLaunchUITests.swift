@@ -187,7 +187,7 @@ final class DesktopLaunchUITests: XCTestCase {
             ("login", "启动桌面插件", ["进行中", "等待中", "等待中"]),
             ("install", "安装桌面插件", ["已完成", "进行中", "等待中"]),
             ("start", "启动桌面插件", ["已完成", "进行中", "等待中"]),
-            ("first-frame", "启动桌面插件", ["已完成", "已完成", "进行中"]),
+            ("first-frame", "启动桌面插件", ["已完成", "已完成", "进行中"])
         ] {
             launchStatusFixture(app, phase: phase)
             XCTAssertTrue(app.staticTexts["正在打开桌面"].waitForExistence(timeout: 10))

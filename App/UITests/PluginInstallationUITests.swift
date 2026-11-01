@@ -207,8 +207,7 @@ final class PluginInstallationUITests: RoamttyLiveUITestCase {
         let scroll = app.scrollViews.firstMatch
         for _ in 0..<8 {
             if element.exists && element.isHittable { return }
-            if element.exists && element.frame.midY < scroll.frame.midY { scroll.swipeDown() }
-            else { scroll.swipeUp() }
+            if element.exists && element.frame.midY < scroll.frame.midY { scroll.swipeDown() } else { scroll.swipeUp() }
         }
         XCTAssertTrue(element.isHittable)
     }

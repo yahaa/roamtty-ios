@@ -13,9 +13,9 @@ public enum ScreenApp: String, CaseIterable, Sendable {
         }
     }
 
-    private static let geminiModel = try! NSRegularExpression(pattern: #"\bgemini-\d"#, options: .caseInsensitive)
-    private static let codexContext = try! NSRegularExpression(pattern: #"\b[Cc]ontext \d+% left|\d+% context left"#)
-    private static let rule = try! NSRegularExpression(pattern: #"^\s*─{20,}\s*$"#)
+    private static let geminiModel = NSRegularExpression(literal: #"\bgemini-\d"#, options: .caseInsensitive)
+    private static let codexContext = NSRegularExpression(literal: #"\b[Cc]ontext \d+% left|\d+% context left"#)
+    private static let rule = NSRegularExpression(literal: #"^\s*─{20,}\s*$"#)
     private static let claudeFooters = ["shift+tab to cycle", "⏵⏵", "⏸ plan mode", "? for shortcuts", "esc to interrupt"]
 
     /// `cursorRow` is an index into the supplied visible screen rows, not scrollback.
@@ -141,7 +141,7 @@ extension ScreenApp {
                                  tag: "pet-fn", action: .menu((1...12).map { number in
                     TerminalShortcut(label: "F\(number)", hintZh: "", hintEn: "", descriptionZh: "发送 F\(number)",
                                      descriptionEn: "Send F\(number)", tag: "pet-f\(number)", action: .functionKey(number))
-                })),
+                                 })),
                 TerminalShortcut(label: "Ctrl", hintZh: "下一键", hintEn: "Next key",
                                  descriptionZh: "Ctrl，作用于下一次键盘字符",
                                  descriptionEn: "Ctrl applies to the next keyboard character", tag: "pet-ctrl", action: .ctrl),

@@ -75,7 +75,9 @@ public struct Host: Codable, Identifiable, Equatable, Sendable {
         h.username = username.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !h.name.isEmpty, h.name.utf16.count <= 80 else { throw RoamError.invalid("名称需为 1–80 个字符") }
         guard !h.address.isEmpty, h.address.utf16.count <= 253,
-              !h.address.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.union(.controlCharacters).contains($0) || "/\\@".unicodeScalars.contains($0) }) else { throw RoamError.invalid("请输入主机地址，不含协议、路径或空格") }
+              !h.address.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.union(.controlCharacters).contains($0) || "/\\@".unicodeScalars.contains($0) }) else {
+                  throw RoamError.invalid("请输入主机地址，不含协议、路径或空格")
+              }
         guard (1...65535).contains(port) else { throw RoamError.invalid("端口必须为 1–65535") }
         guard !h.username.isEmpty, h.username.utf16.count <= 128,
               !h.username.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.union(.controlCharacters).contains($0) }) else { throw RoamError.invalid("请输入有效用户名") }

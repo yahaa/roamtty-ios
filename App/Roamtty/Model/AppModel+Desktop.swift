@@ -154,7 +154,7 @@ extension AppModel {
         desktopPathMonitor = monitor
         // Updates come one at a time on this serial queue, the only place `last` is touched.
         let queue = DispatchQueue(label: "roamtty.desktop.path", qos: .utility)
-        final class Last: @unchecked Sendable { var interface: String?? = nil }
+        final class Last: @unchecked Sendable { var interface: String?? }
         let last = Last()
         monitor.pathUpdateHandler = { [weak self] path in
             let current = Self.defaultInterface(path)

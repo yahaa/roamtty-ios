@@ -127,8 +127,7 @@ struct TerminalToolboxState {
             return
         }
         guard !dockVisible else { return }
-        if ringPinned && time >= ringDeadline { dismissRing() }
-        else if !ringOpen && time >= ghostDeadline { awake = false }
+        if ringPinned && time >= ringDeadline { dismissRing() } else if !ringOpen && time >= ghostDeadline { awake = false }
     }
     private mutating func armDockHide(at time: TimeInterval) {
         guard !pinned, Self.dockHideSeconds > 0 else { clearDockHide(); return }
@@ -147,8 +146,7 @@ enum TerminalDockGeometry {
         var frame = CGRect(x: viewport.width - inset - size.width, y: min(max(margin, ideal), max(margin, viewport.height - margin - size.height)), width: size.width, height: size.height)
         if let obstacle, frame.intersects(obstacle.insetBy(dx: -4, dy: -4)) {
             let candidates = [obstacle.minY - 8 - size.height, obstacle.maxY + 8].filter { $0 >= margin && $0 + size.height <= viewport.height - margin }
-            if let y = candidates.min(by: { abs($0 - ideal) < abs($1 - ideal) }) { frame.origin.y = y }
-            else { frame.origin.x = max(0, obstacle.minX - 8 - size.width) }
+            if let y = candidates.min(by: { abs($0 - ideal) < abs($1 - ideal) }) { frame.origin.y = y } else { frame.origin.x = max(0, obstacle.minX - 8 - size.width) }
         }
         return frame
     }
@@ -236,4 +234,3 @@ struct TerminalScrollAccumulator {
         return Int(min(256, max(-256, distance / rowHeight)))
     }
 }
-

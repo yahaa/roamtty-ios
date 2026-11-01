@@ -83,7 +83,9 @@ extension AppModel {
     func leaveTerminal() { path = []; homeTab = .sessions }
     func launch(_ host: Host, mode: SessionMode, directory: String, agent: AgentLaunch?, mosh: Bool?, originalLogin: SessionLoginSnapshot? = nil) {
         do {
-            guard StartDirectory.isSupported(directory), agent.map({ StartDirectory.isSupported($0.directory) }) ?? true else { throw RoamError.invalid(text("文件夹路径含有不支持的控制字符", "The folder path contains unsupported control characters")) }
+            guard StartDirectory.isSupported(directory), agent.map({ StartDirectory.isSupported($0.directory) }) ?? true else {
+                throw RoamError.invalid(text("文件夹路径含有不支持的控制字符", "The folder path contains unsupported control characters"))
+            }
             let directory = StartDirectory.normalize(directory)
             let record = try journal.create(hostID: host.id, mode: mode, title: agent?.title ?? "")
             showNewTerminal(record)
@@ -111,8 +113,7 @@ extension AppModel {
     func reconnect(_ record: SessionRecord, shell: Bool = false) {
         guard let host = host(record.hostID) else { return }
         let originalLogin = runtimes[record.id]?.loginSnapshot
-        if shell { launch(host, mode: .shell, directory: "~", agent: nil, mosh: false, originalLogin: originalLogin) }
-        else {
+        if shell { launch(host, mode: .shell, directory: "~", agent: nil, mosh: false, originalLogin: originalLogin) } else {
             runtimes[record.id]?.clearLoginCredentials(); runtimes.removeValue(forKey: record.id)?.discard()
             connectSession(record, originalLogin: originalLogin)
         }
@@ -234,8 +235,7 @@ extension AppModel {
         // Restored/disconnected cards can connect on request. A live card always owns
         // its existing connection; closing/replacing it while queued must not retarget.
         let target: RemoteConnectionTarget
-        if let runtime, runtime.phase == .connected { target = .session(runtime) }
-        else { target = .host(record.hostID) }
+        if let runtime, runtime.phase == .connected { target = .session(runtime) } else { target = .host(record.hostID) }
         cancelLaunch(record.id)
         @MainActor func validateTerminationTarget() throws {
             guard runtimes[record.id] === runtime else { throw RoamError.cancelled }
@@ -301,8 +301,7 @@ extension AppModel {
             // An offline host is left alone, not retried on every visit: a fresh probe must find its sshd first.
             if !hostConnected(host) {
                 let since: Date
-                if let waiting = waitingForHostSince[record.id] { since = waiting }
-                else { since = now; waitingForHostSince[record.id] = now; Task { await probeHosts([host]) } }
+                if let waiting = waitingForHostSince[record.id] { since = waiting } else { since = now; waitingForHostSince[record.id] = now; Task { await probeHosts([host]) } }
                 guard SessionReconnect.hostBack(online: reachability[host.id]?.isOnline == true, checkedAt: reachabilityCheckedAt[host.id], since: since) else { continue }
             }
             waitingForHostSince.removeValue(forKey: record.id)

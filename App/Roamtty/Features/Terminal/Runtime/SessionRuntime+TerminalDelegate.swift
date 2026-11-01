@@ -11,8 +11,7 @@ extension SessionRuntime: @preconcurrency TerminalViewDelegate {
     func setTerminalTitle(source: TerminalView, title: String) { terminalTitle = String(title.prefix(200)) }
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
         guard let directory else { return }
-        if let url = URL(string: directory), url.scheme == "file" { currentDirectory = url.path }
-        else if directory.hasPrefix("/") { currentDirectory = directory }
+        if let url = URL(string: directory), url.scheme == "file" { currentDirectory = url.path } else if directory.hasPrefix("/") { currentDirectory = directory }
     }
     /// Typed keys, a native paste being gathered, and the wheel events of a remote scroll.
     func send(source: TerminalView, data: ArraySlice<UInt8>) {

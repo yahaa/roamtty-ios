@@ -12,9 +12,7 @@ public struct PluginInstallLog {
 
     public mutating func append(_ data: Data) {
         for byte in data {
-            if byte == 10 || byte == 13 { finishLine() }
-            else if pending.count < 4_096 { pending.append(byte) }
-            else { truncated = true }
+            if byte == 10 || byte == 13 { finishLine() } else if pending.count < 4_096 { pending.append(byte) } else { truncated = true }
         }
     }
 

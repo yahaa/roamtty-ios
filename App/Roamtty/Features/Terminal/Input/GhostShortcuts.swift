@@ -98,9 +98,7 @@ struct GhostShortcuts: View {
     }
     private func endHold(_ released: Bool) {
         guard toolbox.ringOpen else { return }
-        if !released { toolbox.completeRing(at: now) }
-        else if let hovered, shortcuts.indices.contains(hovered) { pick(shortcuts[hovered], byTap: false) }
-        else { toolbox.pinRing(at: now) }
+        if !released { toolbox.completeRing(at: now) } else if let hovered, shortcuts.indices.contains(hovered) { pick(shortcuts[hovered], byTap: false) } else { toolbox.pinRing(at: now) }
         hovered = nil
     }
     private func pick(_ item: TerminalShortcut, byTap: Bool) {

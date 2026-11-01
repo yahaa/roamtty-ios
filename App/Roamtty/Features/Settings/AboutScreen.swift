@@ -1,5 +1,6 @@
 import SwiftUI
 
+// swiftlint:disable line_length - each paragraph is one bilingual string, kept whole to stay searchable.
 struct AboutScreen: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) var dismiss
@@ -45,7 +46,10 @@ struct AboutScreen: View {
     }
     private var version: String { "1.0.0 · SSH · tmux · mosh" }
     private var privacyPanel: some View {
-        Panel(title: model.text("隐私", "Privacy")) { Text(model.text("主机信息和设置存储在设备上。保存的密码和私钥使用此设备的 Keychain。私钥口令仅保存在内存。连接直接发送至你选择的服务器；应用没有遥测或广告。启动 AI Agent 时，应用会在服务器的 ~/.roamtty 写入状态钩子脚本、Claude 设置和 Codex/Grok 启动器，在 Codex 的 config.toml 追加钩子信任记录、写入 Grok 的钩子文件；Agent 的状态（包括最近一条提示的前 200 个字符和回复开头）保存为 tmux 会话选项供应用读取。", "Host information and settings stay on your device. Saved passwords and private keys use device-only Keychain storage. Key passphrases remain in memory. Connections go directly to your chosen servers. The app contains no telemetry or advertising. Starting an AI agent writes a status hook script, Claude settings and Codex/Grok launchers to ~/.roamtty on the server, appends hook trust entries to Codex's config.toml and writes Grok's hooks file; the agent's state (including the first 200 characters of the latest prompt and the start of its reply) is kept as tmux session options that the app reads.")).padding(16) }
+        Panel(title: model.text("隐私", "Privacy")) {
+            Text(model.text("主机信息和设置存储在设备上。保存的密码和私钥使用此设备的 Keychain。私钥口令仅保存在内存。连接直接发送至你选择的服务器；应用没有遥测或广告。启动 AI Agent 时，应用会在服务器的 ~/.roamtty 写入状态钩子脚本、Claude 设置和 Codex/Grok 启动器，在 Codex 的 config.toml 追加钩子信任记录、写入 Grok 的钩子文件；Agent 的状态（包括最近一条提示的前 200 个字符和回复开头）保存为 tmux 会话选项供应用读取。",
+                "Host information and settings stay on your device. Saved passwords and private keys use device-only Keychain storage. Key passphrases remain in memory. Connections go directly to your chosen servers. The app contains no telemetry or advertising. Starting an AI agent writes a status hook script, Claude settings and Codex/Grok launchers to ~/.roamtty on the server, appends hook trust entries to Codex's config.toml and writes Grok's hooks file; the agent's state (including the first 200 characters of the latest prompt and the start of its reply) is kept as tmux session options that the app reads.")).padding(16)
+        }
     }
     private var localDataPanel: some View {
         Panel(title: model.text("本机数据与支持", "Local data and support")) {
@@ -61,7 +65,9 @@ struct AboutScreen: View {
         }
     }
     private var openSourcePanel: some View {
-        Panel(title: model.text("开源组件", "Open source")) { Text("SwiftTerm · MIT\nlibssh2 · BSD\nOpenSSL · Apache 2.0\nzlib · zlib license\nRoamtty · Apache 2.0").padding(16).frame(maxWidth: .infinity, alignment: .leading) }
+        Panel(title: model.text("开源组件", "Open source")) {
+            Text("SwiftTerm · MIT\nlibssh2 · BSD\nOpenSSL · Apache 2.0\nzlib · zlib license\nRoamtty · Apache 2.0").padding(16).frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 
@@ -85,3 +91,4 @@ private struct DiagnosticsPanel: View {
         }.onAppear { files = Diagnostics.shared.files }
     }
 }
+// swiftlint:enable line_length

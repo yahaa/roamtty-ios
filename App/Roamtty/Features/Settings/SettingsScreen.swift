@@ -25,7 +25,8 @@ struct SettingsScreen: View {
                 .toolbar { ToolbarItem(placement: .confirmationAction) { doneButton } }
         }
         .onChange(of: model.settings) { _ in model.saveSettings() }
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: importKind == .downloadFolder ? [.folder] : [UTType(filenameExtension: "ttf") ?? .data, UTType(filenameExtension: "otf") ?? .data]) { result in
+        .fileImporter(isPresented: $showImporter,
+            allowedContentTypes: importKind == .downloadFolder ? [.folder] : [UTType(filenameExtension: "ttf") ?? .data, UTType(filenameExtension: "otf") ?? .data]) { result in
             // Keep the purpose separate from isPresented: SwiftUI clears that
             // binding before delivering the selected document's completion.
             do {
@@ -43,8 +44,7 @@ struct SettingsScreen: View {
             } catch let error as CocoaError where error.code == .userCancelled {
                 // Dismissing the native picker leaves the existing selection intact.
             } catch {
-                if importKind == .font { fontError = error.localizedDescription }
-                else { downloadFolderError = error.localizedDescription }
+                if importKind == .font { fontError = error.localizedDescription } else { downloadFolderError = error.localizedDescription }
             }
         }
     }
@@ -86,19 +86,31 @@ struct SettingsScreen: View {
                 ForEach(TerminalFontSelection.bundled, id: \.self) { name in Text(name.replacingOccurrences(of: "-Regular", with: "")).tag(name) }
                 if let custom = fonts.custom { Text(custom.displayName).tag(TerminalFontSelection.custom).accessibilityIdentifier("settings-font-custom") }
             }.padding(16).panelDivider().accessibilityIdentifier("settings-font").accessibilityValue(fonts.valueLabel(model.settings.font, english: model.english))
-            Button { fontError = nil; importKind = .font; showImporter = true } label: { InfoRow(title: model.text("导入字体", "Import font"), value: "TTF / OTF · ≤16 MiB", icon: "textformat") }.panelDivider().accessibilityIdentifier("settings-font-import")
+            Button {
+                fontError = nil
+                importKind = .font
+                showImporter = true
+            } label: {
+                InfoRow(title: model.text("导入字体", "Import font"), value: "TTF / OTF · ≤16 MiB", icon: "textformat")
+            }.panelDivider().accessibilityIdentifier("settings-font-import")
             if fonts.custom != nil {
                 Button(model.text("清除自定义字体", "Clear custom font"), role: .destructive) {
-                    do { model.settings.font = try fonts.clear(selection: model.settings.font); fontError = nil; model.saveSettings() }
-                    catch { fontError = error.localizedDescription }
+                    do { model.settings.font = try fonts.clear(selection: model.settings.font); fontError = nil; model.saveSettings() } catch { fontError = error.localizedDescription }
                 }.padding(16).panelDivider().accessibilityIdentifier("settings-font-clear-custom")
             }
             if let fontError { Text(fontError).font(.footnote).foregroundStyle(Palette.danger).padding(16).accessibilityIdentifier("settings-font-error") }
             VStack(spacing: 10) {
                 let preview = fonts.font(selection: model.settings.font, size: model.settings.fontSize)
-                HStack { Text(model.text("字号", "Font size")); Spacer(); Text("\(Int(model.settings.fontSize)) pt").foregroundStyle(Palette.secondary).accessibilityIdentifier("settings-font-size-value") }
+                HStack {
+                    Text(model.text("字号", "Font size"))
+                    Spacer()
+                    Text("\(Int(model.settings.fontSize)) pt").foregroundStyle(Palette.secondary).accessibilityIdentifier("settings-font-size-value")
+                }
                 Slider(value: $model.settings.fontSize, in: 8...28, step: 1).accessibilityLabel(model.text("字号", "Font size")).accessibilityIdentifier("settings-font-size")
-                Text("❯ ssh developer@roamtty\n你好，世界  echo 'Hello, world'\nλ → 0123456789 {} []").font(Font(preview)).frame(maxWidth: .infinity, alignment: .leading).padding(12).background(Palette.background, in: RoundedRectangle(cornerRadius: 10)).accessibilityIdentifier("settings-font-preview").accessibilityValue(preview.fontName)
+                Text("❯ ssh developer@roamtty\n你好，世界  echo 'Hello, world'\nλ → 0123456789 {} []").font(Font(preview))
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                    .background(Palette.background, in: RoundedRectangle(cornerRadius: 10)).accessibilityIdentifier("settings-font-preview")
+                    .accessibilityValue(preview.fontName)
             }.padding(16).panelDivider()
             Toggle(model.text("固定工具箱", "Keep toolbox open"), isOn: $model.settings.toolboxPinned).padding(16).accessibilityIdentifier("settings-toolbox-pinned")
         }
@@ -106,6 +118,7 @@ struct SettingsScreen: View {
     private var notificationsPanel: some View {
         Panel(title: model.text("通知", "Notifications"), footer: model.text(
             "Agent 等你确认或做完一轮（超过 1 分钟）时提醒，点通知进入该会话。App 离开屏幕后，iOS 只让它再运行约半分钟，之后的变化回到 App 时提醒。",
+            // swiftlint:disable:next line_length - one English paragraph
             "Tells you when an agent needs you or finishes a turn of over a minute; tap it to open the session. iOS lets the app run only about half a minute after it leaves the screen; later changes are told once you are back.")) {
             ForEach(AgentNotifications.allCases, id: \.self) { option in
                 checkRow(option.label(english: model.english), selected: model.settings.agentNotifications == option, id: "settings-notify-\(option.rawValue)") {
@@ -133,16 +146,25 @@ struct SettingsScreen: View {
             }.padding(16).panelDivider()
             Toggle(model.text("显示网络状态", "Show network stats"), isOn: $model.settings.desktopShowStats)
                 .padding(16).panelDivider().accessibilityIdentifier("settings-desktop-stats")
-            Text(model.text("能开桌面的主机会在会话卡片和主机页显示桌面入口。首次打开会在主机上安装桌面插件。", "Hosts with a desktop show a desktop entry on their session cards and host page. The first open installs the desktop plugin on the host."))
+            Text(model.text("能开桌面的主机会在会话卡片和主机页显示桌面入口。首次打开会在主机上安装桌面插件。",
+                "Hosts with a desktop show a desktop entry on their session cards and host page. The first open installs the desktop plugin on the host."))
                 .font(.footnote).foregroundStyle(Palette.secondary).padding(.horizontal, 16).padding(.vertical, 8)
         }
     }
     private var filesPanel: some View {
         Panel(title: model.text("文件", "Files")) {
             Toggle(model.text("显示隐藏文件", "Show hidden files"), isOn: $model.settings.showHiddenFiles).padding(16).panelDivider().accessibilityIdentifier("settings-hidden-files")
-            Button { downloadFolderError = nil; importKind = .downloadFolder; showImporter = true } label: { InfoRow(title: model.text("下载目录", "Download folder"), value: model.settings.downloadBookmark == nil ? "Roamtty/Downloads" : model.text("自定义目录", "Custom folder"), icon: "folder") }.panelDivider().accessibilityIdentifier("settings-download-folder")
+            Button {
+                downloadFolderError = nil
+                importKind = .downloadFolder
+                showImporter = true
+            } label: {
+                InfoRow(title: model.text("下载目录", "Download folder"), value: model.settings.downloadBookmark == nil ? "Roamtty/Downloads" : model.text("自定义目录", "Custom folder"), icon: "folder")
+            }.panelDivider().accessibilityIdentifier("settings-download-folder")
             if let downloadFolderError { Text(downloadFolderError).font(.footnote).foregroundStyle(Palette.danger).padding(16).accessibilityIdentifier("settings-download-folder-error") }
-            if model.settings.downloadBookmark != nil { Button(model.text("恢复默认下载目录", "Use default download folder")) { model.settings.downloadBookmark = nil; downloadFolderError = nil; model.saveSettings() }.padding(16) }
+            if model.settings.downloadBookmark != nil {
+                Button(model.text("恢复默认下载目录", "Use default download folder")) { model.settings.downloadBookmark = nil; downloadFolderError = nil; model.saveSettings() }.padding(16)
+            }
         }
     }
     private func themeRow(_ theme: AppTheme, _ title: String) -> some View {

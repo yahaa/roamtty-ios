@@ -77,7 +77,11 @@ final class CustomFontStore {
         guard !manager.fileExists(atPath: manifest.path) else { return try load() }
         let files = ((try? manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
             .filter { ["ttf", "otf"].contains($0.pathExtension.lowercased()) }
-            .sorted { ((try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) > ((try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
+            .sorted {
+                ((try? $0.resourceValues(forKeys: [.contentModificationDateKey])
+                    .contentModificationDate) ?? .distantPast) > ((try? $1.resourceValues(forKeys: [.contentModificationDateKey])
+                    .contentModificationDate) ?? .distantPast)
+            }
         var newest: (Data, String)?
         for file in files {
             guard let data = try? Self.readBounded(file), let valid = try? Self.validate(data) else { continue }

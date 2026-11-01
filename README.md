@@ -65,6 +65,14 @@ Tests/                RoamttyCore and RoamttyTransport unit and live tests
 
 Views read state from `AppModel` and call its actions; logic that needs no UIKit lives in `RoamttyCore`, where it is unit tested. `scripts/generate-project.py` picks up every source file under these folders.
 
+## Lint
+
+```sh
+./scripts/lint.sh   # SwiftLint with .swiftlint.yml, --strict: any warning fails
+```
+
+Every rule the config turns off, and every inline `swiftlint:disable`, carries its reason next to it.
+
 ## Tests
 
 ```sh

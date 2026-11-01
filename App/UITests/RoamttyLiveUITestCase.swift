@@ -15,8 +15,8 @@ class RoamttyLiveUITestCase: XCTestCase {
         app.launchEnvironment["ROAMTTY_STORAGE_NAME"] = "UI-\(UUID().uuidString)"
         addUIInterruptionMonitor(withDescription: "Roamtty local network permission") { alert in
             guard alert.label.contains("Roamtty") || alert.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Roamtty'")).count > 0 else { return false }
-            for title in ["Allow", "允许", "OK", "好"] {
-                if alert.buttons[title].exists { alert.buttons[title].tap(); return true }
+            for title in ["Allow", "允许", "OK", "好"] where alert.buttons[title].exists {
+                alert.buttons[title].tap(); return true
             }
             return false
         }
@@ -224,12 +224,9 @@ class RoamttyLiveUITestCase: XCTestCase {
             field.press(forDuration: 1.1)
             let selectAll = app.menuItems.matching(NSPredicate(format: "label == 'Select All' OR label == '全选'")).firstMatch
             let selectAllButton = app.buttons.matching(NSPredicate(format: "label == 'Select All' OR label == '全选'")).firstMatch
-            if selectAll.waitForExistence(timeout: 1) { selectAll.tap() }
-            else if selectAllButton.exists { selectAllButton.tap() }
-            else {
+            if selectAll.waitForExistence(timeout: 1) { selectAll.tap() } else if selectAllButton.exists { selectAllButton.tap() } else {
                 field.doubleTap()
-                if selectAll.waitForExistence(timeout: 1) { selectAll.tap() }
-                else if selectAllButton.exists { selectAllButton.tap() }
+                if selectAll.waitForExistence(timeout: 1) { selectAll.tap() } else if selectAllButton.exists { selectAllButton.tap() }
             }
             field.typeText(XCUIKeyboardKey.delete.rawValue)
         }

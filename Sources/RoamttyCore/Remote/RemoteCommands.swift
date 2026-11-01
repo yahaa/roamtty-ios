@@ -15,6 +15,7 @@ public enum RemoteCommands {
         let safe = String(name.unicodeScalars.filter { CharacterSet.letters.contains($0) || CharacterSet.decimalDigits.contains($0) || $0 == "-" || $0 == "_" }.prefix(64))
         return safe.isEmpty ? "roamtty" : safe
     }
+    // swiftlint:disable:next line_length - one shell script line
     private static let bottomPromptPane = ##"n=$(tmux display-message -p "#{pane_height}" 2>/dev/null); [ -n "$n" ] || { set -- $(stty size 2>/dev/null); n=${1:-0}; }; while [ "$n" -gt 1 ]; do echo; n=$((n - 1)); done; s=${SHELL:-/bin/sh}; c=$(tmux show-options -gv default-command 2>/dev/null); [ -n "$c" ] && exec "$s" -c "$c"; exec "$s" -l"##
 
     /// `existing`: a session that was already on the server, attached as it is: never created, its other clients stay
@@ -35,6 +36,7 @@ public enum RemoteCommands {
     /// agent report<TAB>name<TAB>folder`, the report as `agentStatus` reads it (see `TmuxSessionInfo.parse`); nothing
     /// when no tmux server runs, and exit status 127 without tmux. The hook strips tabs from what it records.
     public static let tmuxSessions = shell(pathSetup + "; command -v tmux >/dev/null 2>&1 || exit 127; " +
+        // swiftlint:disable:next line_length - the tmux format string is one argument
         "tmux -u list-sessions -F '#{session_windows}\t#{session_attached}\t#{session_activity}\t#{pane_current_command}\t#{@roamtty_agent}|#{@roamtty_worked}|#{@roamtty_task}|#{@roamtty_reply}\t#{session_name}\t#{pane_current_path}' 2>/dev/null; exit 0")
     public static func killTmux(_ name: String) -> String {
         let name = sanitizeSessionName(name)
@@ -98,10 +100,22 @@ public enum CodingAgent: String, Codable, CaseIterable, Identifiable, Sendable {
     case claude = "CLAUDE", codex = "CODEX", grok = "GROK"
     public var id: String { rawValue }
     public var label: String { self == .claude ? "Claude Code" : shortLabel }
-    public var shortLabel: String { switch self { case .claude: return "Claude"; case .codex: return "Codex"; case .grok: return "Grok" } }
+    public var shortLabel: String {
+        switch self {
+        case .claude: return "Claude"
+        case .codex: return "Codex"
+        case .grok: return "Grok"
+        }
+    }
     public var command: String { rawValue.lowercased() }
     public var readOnlyFlag: String { self == .claude ? "--permission-mode plan" : "--sandbox read-only" }
-    public var yoloFlag: String { switch self { case .claude: return "--dangerously-skip-permissions"; case .codex: return "--dangerously-bypass-approvals-and-sandbox"; case .grok: return "--always-approve" } }
+    public var yoloFlag: String {
+        switch self {
+        case .claude: return "--dangerously-skip-permissions"
+        case .codex: return "--dangerously-bypass-approvals-and-sandbox"
+        case .grok: return "--always-approve"
+        }
+    }
     public static func from(_ value: String?) -> Self { value.flatMap(Self.init(rawValue:)) ?? .codex }
     /// The agent a hook reported itself as (its `command`), or nil for one this app does not know.
     public static func fromCommand(_ value: String?) -> Self? { allCases.first { $0.command == value } }
@@ -120,7 +134,13 @@ public struct AgentLaunch: Equatable, Sendable {
     public var directory: String
     public var mode: AgentMode
     public init(agent: CodingAgent, directory: String, mode: AgentMode = .standard) { self.agent = agent; self.directory = directory; self.mode = mode }
-    public var agentCommand: String { switch mode { case .standard: return agent.command; case .readOnly: return agent.command + " " + agent.readOnlyFlag; case .yolo: return agent.command + " " + agent.yoloFlag } }
+    public var agentCommand: String {
+        switch mode {
+        case .standard: return agent.command
+        case .readOnly: return agent.command + " " + agent.readOnlyFlag
+        case .yolo: return agent.command + " " + agent.yoloFlag
+        }
+    }
     /// Agents report their state through hooks on hosts that run POSIX scripts.
     public var reportsStatus: Bool { true }
     /// `agentCommand` as typed: with the hooks `AgentHooks.hostFile` puts on the host, which Claude Code reads from its
@@ -159,9 +179,15 @@ public enum StartDirectory {
     public static func segments(_ directory: String) -> [(name: String, path: String)] {
         guard isSupported(directory) else { return [] }
         let directory = normalize(directory), root: String, rest: String
-        if directory == home || directory.hasPrefix("~/") { root = home; rest = String(directory.dropFirst()) }
-        else if directory.hasPrefix("/") { root = "/"; rest = directory }
-        else { return [(directory, directory)] }
+        if directory == home || directory.hasPrefix("~/") {
+            root = home
+            rest = String(directory.dropFirst())
+        } else if directory.hasPrefix("/") {
+            root = "/"
+            rest = directory
+        } else {
+            return [(directory, directory)]
+        }
         var path = root, result = [(root, root)]
         for name in rest.split(separator: "/") { path += (path.hasSuffix("/") ? "" : "/") + name; result.append((String(name), path)) }
         return result
@@ -242,7 +268,9 @@ public enum HostPluginProbe {
     public static let tmuxMarker = "__ITERMUX_TMUX__="
     public static let moshMarker = "__ITERMUX_MOSH__="
     public static let command = RemoteCommands.stdinShell
-    public static var script: String { RemoteCommands.pathSetup + "\nm=$(command -v mosh-server 2>/dev/null)\nprintf '\(tmuxMarker)%s\\n' \"$(command -v tmux 2>/dev/null)\"\nprintf '\(moshMarker)%s\\n' \"$m\"\nexit 0" }
+    public static var script: String {
+        RemoteCommands.pathSetup + "\nm=$(command -v mosh-server 2>/dev/null)\nprintf '\(tmuxMarker)%s\\n' \"$(command -v tmux 2>/dev/null)\"\nprintf '\(moshMarker)%s\\n' \"$m\"\nexit 0"
+    }
     public static func parse(_ output: String?) -> Set<HostPlugin>? {
         guard let lines = output?.components(separatedBy: .newlines).map({ $0.trimmingCharacters(in: .whitespaces) }),
               let tmux = lines.first(where: { $0.hasPrefix(tmuxMarker) }), let mosh = lines.first(where: { $0.hasPrefix(moshMarker) }) else { return nil }
@@ -319,12 +347,27 @@ public enum HostPluginInstaller {
 
 public enum HostSystem: String, Codable, CaseIterable, Sendable {
     case UNKNOWN, OTHER, LINUX, WINDOWS, MACOS, UBUNTU, DEBIAN, CENTOS, FEDORA, ARCH, REDHAT, OPENSUSE, ROCKY, ALMALINUX, GENTOO, NIXOS, LINUXMINT
-    public var label: String { switch self {
-        case .UNKNOWN: return "未知系统"; case .OTHER: return "其他系统"; case .LINUX: return "Linux"; case .WINDOWS: return "Windows"; case .MACOS: return "macOS"
-        case .UBUNTU: return "Ubuntu"; case .DEBIAN: return "Debian"; case .CENTOS: return "CentOS"; case .FEDORA: return "Fedora"; case .ARCH: return "Arch Linux"
-        case .REDHAT: return "Red Hat Enterprise Linux"; case .OPENSUSE: return "openSUSE"; case .ROCKY: return "Rocky Linux"; case .ALMALINUX: return "AlmaLinux"
-        case .GENTOO: return "Gentoo"; case .NIXOS: return "NixOS"; case .LINUXMINT: return "Linux Mint"
-    } }
+    public var label: String {
+        switch self {
+        case .UNKNOWN: return "未知系统"
+        case .OTHER: return "其他系统"
+        case .LINUX: return "Linux"
+        case .WINDOWS: return "Windows"
+        case .MACOS: return "macOS"
+        case .UBUNTU: return "Ubuntu"
+        case .DEBIAN: return "Debian"
+        case .CENTOS: return "CentOS"
+        case .FEDORA: return "Fedora"
+        case .ARCH: return "Arch Linux"
+        case .REDHAT: return "Red Hat Enterprise Linux"
+        case .OPENSUSE: return "openSUSE"
+        case .ROCKY: return "Rocky Linux"
+        case .ALMALINUX: return "AlmaLinux"
+        case .GENTOO: return "Gentoo"
+        case .NIXOS: return "NixOS"
+        case .LINUXMINT: return "Linux Mint"
+        }
+    }
     public static func fromStored(_ value: String) -> Self { Self(rawValue: value) ?? .UNKNOWN }
 }
 
@@ -358,7 +401,9 @@ public enum HostSystemProbe {
                 for quote in ["\"", "'"] where value.count >= 2 && value.hasPrefix(quote) && value.hasSuffix(quote) { value = String(value.dropFirst().dropLast()) }
                 values[key] = value
             }
-            let supported: [String: HostSystem] = ["ubuntu": .UBUNTU, "debian": .DEBIAN, "centos": .CENTOS, "fedora": .FEDORA, "arch": .ARCH, "rhel": .REDHAT, "opensuse": .OPENSUSE, "opensuse-leap": .OPENSUSE, "opensuse-tumbleweed": .OPENSUSE, "rocky": .ROCKY, "almalinux": .ALMALINUX, "gentoo": .GENTOO, "nixos": .NIXOS, "linuxmint": .LINUXMINT]
+            let supported: [String: HostSystem] = ["ubuntu": .UBUNTU, "debian": .DEBIAN, "centos": .CENTOS, "fedora": .FEDORA, "arch": .ARCH,
+                "rhel": .REDHAT, "opensuse": .OPENSUSE, "opensuse-leap": .OPENSUSE, "opensuse-tumbleweed": .OPENSUSE, "rocky": .ROCKY,
+                "almalinux": .ALMALINUX, "gentoo": .GENTOO, "nixos": .NIXOS, "linuxmint": .LINUXMINT]
             if let id = values["ID"], !id.isEmpty { return supported[id.lowercased()] ?? .LINUX }
             let legacy = section(legacyMarker, until: nil).lowercased()
             if legacy.hasPrefix("centos") { return .CENTOS }

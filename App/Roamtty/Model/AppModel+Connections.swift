@@ -34,7 +34,8 @@ extension AppModel {
         guard foreground else { throw RoamError.cancelled }
         if useSavedCredentials, let existing = credentialCache[host.id] { return existing }
         var credentials = useSavedCredentials
-            ? Credentials(password: credentialCache.savedPasswordRejected(host.id) ? nil : try vault.read(hostID: host.id, purpose: .password), privateKey: try vault.read(hostID: host.id, purpose: .key), passphrase: nil)
+            ? Credentials(password: credentialCache.savedPasswordRejected(host.id) ? nil : try vault.read(hostID: host.id, purpose: .password),
+                privateKey: try vault.read(hostID: host.id, purpose: .key), passphrase: nil)
             : retained ?? Credentials()
         let originalTarget = useSavedCredentials ? "" : "\(host.username)@\(host.address):\(host.port)\n"
         func stillWanted() -> Bool { foreground && !Task.isCancelled && isCurrent(attempt) }
@@ -46,11 +47,15 @@ extension AppModel {
             credentials.password = Data(password.utf8)
         }
         if host.auth == .key && credentials.privateKey == nil {
-            throw RoamError.invalid(useSavedCredentials ? text("请编辑主机并导入私钥", "Edit this host and import a private key") : text("原会话的私钥凭据已清除。请恢复原主机并导入它的私钥后重连。", "The original session's private key credentials have expired. Restore the original host and import its key before reconnecting."))
+            throw RoamError.invalid(useSavedCredentials ? text("请编辑主机并导入私钥",
+                "Edit this host and import a private key") : text("原会话的私钥凭据已清除。请恢复原主机并导入它的私钥后重连。",
+                "The original session's private key credentials have expired. Restore the original host and import its key before reconnecting."))
         }
         if host.auth == .key && credentials.passphrase == nil, let key = credentials.privateKey, PrivateKeys.needsPassphrase(key) {
             guard asking else { throw RoamError.cancelled }
-            let answer = await ask(title: host.name, message: originalTarget + text("私钥已加密时请输入口令；未加密可留空。口令仅保存在内存。", "Enter the key passphrase, or leave it blank for an unencrypted key. Passphrases stay in memory only."), labels: [text("私钥口令", "Key passphrase")], echo: [false], owner: owner)
+            let answer = await ask(title: host.name,
+                message: originalTarget + text("私钥已加密时请输入口令；未加密可留空。口令仅保存在内存。", "Enter the key passphrase, or leave it blank for an unencrypted key. Passphrases stay in memory only."),
+                labels: [text("私钥口令", "Key passphrase")], echo: [false], owner: owner)
             guard let passphrase = answer?.first else { throw RoamError.cancelled }
             guard stillWanted() else { throw RoamError.cancelled }
             credentials.passphrase = passphrase.isEmpty ? nil : passphrase
@@ -92,7 +97,8 @@ extension AppModel {
                 var request: AuthenticationRequest
                 switch prompt {
                 case .verifyHost(let pin):
-                    request = AuthenticationRequest(title: self.text("信任这台主机？", "Trust this host?"), message: "\(pin.endpoint)\n\(pin.algorithm)", labels: [], echo: [], fingerprint: pin.fingerprint, answer: respond)
+                    request = AuthenticationRequest(title: self.text("信任这台主机？", "Trust this host?"), message: "\(pin.endpoint)\n\(pin.algorithm)",
+                        labels: [], echo: [], fingerprint: pin.fingerprint, answer: respond)
                 case .keyboard(let instruction, let labels, let echo):
                     request = AuthenticationRequest(title: host.name, message: instruction, labels: labels, echo: echo, fingerprint: nil, answer: respond)
                 }
@@ -156,8 +162,7 @@ extension AppModel {
         }
         connectionTasks[hostID] = task
         defer { if connectionTokens[hostID] == token { connectionTasks.removeValue(forKey: hostID); connectingSSH.removeValue(forKey: hostID) } }
-        do { return try await task.value }
-        catch {
+        do { return try await task.value } catch {
             if current(), (error as? RoamError) == .authentication { credentialCache.rejectLogin(hostID) }
             throw error
         }

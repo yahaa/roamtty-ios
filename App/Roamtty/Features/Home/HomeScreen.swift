@@ -28,7 +28,13 @@ struct HomeScreen: View {
                     Image(systemName: "magnifyingglass").foregroundStyle(Palette.secondary)
                     TextField(model.homeTab == .sessions ? model.text("标题、主机、地址或用户名", "Title, host, address or username") : model.text("名称、地址或用户名", "Name, address or username"), text: $search)
                         .focused($searchFocused).textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("host-search")
-                    Button { search = ""; searching = false; searchFocused = false } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.secondary) }.accessibilityLabel(model.text("关闭搜索", "Close search")).accessibilityIdentifier("host-search-close")
+                    Button {
+                        search = ""
+                        searching = false
+                        searchFocused = false
+                    } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.secondary)
+                    }.accessibilityLabel(model.text("关闭搜索", "Close search")).accessibilityIdentifier("host-search-close")
                 }.padding(12).background(Palette.panel, in: RoundedRectangle(cornerRadius: 10)).padding(.horizontal, 16).padding(.bottom, 8)
             }
             TabView(selection: $model.homeTab) {
@@ -68,7 +74,7 @@ struct HomeScreen: View {
             Spacer(minLength: 0)
             HomeTabs()
             Spacer(minLength: 0)
-            Button(action: toggleSearch) { 
+            Button(action: toggleSearch) {
                 AppIcon("ic_search", size: 26).foregroundStyle(Palette.foreground)
                     .frame(width: 48, height: 48).contentShape(Rectangle())
             }.accessibilityLabel(model.homeTab == .sessions ? model.text("搜索会话", "Search sessions") : model.text("搜索主机", "Search hosts"))

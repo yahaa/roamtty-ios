@@ -154,8 +154,7 @@ public final class SSHConnection: @unchecked Sendable {
                 disconnect(); settle(timeout: 0, operation)
                 throw RoamError.timeout
             }
-            do { try networkWait() }
-            catch {
+            do { try networkWait() } catch {
                 if isStopped { settle(timeout: 0, operation) }
                 throw error
             }
@@ -167,8 +166,7 @@ public final class SSHConnection: @unchecked Sendable {
         locked {
             let result = libssh2_channel_read_ex(channel, stream, bytes, count)
             var pending = pendingChannelIO[channel] ?? PendingChannelIO()
-            if result == LIBSSH2_ERROR_EAGAIN { pending.read = pending.read ?? (stream, count) }
-            else { pending.read = nil }
+            if result == LIBSSH2_ERROR_EAGAIN { pending.read = pending.read ?? (stream, count) } else { pending.read = nil }
             storePending(pending, channel: channel)
             return result
         }
@@ -190,15 +188,13 @@ public final class SSHConnection: @unchecked Sendable {
         locked {
             let result = libssh2_channel_request_pty_size_ex(channel, columns, rows, width, height)
             var pending = pendingChannelIO[channel] ?? PendingChannelIO()
-            if result == LIBSSH2_ERROR_EAGAIN { pending.resize = pending.resize ?? (columns, rows, width, height) }
-            else { pending.resize = nil }
+            if result == LIBSSH2_ERROR_EAGAIN { pending.resize = pending.resize ?? (columns, rows, width, height) } else { pending.resize = nil }
             storePending(pending, channel: channel)
             return result
         }
     }
     private func storePending(_ pending: PendingChannelIO, channel: OpaquePointer) {
-        if pending.isEmpty { pendingChannelIO.removeValue(forKey: channel) }
-        else { pendingChannelIO[channel] = pending }
+        if pending.isEmpty { pendingChannelIO.removeValue(forKey: channel) } else { pendingChannelIO[channel] = pending }
     }
     /// One bounded pass, under stopped disposal callbacks and libraryLock.
     /// Never wait for one candidate: its packet can belong to another candidate
@@ -257,8 +253,7 @@ public final class SSHConnection: @unchecked Sendable {
                 continue
             }
             if Date() >= deadline { disconnect(); abortIO = true; continue }
-            do { try networkWait() }
-            catch { disconnect(); abortIO = true }
+            do { try networkWait() } catch { disconnect(); abortIO = true }
         }
     }
     func pointer(timeout: TimeInterval = 20, cancelled: () -> Bool = { false }, _ operation: () -> OpaquePointer?) throws -> OpaquePointer {
@@ -291,8 +286,7 @@ public final class SSHConnection: @unchecked Sendable {
                 if let pointer = finishStoppedRequest() { return pointer }
                 throw RoamError.timeout
             }
-            do { try networkWait() }
-            catch {
+            do { try networkWait() } catch {
                 if isStopped, let pointer = finishStoppedRequest() { return pointer }
                 throw error
             }
@@ -329,7 +323,9 @@ public final class SSHConnection: @unchecked Sendable {
             libssh2_session_set_timeout(ssh, 20_000)
             // No DSA, RSA/SHA1, CBC, group1 or SHA1 key-exchange downgrade.
             _ = libssh2_session_method_pref(ssh, LIBSSH2_METHOD_HOSTKEY, "ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,rsa-sha2-512,rsa-sha2-256")
-            _ = libssh2_session_method_pref(ssh, LIBSSH2_METHOD_KEX, "curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group14-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512")
+            _ = libssh2_session_method_pref(ssh, LIBSSH2_METHOD_KEX,
+                // swiftlint:disable:next line_length - libssh2 takes the algorithm list as one string
+                "curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group14-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512")
             for method in [LIBSSH2_METHOD_CRYPT_CS, LIBSSH2_METHOD_CRYPT_SC] {
                 _ = libssh2_session_method_pref(ssh, method, "aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr")
             }
@@ -346,7 +342,9 @@ public final class SSHConnection: @unchecked Sendable {
             case .password:
                 guard let password = credentials.password else { throw RoamError.authentication }
                 _ = try password.withUnsafeBytes { raw in
-                    try retry(timeout: 140) { libssh2_userauth_password_ex(ssh, host.username, UInt32(host.username.utf8.count), raw.bindMemory(to: CChar.self).baseAddress, UInt32(password.count), nil) }
+                    try retry(timeout: 140) {
+                        libssh2_userauth_password_ex(ssh, host.username, UInt32(host.username.utf8.count), raw.bindMemory(to: CChar.self).baseAddress, UInt32(password.count), nil)
+                    }
                 }
             case .key:
                 guard let key = credentials.privateKey else { throw RoamError.authentication }
@@ -358,8 +356,7 @@ public final class SSHConnection: @unchecked Sendable {
                 }
             case .interactive:
                 try retry(timeout: 140) {
-                    libssh2_userauth_keyboard_interactive_ex(ssh, host.username, UInt32(host.username.utf8.count)) {
-                        _, _, instruction, length, count, prompts, responses, abstract in
+                    libssh2_userauth_keyboard_interactive_ex(ssh, host.username, UInt32(host.username.utf8.count)) { _, _, instruction, length, count, prompts, responses, abstract in
                         guard let opaque = roam_ssh_user(abstract), let prompts, let responses, count >= 0, count <= 128 else { return }
                         let owner = Unmanaged<SSHConnection>.fromOpaque(opaque).takeUnretainedValue()
                         let labels = (0..<Int(count)).map { i in
@@ -389,9 +386,7 @@ public final class SSHConnection: @unchecked Sendable {
             onPhase?(.connected)
         } catch {
             credentials.clear()
-            if case RoamError.hostKeyChanged = error { onPhase?(.hostKeyChanged) }
-            else if case RoamError.authentication = error { onPhase?(.authFailed) }
-            else { onPhase?(.failed) }
+            if case RoamError.hostKeyChanged = error { onPhase?(.hostKeyChanged) } else if case RoamError.authentication = error { onPhase?(.authFailed) } else { onPhase?(.failed) }
             disconnect(); throw error
         }
     }
@@ -409,8 +404,7 @@ public final class SSHConnection: @unchecked Sendable {
     func openChannel(cancelled: () -> Bool = { false }, start: (OpaquePointer) throws -> Void) throws -> OpaquePointer {
         try withChannelCreation(cancelled: cancelled) {
             let channel = try pointer { libssh2_channel_open_ex(session, "session", 7, 2 * 1024 * 1024, 32768, nil, 0) }
-            do { try start(channel); return channel }
-            catch { closeChannel(channel); throw error }
+            do { try start(channel); return channel } catch { closeChannel(channel); throw error }
         }
     }
     func openSFTP(cancelled: () -> Bool = { false }) throws -> OpaquePointer {
@@ -447,8 +441,7 @@ public final class SSHConnection: @unchecked Sendable {
         defer {
             creationCondition.lock(); creatingChannel = false; creationCondition.broadcast(); creationCondition.unlock()
         }
-        do { return try action() }
-        catch {
+        do { return try action() } catch {
             // A timed-out init still owns libssh2's pending session state; a new
             // connection is required before another independent init can start.
             if error as? RoamError == .timeout { disconnect() }
@@ -567,15 +560,18 @@ public final class SSHConnection: @unchecked Sendable {
             var resized = false
             if let size = sizing {
                 let rc = resizeChannel(channel, Int32(size.0), Int32(size.1), 0, 0)
-                if rc == 0 { sizing = nil; resized = true }
-                else if rc != LIBSSH2_ERROR_EAGAIN { throw error(rc) }
+                if rc == 0 { sizing = nil; resized = true } else if rc != LIBSSH2_ERROR_EAGAIN { throw error(rc) }
             }
             if !outgoing.isEmpty {
                 let sent = outgoing.withUnsafeBytes { raw in
                     writeChannel(channel, 0, raw.bindMemory(to: CChar.self).baseAddress!.advanced(by: offset), outgoing.count - offset)
                 }
-                if sent > 0 { offset += sent; if offset == outgoing.count { outgoing.removeAll(keepingCapacity: true); offset = 0 } }
-                else if sent < 0 && sent != LIBSSH2_ERROR_EAGAIN { throw error(Int32(sent)) }
+                if sent > 0 {
+                    offset += sent
+                    if offset == outgoing.count { outgoing.removeAll(keepingCapacity: true); offset = 0 }
+                } else if sent < 0 && sent != LIBSSH2_ERROR_EAGAIN {
+                    throw error(Int32(sent))
+                }
             }
             // A burst is drained up to `burstLimit` and handed over once: each hand-over waits for the main
             // thread, so one per 8 KiB read kept it busy for as long as a large output ran.
@@ -585,8 +581,7 @@ public final class SSHConnection: @unchecked Sendable {
                     let count = buffer.withUnsafeMutableBytes { raw in
                         readChannel(channel, Int32(stream), raw.bindMemory(to: CChar.self).baseAddress, raw.count)
                     }
-                    if count > 0 { chunk.append(contentsOf: buffer[0..<count]) }
-                    else if count < 0 && count != LIBSSH2_ERROR_EAGAIN {
+                    if count > 0 { chunk.append(contentsOf: buffer[0..<count]) } else if count < 0 && count != LIBSSH2_ERROR_EAGAIN {
                         if !chunk.isEmpty { onOutput(chunk) }
                         throw error(Int32(count))
                     } else { break }
@@ -674,12 +669,10 @@ public final class SSHConnection: @unchecked Sendable {
                 }
                 if sent < stdin.count {
                     let count = writeChannel(channel, 0, inputBytes.bindMemory(to: CChar.self).baseAddress!.advanced(by: sent), min(32768, stdin.count - sent))
-                    if count > 0 { sent += count; progressed = true }
-                    else if count < 0 && count != LIBSSH2_ERROR_EAGAIN { throw error(Int32(count)) }
+                    if count > 0 { sent += count; progressed = true } else if count < 0 && count != LIBSSH2_ERROR_EAGAIN { throw error(Int32(count)) }
                 } else if !eofSent {
                     let result = locked { libssh2_channel_send_eof(channel) }
-                    if result == 0 { eofSent = true; progressed = true }
-                    else if result != LIBSSH2_ERROR_EAGAIN { throw error(result) }
+                    if result == 0 { eofSent = true; progressed = true } else if result != LIBSSH2_ERROR_EAGAIN { throw error(result) }
                 }
                 if !progressed { try networkWait() }
             }

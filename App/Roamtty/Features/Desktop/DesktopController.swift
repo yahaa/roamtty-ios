@@ -164,8 +164,9 @@ import RoamttyDesktopCore
             _ = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
                 Task { @MainActor in
                     guard let self else { return }
-                    let l = self.audio.level
-                    self.audioProbe = "audio rms=\(l.rms) crossings=\(l.crossings) packets=\(self.audio.packets) dropped=\(self.audio.dropped) queued=\(self.audio.queuedMs) target=\(self.audio.targetMs) cushions=\(self.audio.cushions) rate=\(Int((self.audio.rate * 1000).rounded()))"
+                    let audio = self.audio, level = audio.level
+                    self.audioProbe = "audio rms=\(level.rms) crossings=\(level.crossings) packets=\(audio.packets) dropped=\(audio.dropped) "
+                        + "queued=\(audio.queuedMs) target=\(audio.targetMs) cushions=\(audio.cushions) rate=\(Int((audio.rate * 1000).rounded()))"
                 }
             }
         }

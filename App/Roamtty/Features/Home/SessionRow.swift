@@ -85,7 +85,10 @@ struct SessionRow: View {
                             RowAction(label: model.text("查看", "View"), plain: true) { model.openSession(record) }.accessibilityIdentifier("home-session-view-\(record.id)")
                             RowAction(label: model.text("允许", "Allow"), fill: Palette.warning) { approve(runtime) }.accessibilityIdentifier("home-session-approve-\(record.id)")
                         } else if idle && live {
-                            RowAction(label: model.text("追问", "Reply"), icon: "ic_reply", iconOnly: true) { replying.toggle(); draftFocused = replying }.accessibilityIdentifier("home-session-follow-up-\(record.id)")
+                            RowAction(label: model.text("追问", "Reply"), icon: "ic_reply", iconOnly: true) {
+                                replying.toggle()
+                                draftFocused = replying
+                            }.accessibilityIdentifier("home-session-follow-up-\(record.id)")
                         }
                         // Rightmost, after 追问 (Android DesktopCardButton / IconTag).
                         desktopButton(host: host, connected: connected)
@@ -114,7 +117,10 @@ struct SessionRow: View {
         .alert(model.text("强制删除会话？", "Force delete this session?"), isPresented: $forceDelete) {
             Button(model.text("删除", "Delete"), role: .destructive) { model.forceDeleteSession(record) }.accessibilityIdentifier("home-session-forget-confirm-\(record.id)")
             Button(model.text("取消", "Cancel"), role: .cancel) { }
-        } message: { Text(model.text("立即移除会话卡片，并用已保存的登录结束远端 tmux 会话；主机无法连接时，远端会话会继续保留。", "Removes the card at once and ends the remote tmux session with the saved login; if the host can't be reached, the remote session keeps running.")) }
+        } message: {
+            Text(model.text("立即移除会话卡片，并用已保存的登录结束远端 tmux 会话；主机无法连接时，远端会话会继续保留。",
+                "Removes the card at once and ends the remote tmux session with the saved login; if the host can't be reached, the remote session keeps running."))
+        }
         .onChange(of: status?.state) { state in failure = nil; if state != .idle { replying = false } }
         .accessibilityElement(children: .contain).accessibilityIdentifier("home-session-\(record.id)")
     }
@@ -123,8 +129,7 @@ struct SessionRow: View {
     /// `sessionListTitle`.
     private func rowName(status: AgentStatus?, path: String, kind: CodingAgent?) -> String {
         var name: String
-        if status != nil { name = path.isEmpty ? (kind?.label ?? "") : sessionListFolder(path) }
-        else {
+        if status != nil { name = path.isEmpty ? (kind?.label ?? "") : sessionListFolder(path) } else {
             let shown = sessionListTitle(record.title, status: nil, agent: kind, username: model.host(record.hostID)?.username ?? "")
             name = kind.map { shown.hasPrefix($0.shortLabel + " · ") ? String(shown.dropFirst($0.shortLabel.count + 3)) : shown } ?? shown
         }
@@ -144,11 +149,17 @@ struct SessionRow: View {
 
     @ViewBuilder private func statusView(status: AgentStatus?, phase: ConnectionPhase, kind: CodingAgent?, activity: String, waiting: Bool, idle: Bool) -> some View {
         Group {
-            if status == nil { SessionStatusLabel(phase: phase, hostOffline: model.hostOffline(record)) }
-            else if waiting { DotLabel(label: model.text("等待确认", "Needs approval"), color: Palette.warning) }
-            else if !idle { WorkingSpinner(color: kind?.brand ?? Palette.accent, label: activity.isEmpty ? model.text("思考中…", "Thinking…") : model.text("运行中", "Running")) }
-            else if let worked = status?.workedSeconds { TurnDone(seconds: worked) }
-            else { DotLabel(label: model.text("空闲", "Idle"), color: Palette.success) }
+            if status == nil {
+                SessionStatusLabel(phase: phase, hostOffline: model.hostOffline(record))
+            } else if waiting {
+                DotLabel(label: model.text("等待确认", "Needs approval"), color: Palette.warning)
+            } else if !idle {
+                WorkingSpinner(color: kind?.brand ?? Palette.accent, label: activity.isEmpty ? model.text("思考中…", "Thinking…") : model.text("运行中", "Running"))
+            } else if let worked = status?.workedSeconds {
+                TurnDone(seconds: worked)
+            } else {
+                DotLabel(label: model.text("空闲", "Idle"), color: Palette.success)
+            }
         }.accessibilityIdentifier("home-session-status-\(record.id)")
     }
 
@@ -160,7 +171,6 @@ struct SessionRow: View {
                 .font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.secondary.opacity(0.8)).lineLimit(1).fixedSize()
         }.accessibilityIdentifier("home-session-time-\(record.id)")
     }
-
 
     @ViewBuilder private func desktopButton(host: Host?, connected: Bool) -> some View {
         if let host {
@@ -199,8 +209,7 @@ struct SessionRow: View {
         Task {
             let sent = await runtime.followUpAgent(draft)
             sending = false
-            if sent { draft = ""; replying = false; draftFocused = false }
-            else { failure = model.text("未发送：Agent 不在等待输入", "Not sent: the agent is not waiting for input") }
+            if sent { draft = ""; replying = false; draftFocused = false } else { failure = model.text("未发送：Agent 不在等待输入", "Not sent: the agent is not waiting for input") }
         }
     }
 }

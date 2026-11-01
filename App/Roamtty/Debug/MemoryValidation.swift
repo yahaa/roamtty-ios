@@ -93,7 +93,7 @@ import RoamttyTransport
         }
         for wrapped in [false, true] {
             let runtime = SessionRuntime(record: SessionRecord(hostID: host.id, mode: .shell), host: host)
-            let view = runtime.terminalView as! AccessibleTerminalView
+            guard let view = runtime.terminalView as? AccessibleTerminalView else { preconditionFailure("Sessions draw into an AccessibleTerminalView") }
             view.frame = CGRect(x: 0, y: 0, width: 390, height: 700)
             runtime.configure(settings: AppSettings(), scheme: .dark)
             view.getTerminal().resize(cols: 80, rows: 24)

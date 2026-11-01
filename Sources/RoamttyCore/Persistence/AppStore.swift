@@ -16,6 +16,7 @@ public final class AppStore: PinStore {
             throw RoamError.invalid("无法打开数据库 / Cannot open database")
         }
         sqlite3_busy_timeout(db, 5000)
+        // swiftlint:disable:next line_length - the schema is one SQL batch
         try execute("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS hosts(id TEXT PRIMARY KEY, json BLOB NOT NULL); CREATE TABLE IF NOT EXISTS pins(endpoint TEXT PRIMARY KEY, algorithm TEXT NOT NULL, key BLOB NOT NULL); CREATE TABLE IF NOT EXISTS journal(id TEXT PRIMARY KEY, host_id TEXT NOT NULL REFERENCES hosts(id) ON DELETE CASCADE, json BLOB NOT NULL); CREATE TABLE IF NOT EXISTS settings(id INTEGER PRIMARY KEY CHECK(id=1), json BLOB NOT NULL); PRAGMA user_version=1;")
         if !memory {
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)

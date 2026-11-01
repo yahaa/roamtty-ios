@@ -128,8 +128,7 @@ private struct DeviceFixture {
         let timeout = DispatchWorkItem { connection.disconnect() }
         DispatchQueue.global().asyncAfter(deadline: .now() + 25, execute: timeout)
         defer { timeout.cancel() }
-        do { try connection.connect(); return connection }
-        catch { connection.disconnect(); throw error }
+        do { try connection.connect(); return connection } catch { connection.disconnect(); throw error }
     }
 }
 
@@ -296,8 +295,7 @@ private final class DeviceValidationRunner {
         try ssh.openTerminal(mode: mode, remoteName: name, columns: 80, rows: 24)
         DispatchQueue.global().async {
             defer { done.signal() }
-            do { try ssh.runTerminal { output.append($0) } }
-            catch { output.finish(error) }
+            do { try ssh.runTerminal { output.append($0) } } catch { output.finish(error) }
         }
         try output.expectAny(timeout: 8)
         if mode == .tmux { try waitForTmuxClient(ssh, name: name) }
@@ -428,8 +426,7 @@ private final class DeviceValidationRunner {
             defer { transport.close(); _ = done.wait(timeout: .now() + 2) }
             DispatchQueue.global().async {
                 defer { done.signal() }
-                do { try transport.run(columns: 80, rows: 24, firstContactTimeout: 8, silenceTimeout: 12, stallTimeout: 5) { output.append($0) } }
-                catch { output.finish(error) }
+                do { try transport.run(columns: 80, rows: 24, firstContactTimeout: 8, silenceTimeout: 12, stallTimeout: 5) { output.append($0) } } catch { output.finish(error) }
             }
             try output.expectAny(timeout: 10)
             try waitForTmuxClient(ssh, name: name)
@@ -438,7 +435,8 @@ private final class DeviceValidationRunner {
             transport.resize(columns: 91, rows: 33); transport.probe()
             // tmux updates its layout before resizing the pane's underlying PTY.
             // Wait for the kernel dimensions, not merely tmux's layout metadata.
-            let sizeCommand = RemoteCommands.pathSetup + "; pane=$(tmux display-message -p -t " + RemoteCommands.shellQuote("=" + name + ":") + " '#{pane_tty}'); stty -F \"$pane\" size 2>/dev/null || stty -f \"$pane\" size 2>/dev/null"
+            let sizeCommand = RemoteCommands.pathSetup + "; pane=$(tmux display-message -p -t " + RemoteCommands.shellQuote("=" + name + ":")
+                + " '#{pane_tty}'); stty -F \"$pane\" size 2>/dev/null || stty -f \"$pane\" size 2>/dev/null"
             let resizeDeadline = Date().addingTimeInterval(8)
             var resized = false
             while Date() < resizeDeadline {
@@ -464,7 +462,8 @@ private final class DeviceValidationRunner {
             try require(done.wait(timeout: .now() + 8) == .success, "mosh remote shutdown timed out")
             done.signal() // Leave the completion signal available for the cleanup defer.
             try output.throwIfFailed()
-            return ["bootstrap": "SSH startMosh", "authenticatedUDPOutput": "true", "evaluatedOutputMatched": "true", "columns": "91", "rows": "33", "sourcePortProbe": "true", "remoteShutdown": "true"]
+            return ["bootstrap": "SSH startMosh", "authenticatedUDPOutput": "true", "evaluatedOutputMatched": "true", "columns": "91", "rows": "33",
+                "sourcePortProbe": "true", "remoteShutdown": "true"]
         }
     }
 }

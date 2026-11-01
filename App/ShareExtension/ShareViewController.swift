@@ -28,12 +28,19 @@ final class ShareViewController: UIViewController {
         saveStyle.cornerStyle = .large; saveStyle.contentInsets = NSDirectionalEdgeInsets(top: 16, leading: 24, bottom: 16, trailing: 24)
         save.configuration = saveStyle; save.accessibilityIdentifier = "share-save"
         save.titleLabel?.font = .preferredFont(forTextStyle: .headline); save.addTarget(self, action: #selector(saveFiles), for: .touchUpInside)
-        let cancel = UIButton(type: .system); cancel.setTitle(text("取消", "Cancel"), for: .normal); cancel.tintColor = accent; cancel.accessibilityIdentifier = "share-cancel"; cancel.addTarget(self, action: #selector(cancelShare), for: .touchUpInside)
+        let cancel = UIButton(type: .system)
+        cancel.setTitle(text("取消", "Cancel"), for: .normal)
+        cancel.tintColor = accent
+        cancel.accessibilityIdentifier = "share-cancel"
+        cancel.addTarget(self, action: #selector(cancelShare), for: .touchUpInside)
         spinner.color = accent
         let icon = UIImageView(image: UIImage(systemName: "terminal")); icon.tintColor = accent; icon.contentMode = .scaleAspectFit
         let stack = UIStackView(arrangedSubviews: [icon, status, spinner, save, cancel]); stack.axis = .vertical; stack.spacing = 24; stack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(stack)
-        NSLayoutConstraint.activate([icon.heightAnchor.constraint(equalToConstant: 56), stack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 28), stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -28), stack.centerYAnchor.constraint(equalTo: view.centerYAnchor)])
+        NSLayoutConstraint.activate([icon.heightAnchor.constraint(equalToConstant: 56),
+            stack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 28),
+            stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -28),
+            stack.centerYAnchor.constraint(equalTo: view.centerYAnchor)])
     }
     @objc private func cancelShare() {
         if let cancellation, !cancellation.cancel() {
@@ -60,10 +67,13 @@ final class ShareViewController: UIViewController {
         guard !cancellation.isCancelled else { return }
         guard index < providers.count else {
             do {
-                if useGroup { try cancellation.publish { try Data().write(to: directory.appendingPathComponent(".ready"), options: .atomic) } }
-                else { try ShareInboxStore.save(directory: directory, cancellation: cancellation); try? FileManager.default.removeItem(at: directory) }
-            }
-            catch { failed(error, directory: directory, cancellation: cancellation); return }
+                if useGroup {
+                    try cancellation.publish { try Data().write(to: directory.appendingPathComponent(".ready"), options: .atomic) }
+                } else {
+                    try ShareInboxStore.save(directory: directory, cancellation: cancellation)
+                    try? FileManager.default.removeItem(at: directory)
+                }
+            } catch { failed(error, directory: directory, cancellation: cancellation); return }
             DispatchQueue.main.async {
                 guard self.cancellation === cancellation, !cancellation.isCancelled else { return }
                 self.spinner.stopAnimating(); self.work = nil; self.extensionContext?.completeRequest(returningItems: nil)
@@ -73,14 +83,24 @@ final class ShareViewController: UIViewController {
         let provider = providers[index]
         func next(_ error: Error?) {
             guard !cancellation.isCancelled else { return }
-            if let error { failed(error, directory: directory, cancellation: cancellation) }
-            else { saveProvider(providers: providers, index: index + 1, directory: directory, useGroup: useGroup, cancellation: cancellation) }
+            if let error {
+                failed(error, directory: directory, cancellation: cancellation)
+            } else {
+                saveProvider(providers: providers, index: index + 1, directory: directory, useGroup: useGroup, cancellation: cancellation)
+            }
         }
         if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
                 if let error { next(error); return }
                 guard let url = item as? URL else { next(NSError(domain: "RoamttyShare", code: 1, userInfo: [NSLocalizedDescriptionKey: self.text("共享文件无效", "Invalid shared file")])); return }
-                do { try cancellation.check(); let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }; try FileManager.default.copyItem(at: url, to: directory.appendingPathComponent("\(index)-" + url.lastPathComponent)); try cancellation.check(); next(nil) } catch { next(error) }
+                do {
+                    try cancellation.check()
+                    let access = url.startAccessingSecurityScopedResource()
+                    defer { if access { url.stopAccessingSecurityScopedResource() } }
+                    try FileManager.default.copyItem(at: url, to: directory.appendingPathComponent("\(index)-" + url.lastPathComponent))
+                    try cancellation.check()
+                    next(nil)
+                } catch { next(error) }
             }
         } else if let type = provider.registeredTypeIdentifiers.first(where: { UTType($0)?.conforms(to: .data) == true && UTType($0)?.conforms(to: .text) != true }) {
             provider.loadFileRepresentation(forTypeIdentifier: type) { url, error in
@@ -89,14 +109,24 @@ final class ShareViewController: UIViewController {
                 let baseName = provider.suggestedName ?? url.lastPathComponent
                 let name = baseName.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "\\", with: "_")
                 let ext = (name as NSString).pathExtension.isEmpty ? "." + (UTType(type)?.preferredFilenameExtension ?? "bin") : ""
-                do { try cancellation.check(); try FileManager.default.copyItem(at: url, to: directory.appendingPathComponent("\(index)-" + name + ext)); try cancellation.check(); next(nil) } catch { next(error) }
+                do {
+                    try cancellation.check()
+                    try FileManager.default.copyItem(at: url, to: directory.appendingPathComponent("\(index)-" + name + ext))
+                    try cancellation.check()
+                    next(nil)
+                } catch { next(error) }
             }
         } else if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
             provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { item, error in
                 if let error { next(error); return }
                 let data = (item as? Data) ?? (item as? String).map { Data($0.utf8) }
                 guard let data else { next(NSError(domain: "RoamttyShare", code: 3, userInfo: [NSLocalizedDescriptionKey: self.text("无法读取共享文本", "Unable to read shared text")])); return }
-                do { try cancellation.check(); try data.write(to: directory.appendingPathComponent("Shared text \(index + 1).txt"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]); try cancellation.check(); next(nil) } catch { next(error) }
+                do {
+                    try cancellation.check()
+                    try data.write(to: directory.appendingPathComponent("Shared text \(index + 1).txt"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                    try cancellation.check()
+                    next(nil)
+                } catch { next(error) }
             }
         } else { next(NSError(domain: "RoamttyShare", code: 4, userInfo: [NSLocalizedDescriptionKey: text("不支持此共享内容", "Unsupported shared content")])) }
     }

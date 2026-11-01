@@ -58,8 +58,12 @@ import CoreText
         let previousBytes = try Data(contentsOf: directory.appendingPathComponent(repeated.record.fileName))
         let invalid = root.appendingPathComponent("invalid.ttf")
         try Data("This is text, not a font".utf8).write(to: invalid)
-        do { _ = try store.install(invalid); throw Failure(message: "Invalid font was accepted") }
-        catch let error as CustomFontError { try require(error == .unsupported, "Invalid TTF bytes must be rejected by font validation") }
+        do {
+            _ = try store.install(invalid)
+            throw Failure(message: "Invalid font was accepted")
+        } catch let error as CustomFontError {
+            try require(error == .unsupported, "Invalid TTF bytes must be rejected by font validation")
+        }
         try require(try Data(contentsOf: manifest) == previousManifest, "Invalid import must preserve the previous metadata atomically")
         try require(try Data(contentsOf: directory.appendingPathComponent(repeated.record.fileName)) == previousBytes, "Invalid import must preserve the previous font bytes")
 
@@ -68,8 +72,7 @@ import CoreText
         try manager.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
         do {
             defer { try? manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path) }
-            do { _ = try store.install(other); throw Failure(message: "A read-only directory accepted replacement") }
-            catch is CocoaError { checks += 1 }
+            do { _ = try store.install(other); throw Failure(message: "A read-only directory accepted replacement") } catch is CocoaError { checks += 1 }
         }
         try require(try Data(contentsOf: manifest) == previousManifest, "Failed publication must not change the active manifest")
 
@@ -82,8 +85,12 @@ import CoreText
         let beforeOversize = try Data(contentsOf: manifest)
         let oversized = root.appendingPathComponent("too-large.ttf")
         padded.append(0); try padded.write(to: oversized)
-        do { _ = try store.install(oversized); throw Failure(message: "Oversized font was accepted") }
-        catch let error as CustomFontError { try require(error == .tooLarge, "16 MiB plus one byte must be rejected before publication") }
+        do {
+            _ = try store.install(oversized)
+            throw Failure(message: "Oversized font was accepted")
+        } catch let error as CustomFontError {
+            try require(error == .tooLarge, "16 MiB plus one byte must be rejected before publication")
+        }
         try require(try Data(contentsOf: manifest) == beforeOversize, "Oversized import must preserve the existing custom slot")
 
         let orphan = directory.appendingPathComponent("custom-" + UUID().uuidString + ".font")
@@ -95,8 +102,10 @@ import CoreText
         try require(second.record.postScriptName == "FiraCode-Regular", "A different valid font must replace the single custom slot")
         try require(!manager.fileExists(atPath: directory.appendingPathComponent(exact.record.fileName).path), "Replacement must release old custom bytes")
 
-        try require(TerminalFontSelection.afterClearingCustom("custom", customName: second.record.postScriptName) == TerminalFontSelection.defaultFont, "Clearing the selected custom face must choose JetBrains Mono")
-        try require(TerminalFontSelection.afterClearingCustom("FiraCode-Regular", customName: second.record.postScriptName) == "FiraCode-Regular", "Clearing custom must preserve an independently selected bundled face with the same PostScript name")
+        try require(TerminalFontSelection.afterClearingCustom("custom", customName: second.record.postScriptName) == TerminalFontSelection.defaultFont,
+            "Clearing the selected custom face must choose JetBrains Mono")
+        try require(TerminalFontSelection.afterClearingCustom("FiraCode-Regular", customName: second.record.postScriptName) == "FiraCode-Regular",
+            "Clearing custom must preserve an independently selected bundled face with the same PostScript name")
         try require(TerminalFontSelection.afterClearingCustom("system", customName: second.record.postScriptName) == "system", "Clearing custom must preserve system monospace selection")
         try store.clear()
         try require(try store.load() == nil, "Clearing must unpublish the custom choice")

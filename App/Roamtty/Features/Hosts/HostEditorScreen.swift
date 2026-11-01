@@ -9,7 +9,7 @@ struct HostEditorScreen: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     let original: Host?
     /// Set when the form fills in a new host on the way to a new session: the agent it starts, or nil for a terminal.
-    var forSession: CodingAgent?? = nil
+    var forSession: CodingAgent??
     @State private var host: Host
     @State private var port = "22"
     @State private var password = ""
@@ -26,7 +26,8 @@ struct HostEditorScreen: View {
     private var authFooter: String {
         switch host.auth {
         case .password: return model.text("密码仅在勾选后才会在本机加密保存。留空可在连接时输入。", "The password is saved on this device, encrypted, only when enabled. Leave it empty to enter it when connecting.")
-        case .key: return model.text("支持 OpenSSH、PEM 私钥。文件会加密保存；私钥口令仅用于本次连接，不会保存。", "OpenSSH and PEM keys are supported. The file is stored encrypted; the passphrase is used for this connection only and never saved.")
+        case .key: return model.text("支持 OpenSSH、PEM 私钥。文件会加密保存；私钥口令仅用于本次连接，不会保存。",
+            "OpenSSH and PEM keys are supported. The file is stored encrypted; the passphrase is used for this connection only and never saved.")
         case .interactive: return model.text("连接时显示服务器的认证问题，支持一次性验证码和多轮交互。", "The server’s questions appear when connecting, including one-time codes and multi-step prompts.")
         }
     }
@@ -48,16 +49,23 @@ struct HostEditorScreen: View {
                 let data = try file.read(upToCount: 1024 * 1024 + 1) ?? Data()
                 guard data.count <= 1024 * 1024, !data.isEmpty else { throw RoamError.invalid(model.text("私钥为空或超过 1 MB", "Private key is empty or exceeds 1 MB")) }
                 let header = String(decoding: data.prefix(128), as: UTF8.self)
-                guard ["-----BEGIN OPENSSH PRIVATE KEY-----", "-----BEGIN RSA PRIVATE KEY-----", "-----BEGIN EC PRIVATE KEY-----", "-----BEGIN PRIVATE KEY-----", "-----BEGIN ENCRYPTED PRIVATE KEY-----"].contains(where: header.contains) else { throw RoamError.invalid(model.text("请选择 PEM 或 OpenSSH 私钥，而不是公钥文件", "Choose a PEM or OpenSSH private key, not a public key file")) }
+                guard ["-----BEGIN OPENSSH PRIVATE KEY-----", "-----BEGIN RSA PRIVATE KEY-----", "-----BEGIN EC PRIVATE KEY-----",
+                    "-----BEGIN PRIVATE KEY-----", "-----BEGIN ENCRYPTED PRIVATE KEY-----"].contains(where: header.contains) else {
+                    throw RoamError.invalid(model.text("请选择 PEM 或 OpenSSH 私钥，而不是公钥文件", "Choose a PEM or OpenSSH private key, not a public key file"))
+                }
                 privateKey = data; host.keyLabel = url.lastPathComponent
             } catch { validation = error.localizedDescription }
         }
     }
     private var title: String { forSession != nil ? model.text("新建会话", "New session") : original == nil ? model.text("添加主机", "Add host") : model.text("编辑主机", "Edit host") }
     private var cancelButton: some View { Button(model.text("取消", "Cancel")) { dismiss() }.foregroundStyle(Palette.accent).accessibilityIdentifier("cancel-host-editor") }
-    private var saveButton: some View { Button(forSession != nil ? model.text("下一步", "Next") : model.text("保存", "Save")) { save() }.fontWeight(.semibold).foregroundStyle(Palette.accent).accessibilityIdentifier("save-host") }
+    private var saveButton: some View {
+        Button(forSession != nil ? model.text("下一步", "Next") : model.text("保存", "Save")) { save() }.fontWeight(.semibold).foregroundStyle(Palette.accent).accessibilityIdentifier("save-host")
+    }
     @ViewBuilder private var validationMessage: some View {
-        if let validation { Text(validation).foregroundStyle(Palette.danger).font(.subheadline).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).accessibilityIdentifier("editor-error") }
+        if let validation {
+            Text(validation).foregroundStyle(Palette.danger).font(.subheadline).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).accessibilityIdentifier("editor-error")
+        }
     }
     private var portrait: some View {
         ScrollView {
@@ -85,7 +93,8 @@ struct HostEditorScreen: View {
         }
     }
     /// Two sections side by side: titles, boxes and footers each on one line, the boxes as tall as the taller one.
-    private func sectionRow<Left: View, Right: View>(_ leftTitle: String, _ rightTitle: String, footers: (String?, String?), @ViewBuilder left: () -> Left, @ViewBuilder right: () -> Right) -> some View {
+    private func sectionRow<Left: View,
+        Right: View>(_ leftTitle: String, _ rightTitle: String, footers: (String?, String?), @ViewBuilder left: () -> Left, @ViewBuilder right: () -> Right) -> some View {
         VStack(spacing: 8) {
             HStack(spacing: 16) { sectionLabel(leftTitle); sectionLabel(rightTitle) }
                 .font(.subheadline.weight(.medium)).foregroundStyle(Palette.secondary)
@@ -109,12 +118,14 @@ struct HostEditorScreen: View {
     private var systemFooter: String { model.text("首次连接成功后自动检测系统，并在之后每次连接时更新。", "The system is detected after the first successful connection and kept up to date afterwards.") }
     private var modeFooter: String {
         host.mode == .tmux
-            ? model.text("每次连接创建独立的远端 tmux 会话，可同时开多个；重连附着同一会话。服务器需要已安装 tmux。", "Each connection creates its own remote tmux session, several at once; reconnecting reattaches it. The server needs tmux installed.")
+            ? model.text("每次连接创建独立的远端 tmux 会话，可同时开多个；重连附着同一会话。服务器需要已安装 tmux。",
+                "Each connection creates its own remote tmux session, several at once; reconnecting reattaches it. The server needs tmux installed.")
             : model.text("直接打开远端 shell。断线后需重新连接，原 shell 不会被恢复。", "Opens the remote shell directly. After a disconnect, reconnect; the old shell is not restored.")
     }
     @ViewBuilder private var connectionFields: some View {
         FormField(label: model.text("名称", "Name"), placeholder: model.text("例如：开发工作站", "e.g. Dev workstation"), text: $host.name, id: "host-name").panelDivider()
-        FormField(label: model.text("地址 / IP", "Address / IP"), placeholder: model.text("例如：dev.example.com", "e.g. dev.example.com"), text: $host.address, id: "host-address").keyboardType(.URL).panelDivider()
+        FormField(label: model.text("地址 / IP", "Address / IP"), placeholder: model.text("例如：dev.example.com", "e.g. dev.example.com"), text: $host.address, id: "host-address")
+            .keyboardType(.URL).panelDivider()
         HStack(spacing: 0) {
             FormField(label: model.text("用户名", "Username"), text: $host.username, id: "host-username")
             Rectangle().fill(Palette.outline).frame(width: 0.5).padding(.vertical, 10)
@@ -138,7 +149,8 @@ struct HostEditorScreen: View {
             Divider().overlay(Palette.outline).padding(.leading, 16)
             Toggle(model.text("在本机加密保存密码", "Save password on this device, encrypted"), isOn: $host.savePassword).tint(Palette.accent)
                 .padding(.horizontal, 16).frame(minHeight: 56).accessibilityIdentifier("host-save-password").panelDivider()
-            FormField(label: original?.savePassword == true ? model.text("新密码（留空保留原密码）", "New password (empty keeps the saved one)") : model.text("密码", "Password"), text: $password, id: "host-password", secure: true)
+            FormField(label: original?.savePassword == true ? model.text("新密码（留空保留原密码）", "New password (empty keeps the saved one)") : model.text("密码", "Password"),
+                text: $password, id: "host-password", secure: true)
         } else if host.auth == .key {
             Divider().overlay(Palette.outline).padding(.leading, 16)
             // The trailing action stays one short word, so the title keeps its width in any language; the whole row opens the picker.
@@ -146,7 +158,8 @@ struct HostEditorScreen: View {
                 AppIcon("ic_keys").foregroundStyle(Palette.secondary)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(host.keyLabel ?? model.text("尚未导入私钥", "No private key imported")).lineLimit(1)
-                    Text(host.keyLabel == nil ? model.text("支持 Ed25519 / RSA 私钥", "Ed25519 or RSA key") : model.text("已导入私钥", "Private key imported")).font(.footnote).foregroundStyle(Palette.secondary)
+                    Text(host.keyLabel == nil ? model.text("支持 Ed25519 / RSA 私钥", "Ed25519 or RSA key") : model.text("已导入私钥", "Private key imported"))
+                        .font(.footnote).foregroundStyle(Palette.secondary)
                 }
                 Spacer(minLength: 8)
                 Button(host.keyLabel == nil ? model.text("导入", "Import") : model.text("更换", "Replace")) { importKey = true }

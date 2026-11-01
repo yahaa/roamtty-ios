@@ -28,7 +28,7 @@ final class DesktopPipelineRegressionTests: XCTestCase {
         func flush() { lock.lock(); values.removeAll(); flushed += 1; lock.unlock() }
     }
     static func video(_ n: Int64, key: Bool = false, bytes: Int = 0) -> Video {
-        var data: [UInt8] = key ? [0,0,0,1,0x67,0x42,0,0,0,1,0x68,0xCE,0,0,0,1,0x65] : [0,0,0,1,0x41]
+        var data: [UInt8] = key ? [0, 0, 0, 1, 0x67, 0x42, 0, 0, 0, 1, 0x68, 0xCE, 0, 0, 0, 1, 0x65] : [0, 0, 0, 1, 0x41]
         data += Array(repeating: 42, count: bytes)
         data.append(UInt8(truncatingIfNeeded: n))
         return Video(frame: n, flags: key ? DesktopProtocol.VIDEO_KEY : 0, captureUs: 1, encodedUs: 2,

@@ -28,7 +28,10 @@ struct RootScreen: View {
         .sheet(item: $model.sheet) { sheet in
             AppSheetContent(sheet: sheet).environmentObject(model).preferredColorScheme(model.colorScheme).tint(Palette.accent)
         }
-        .sheet(isPresented: Binding(get: { !model.incomingFiles.isEmpty && model.sheet == nil && model.childModalCount == 0 && model.authentication == nil }, set: { if !$0 { model.incomingFiles = [] } }), onDismiss: completeShareHandoff) {
+        .sheet(
+            isPresented: Binding(get: { !model.incomingFiles.isEmpty && model.sheet == nil && model.childModalCount == 0 && model.authentication == nil },
+                                 set: { if !$0 { model.incomingFiles = [] } }),
+            onDismiss: completeShareHandoff) {
             ShareUploadHostPicker { host in
                 selectedShareUpload = model.files.prepareSharedUpload(model.incomingFiles, hostID: host.id)
                 model.incomingFiles = []

@@ -223,7 +223,7 @@ struct DesktopPage: View {
             ("ic_windows_all", model.text("所有窗口", "Windows"), false, {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 controller.input(DesktopProtocol.action(DesktopProtocol.ACTION_ALL_WINDOWS))
-            }),
+            })
         ]
         // 操作 stays in the bottom corner: leftmost in portrait, lowest in landscape.
         let ordered = landscape ? Array(items.reversed()) : items
@@ -296,8 +296,12 @@ struct DesktopPage: View {
                                   : model.text("在手机上播放电脑的声音", "Play the computer's sound on the phone"),
                                   value: Binding(get: { controller.audioOn }, set: { controller.setAudio($0) }))
                             .accessibilityIdentifier("desktop-audio")
-                        toggleRow(model.text("仅观看", "View only"), model.text("不向电脑发送任何操作", "Do not send input to the computer"), value: Binding(get: { controller.viewOnly }, set: { controller.setViewOnly($0) }))
-                        toggleRow(model.text("虚拟鼠标", "Virtual mouse"), model.text("悬浮的左键、右键和滚轮", "Floating left, right buttons and scroll wheel"), value: Binding(get: { virtualMouse }, set: { virtualMouse = $0; page.virtualMouse = $0 }))
+                        toggleRow(model.text("仅观看", "View only"), model.text("不向电脑发送任何操作", "Do not send input to the computer"),
+                            value: Binding(get: { controller.viewOnly }, set: { controller.setViewOnly($0) }))
+                        toggleRow(model.text("虚拟鼠标", "Virtual mouse"), model.text("悬浮的左键、右键和滚轮", "Floating left, right buttons and scroll wheel"), value: Binding(get: { virtualMouse }, set: {
+                            virtualMouse = $0
+                            page.virtualMouse = $0
+                        }))
                         toggleRow(model.text("显示网络状态", "Show network stats"), model.text("画面左上角显示延迟、帧率和码率", "Latency, frame rate and bitrate at top left"), value: Binding(get: { showStats }, set: {
                             showStats = $0; controller.setShowStats($0); model.settings.desktopShowStats = $0; model.saveSettings()
                         }))
@@ -326,7 +330,8 @@ struct DesktopPage: View {
                                 }
                             }
                         }
-                        toggleRow(model.text("断开后锁定电脑", "Lock after disconnect"), model.text("断开连接时锁屏，返回不算", "Lock on disconnect, not when going back"), value: Binding(get: { controller.lockOnClose }, set: { controller.setLockOnClose($0) }))
+                        toggleRow(model.text("断开后锁定电脑", "Lock after disconnect"), model.text("断开连接时锁屏，返回不算", "Lock on disconnect, not when going back"),
+                            value: Binding(get: { controller.lockOnClose }, set: { controller.setLockOnClose($0) }))
                         Button(role: .destructive) { showDisconnect = true } label: {
                             HStack(spacing: 8) {
                                 AppIcon("ic_power", size: 20)
@@ -426,7 +431,7 @@ struct DesktopPage: View {
     }
 
     private var shortcutKeys: some View {
-        let _ = latchRevision
+        _ = latchRevision
         return HStack(spacing: 5) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 5) {
@@ -614,8 +619,8 @@ struct DesktopPage: View {
         shortcutBar = false
         keyboardPage = .ime
         page.keyboardPage = .ime
-        for hid in [HidUsage.LEFT_CTRL, HidUsage.LEFT_ALT, HidUsage.LEFT_GUI, HidUsage.LEFT_SHIFT] {
-            if page.latch.state(hid) != .off { page.tapModifier(hid) }
+        for hid in [HidUsage.LEFT_CTRL, HidUsage.LEFT_ALT, HidUsage.LEFT_GUI, HidUsage.LEFT_SHIFT] where page.latch.state(hid) != .off {
+            page.tapModifier(hid)
         }
         latchRevision += 1
     }
@@ -648,8 +653,7 @@ struct DesktopPage: View {
     }
 
     private func dismissDesktopKeepingLink() {
-        if model.path.last == .desktop(controller.host.id) { _ = model.path.popLast() }
-        else { model.path.removeAll { $0 == .desktop(controller.host.id) } }
+        if model.path.last == .desktop(controller.host.id) { _ = model.path.popLast() } else { model.path.removeAll { $0 == .desktop(controller.host.id) } }
     }
 }
 

@@ -42,8 +42,11 @@ struct NewSessionSheet: View {
     /// are in view without scrolling.
     @ViewBuilder private var landscape: some View {
         LandscapeBar(title: title, detail: subtitle) {
-            if picked != nil { BarIconButton(icon: "ic_chevron_left", label: model.text("返回", "Back"), id: "new-session-back") { withAnimation { picked = nil } } }
-            else { BarIconButton(icon: "ic_close", label: model.text("关闭", "Close"), id: "new-session-close") { dismiss() } }
+            if picked != nil {
+                BarIconButton(icon: "ic_chevron_left", label: model.text("返回", "Back"), id: "new-session-back") { withAnimation { picked = nil } }
+            } else {
+                BarIconButton(icon: "ic_close", label: model.text("关闭", "Close"), id: "new-session-close") { dismiss() }
+            }
         } trailing: {
             if picked != nil { BarIconButton(icon: "ic_close", label: model.text("关闭", "Close"), id: "new-session-close") { dismiss() } }
         }
@@ -101,7 +104,8 @@ struct NewSessionSheet: View {
                     Text(subtitle).font(.footnote).foregroundStyle(Palette.secondary).lineLimit(1)
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 AppIcon("ic_chevron_right", size: 18).foregroundStyle(Palette.secondary)
-            }.padding(.leading, verticalSizeClass == .compact ? 16 : 24).padding(.trailing, verticalSizeClass == .compact ? 12 : 20).padding(.vertical, 8).frame(minHeight: 64).contentShape(Rectangle())
+            }.padding(.leading, verticalSizeClass == .compact ? 16 : 24).padding(.trailing, verticalSizeClass == .compact ? 12 : 20)
+                .padding(.vertical, 8).frame(minHeight: 64).contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityIdentifier(id)
     }
 }

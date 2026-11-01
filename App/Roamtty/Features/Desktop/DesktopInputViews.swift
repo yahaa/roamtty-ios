@@ -58,8 +58,7 @@ struct DesktopIMEInput: UIViewRepresentable {
 final class DesktopIMETextView: UITextView {
     var onControl: ((Int) -> Void)?
     override func deleteBackward() {
-        if text.isEmpty && markedTextRange == nil { onControl?(HidUsage.BACKSPACE) }
-        else { super.deleteBackward() }
+        if text.isEmpty && markedTextRange == nil { onControl?(HidUsage.BACKSPACE) } else { super.deleteBackward() }
     }
 }
 

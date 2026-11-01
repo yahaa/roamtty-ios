@@ -90,9 +90,21 @@ struct HostDetailScreen: View {
     private func actions(_ host: Host, icons: Bool) -> some View {
         HStack(spacing: 8) {
             Button { model.sheet = .launch(host, true) } label: { actionLabel("Agent", "ic_agent", icons) }.buttonStyle(RoamButtonStyle(filled: true)).accessibilityIdentifier("host-detail-agent")
-            Button { model.sheet = .launch(host, false) } label: { actionLabel(model.text("终端", "Terminal"), "ic_sessions", icons) }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-terminal")
-            Button { model.sheet = .continueSession(host) } label: { actionLabel(model.text("继续", "Continue"), "ic_history", icons) }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-continue")
-            Button { model.path.append(.files(hostID)) } label: { actionLabel(model.text("文件", "Files"), "ic_folder", icons) }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-files")
+            Button {
+                model.sheet = .launch(host, false)
+            } label: {
+                actionLabel(model.text("终端", "Terminal"), "ic_sessions", icons)
+            }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-terminal")
+            Button {
+                model.sheet = .continueSession(host)
+            } label: {
+                actionLabel(model.text("继续", "Continue"), "ic_history", icons)
+            }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-continue")
+            Button {
+                model.path.append(.files(hostID))
+            } label: {
+                actionLabel(model.text("文件", "Files"), "ic_folder", icons)
+            }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-files")
             if model.desktopSupported(host) {
                 Button { model.openDesktop(host) } label: { actionLabel(model.text("桌面", "Desktop"), "ic_desktop", icons) }
                     .buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-desktop")
@@ -130,12 +142,20 @@ struct HostDetailScreen: View {
             } else if let state = model.monitorStates[hostID] {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 8) {
-                        if state.phase.active && !(state.phase == .connected && state.sampled) { ProgressView().scaleEffect(0.8) }
-                        else { Circle().fill(state.phase == .connected ? Palette.success : Palette.danger).frame(width: 6, height: 6) }
-                        Text(state.reconnecting ? model.text("连接中断，正在自动重连…", "Connection interrupted. Reconnecting…") : state.phase == .connected ? (state.sampled ? model.text("每 3 秒刷新", "Refreshes every 3 seconds") : model.text("正在读取…", "Reading…")) : model.phaseText(state.phase)).font(.subheadline).accessibilityIdentifier("host-monitor-status")
+                        if state.phase.active && !(state.phase == .connected && state.sampled) {
+                            ProgressView().scaleEffect(0.8)
+                        } else {
+                            Circle().fill(state.phase == .connected ? Palette.success : Palette.danger).frame(width: 6, height: 6)
+                        }
+                        Text(state.reconnecting ? model.text("连接中断，正在自动重连…", "Connection interrupted. Reconnecting…")
+                             : state.phase != .connected ? model.phaseText(state.phase)
+                             : state.sampled ? model.text("每 3 秒刷新", "Refreshes every 3 seconds") : model.text("正在读取…", "Reading…"))
+                            .font(.subheadline).accessibilityIdentifier("host-monitor-status")
                         Spacer()
                     }
-                    if let detail = state.detail { Text(detail).font(.system(.caption, design: .monospaced)).foregroundStyle(Palette.secondary).textSelection(.enabled).accessibilityIdentifier("host-monitor-detail") }
+                    if let detail = state.detail {
+                        Text(detail).font(.system(.caption, design: .monospaced)).foregroundStyle(Palette.secondary).textSelection(.enabled).accessibilityIdentifier("host-monitor-detail")
+                    }
                     if !state.phase.active {
                         if model.metrics[hostID] != nil { Text(model.text("下方保留上次读取结果。", "The last readings are shown below.")).font(.caption).foregroundStyle(Palette.secondary) }
                         Button(model.text("重新连接", "Reconnect")) { model.startMonitor(host, interactive: true) }.accessibilityIdentifier("host-monitor-retry")

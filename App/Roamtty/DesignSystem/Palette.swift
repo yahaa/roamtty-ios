@@ -39,7 +39,7 @@ enum Palette {
         adaptive(0x2F6FC4, 0x6AA7F5), // blue
         adaptive(0xB8457F, 0xE88BB8), // pink
         adaptive(0x1F86A6, 0x5CC3E0), // cyan
-        adaptive(0x4F5BC4, 0x8F98F0), // indigo
+        adaptive(0x4F5BC4, 0x8F98F0) // indigo
     ]
 }
 

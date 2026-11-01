@@ -159,8 +159,7 @@ public final class DesktopVideoDecoder: DesktopVideoSink, @unchecked Sendable {
             }
             guard go else { return }
             // iOS schedules one coalesced main task; test/non-UI sinks may drain inline.
-            if let display { display.scheduleVideoWork { [weak self] in self?.drain() } }
-            else { drain() }
+            if let display { display.scheduleVideoWork { [weak self] in self?.drain() } } else { drain() }
         }
     }
 
