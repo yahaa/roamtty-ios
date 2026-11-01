@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 enum CursorRowKey: Equatable { case escape, enter }
 
@@ -143,10 +144,16 @@ enum TerminalDockGeometry {
         let margin = min(4, viewport.height / 2), inset = min(endInset, viewport.width)
         let size = CGSize(width: min(content.width, max(0, viewport.width - inset)), height: min(content.height, max(0, viewport.height - 2 * margin)))
         let ideal = viewport.height * 0.382 - size.height / 2
-        var frame = CGRect(x: viewport.width - inset - size.width, y: min(max(margin, ideal), max(margin, viewport.height - margin - size.height)), width: size.width, height: size.height)
+        let lowest: CGFloat = max(margin, viewport.height - margin - size.height)
+        let y: CGFloat = min(max(margin, ideal), lowest)
+        var frame = CGRect(origin: CGPoint(x: viewport.width - inset - size.width, y: y), size: size)
         if let obstacle, frame.intersects(obstacle.insetBy(dx: -4, dy: -4)) {
             let candidates = [obstacle.minY - 8 - size.height, obstacle.maxY + 8].filter { $0 >= margin && $0 + size.height <= viewport.height - margin }
-            if let y = candidates.min(by: { abs($0 - ideal) < abs($1 - ideal) }) { frame.origin.y = y } else { frame.origin.x = max(0, obstacle.minX - 8 - size.width) }
+            if let nearest = candidates.min(by: { abs($0 - ideal) < abs($1 - ideal) }) {
+                frame.origin.y = nearest
+            } else {
+                frame.origin.x = max(0, obstacle.minX - 8 - size.width)
+            }
         }
         return frame
     }
