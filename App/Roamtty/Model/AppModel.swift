@@ -9,6 +9,9 @@ import RoamttyTransport
 /// - `AppModel+Sessions`: terminal sessions, from launch to close, and their reconnects
 /// - `AppModel+Connections`: logins, prompts and the host connections that tools share
 /// - `AppModel+Monitor`: the host page's live metrics
+/// - `AppModel+Desktop`: remote desktops, one `DesktopController` per host
+/// - `AppModel+Notifications`: the agent notifications
+/// Debug builds add the launch fixtures of the UI tests in `AppModel+Fixtures`.
 @MainActor final class AppModel: ObservableObject {
     // MARK: State the screens show
 
@@ -67,7 +70,7 @@ import RoamttyTransport
     var retriedThisVisit = Set<String>()
     /// Session id → when the list began waiting for its host to answer again.
     var waitingForHostSince: [String: Date] = [:]
-    /// Remote desktops (phase 5); created on first use.
+    /// Remote desktops' thumbnails, and their controllers once the first desktop opens.
     let desktopThumbnails = DesktopThumbnails()
     var desktopStore: DesktopStore? = nil
     var desktopPathMonitor: NWPathMonitor?
@@ -91,16 +94,6 @@ import RoamttyTransport
         } catch { self.error = error.localizedDescription }
         installAgentNotifications()
     }
-    #if DEBUG
-    /// UI tests pass a live host's login in the environment; it becomes a saved host.
-    private func installUITestFixture(_ store: AppStore) throws {
-        let environment = ProcessInfo.processInfo.environment
-        guard ProcessInfo.processInfo.arguments.contains("--ui-testing"), let address = environment["ROAMTTY_TEST_HOST"],
-              let username = environment["ROAMTTY_TEST_USERNAME"], let password = environment["ROAMTTY_TEST_PASSWORD"] else { return }
-        let fixture = Host(id: "ui-live-host", name: "UI Live Host", address: address, port: Int(environment["ROAMTTY_TEST_PORT"] ?? "22") ?? 22, username: username, auth: .password, mode: .tmux, savePassword: true)
-        try store.saveHost(fixture); try vault.save(data: Data(password.utf8), hostID: fixture.id, purpose: .password); hosts = try store.hosts()
-    }
-    #endif
 
     // MARK: Language and appearance
 

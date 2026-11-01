@@ -22,6 +22,22 @@ final class ConnectionGenerationsTests: XCTestCase {
         XCTAssertNotEqual(generations.host("h"), host)
     }
 
+    func testAttemptStaysCurrentUntilItsHostOrOwnerMovesOn() {
+        var generations = ConnectionGenerations()
+        let owned = generations.attempt(host: "h", owner: "s"), hostOnly = generations.attempt(host: "h", owner: nil)
+        XCTAssertEqual(owned.hostGeneration, hostOnly.hostGeneration)
+        XCTAssertNil(hostOnly.ownerGeneration)
+        XCTAssertTrue(generations.isCurrent(owned))
+        generations.invalidateOwner("other")
+        XCTAssertTrue(generations.isCurrent(owned))
+        generations.invalidateOwner("s")
+        XCTAssertFalse(generations.isCurrent(owned))
+        XCTAssertTrue(generations.isCurrent(hostOnly))
+        generations.invalidateHost("h")
+        XCTAssertFalse(generations.isCurrent(hostOnly))
+        XCTAssertTrue(generations.isCurrent(generations.attempt(host: "h", owner: "s")))
+    }
+
     func testUnknownHostIsNeverCurrent() {
         let generations = ConnectionGenerations()
         XCTAssertFalse(generations.isCurrent(host: "h", generation: UUID(), owner: nil, ownerGeneration: nil))

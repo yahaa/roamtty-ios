@@ -119,6 +119,18 @@ final class DesktopPluginInstallerTests: XCTestCase {
         XCTAssertNil(mac.openh264Url, "macOS encodes with VideoToolbox")
     }
 
+    func testMirrorKeepsThePinnedBuildAndItsChecksums() throws {
+        let pinned = try PluginManifest.bundled()
+        let mirror = pinned.withBaseUrl("https://mirror.example/desktop/")
+        XCTAssertEqual(mirror.baseUrl, "https://mirror.example/desktop/")
+        XCTAssertEqual(mirror.targets, pinned.targets)
+        XCTAssertEqual([mirror.version, mirror.openh264], [pinned.version, pinned.openh264])
+        XCTAssertEqual([mirror.protoMin, mirror.protoMax], [pinned.protoMin, pinned.protoMax])
+        let target = try XCTUnwrap(mirror.targets["linux-x86_64"])
+        XCTAssertEqual(mirror.url(target), "https://mirror.example/desktop/" + target.file)
+        XCTAssertEqual(pinned.withBaseUrl(pinned.baseUrl), pinned)
+    }
+
     func testZipBuildsAreApps() {
         XCTAssertTrue(DesktopPluginInstaller.Build(version: "1", url: "https://x/macos-universal.zip", sha256: "a", openh264Url: nil).app)
         XCTAssertFalse(DesktopPluginInstaller.Build(version: "1", url: "https://x/linux-x86_64.gz", sha256: "a", openh264Url: nil).app)

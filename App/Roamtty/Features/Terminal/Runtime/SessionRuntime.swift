@@ -374,28 +374,11 @@ import RoamttyTransport
     func fail(_ error: Error) {
         pendingPaste = nil
         stopAgentStatusPolling()
-        end = Self.end(after: error, wasConnected: startupSent)
+        end = SessionEnd(failure: error, wasConnected: startupSent)
         if (error as? RoamError) == .authentication { loginSnapshot.invalidateAuthentication() }
         onFailure?(error)
-        if let error = error as? RoamError {
-            switch error {
-            case .authentication: phase = .authFailed
-            case .hostKeyChanged: phase = .hostKeyChanged
-            case .tmuxMissing: phase = .tmuxMissing
-            case .cancelled, .rejected: phase = .disconnected
-            default: phase = .failed
-            }
-        } else { phase = .failed }
+        phase = ConnectionPhase(failure: error)
         message = error.localizedDescription
-    }
-    /// A login that failed or was refused waits for the user; a connection lost after it was up drops, and a host
-    /// that could not be reached may be back later.
-    static func end(after error: Error, wasConnected: Bool) -> SessionEnd {
-        switch error as? RoamError {
-        case .authentication, .hostKeyChanged, .rejected, .cancelled, .tmuxMissing, .sessionLimit, .invalid: return .ended
-        case .timeout: return wasConnected ? .dropped : .unreachable
-        default: return wasConnected ? .dropped : .unreachable
-        }
     }
     func close() {
         pendingPaste = nil; capturedPaste = nil

@@ -59,9 +59,9 @@ struct LaunchScreen: View {
         .task {
             let currentHost = model.host(host.id) ?? host
             sessionMode = currentHost.newSessionMode; mosh = currentHost.plugins?.contains("mosh") == true
-            recent = StartDirectory.sanitizeRecent(UserDefaults.standard.stringArray(forKey: "recentFolders-\(host.id)") ?? [])
-            agent = initialAgent ?? CodingAgent.from(UserDefaults.standard.string(forKey: "launchAgent"))
-            agentMode = UserDefaults.standard.string(forKey: "launchAgentMode").map(AgentMode.from) ?? .yolo
+            recent = LaunchPreferences.recentFolders(host.id)
+            agent = initialAgent ?? LaunchPreferences.agent
+            agentMode = LaunchPreferences.agentMode
             navigate(initialDirectory)
         }.onChange(of: model.host(host.id)?.plugins) { plugins in
             if !moshExplicit { mosh = plugins?.contains("mosh") == true }
@@ -100,7 +100,7 @@ struct LaunchScreen: View {
             guard launchReady else { return }
             let normalized = StartDirectory.normalize(directory)
             recent = StartDirectory.remember(recent: recent, directory: normalized); persistRecent()
-            if forAgent { UserDefaults.standard.set(agent.rawValue, forKey: "launchAgent"); UserDefaults.standard.set(agentMode.rawValue, forKey: "launchAgentMode") }
+            if forAgent { LaunchPreferences.rememberAgent(agent, mode: agentMode) }
             let launch = forAgent ? AgentLaunch(agent: agent, directory: normalized, mode: agentMode) : nil
             model.launch(host, mode: sessionMode, directory: normalized, agent: launch, mosh: moshExplicit ? mosh : nil)
         } label: {
@@ -329,5 +329,5 @@ struct LaunchScreen: View {
             pathDraft = directory; entries = folders.directory.entries; filter = ""
         } catch { if !Task.isCancelled, revision == loadRevision { self.error = error.localizedDescription } }
     }
-    private func persistRecent() { recent = StartDirectory.sanitizeRecent(recent); UserDefaults.standard.set(recent, forKey: "recentFolders-\(host.id)") }
+    private func persistRecent() { recent = LaunchPreferences.setRecentFolders(recent, for: host.id) }
 }

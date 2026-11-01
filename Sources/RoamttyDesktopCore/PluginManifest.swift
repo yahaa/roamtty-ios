@@ -25,6 +25,11 @@ public struct PluginManifest: Equatable, Sendable {
 
     public static let OPENH264_BASE = "https://ciscobinary.openh264.org"
 
+    /// The same pinned build, downloaded from `baseUrl` instead (a mirror); the checksums still decide what runs.
+    public func withBaseUrl(_ baseUrl: String) -> PluginManifest {
+        PluginManifest(version: version, baseUrl: baseUrl, protoMin: protoMin, protoMax: protoMax, openh264: openh264, targets: targets)
+    }
+
     public func url(_ target: Target) -> String {
         var base = baseUrl
         while base.hasSuffix("/") { base.removeLast() }

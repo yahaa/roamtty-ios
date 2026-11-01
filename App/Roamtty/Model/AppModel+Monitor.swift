@@ -52,7 +52,7 @@ extension AppModel {
                         ? RoamError.transport(self.text("监控连接已关闭", "Monitor connection closed")) : error
                     retry += 1
                     guard let delay = HostMonitorRetry.delay(after: failure, attempt: retry, interactive: host.auth == .interactive) else {
-                        self.monitorStates[host.id] = HostMonitorState(phase: HostMonitorRetry.phase(after: failure), detail: failure.localizedDescription)
+                        self.monitorStates[host.id] = HostMonitorState(phase: ConnectionPhase(failure: failure), detail: failure.localizedDescription)
                         return
                     }
                     self.monitorStates[host.id] = HostMonitorState(phase: .connecting, reconnecting: true, detail: failure.localizedDescription)

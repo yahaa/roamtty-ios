@@ -10,6 +10,15 @@ public enum SessionEnd: String, Equatable, Sendable {
     case unreachable
     /// The user, the server or a failed login ended it.
     case ended
+
+    /// A login that failed or was refused waits for the user; a connection lost after it was up dropped, and a host
+    /// that could not be reached may be back later.
+    public init(failure error: Error, wasConnected: Bool) {
+        switch error as? RoamError {
+        case .authentication, .hostKeyChanged, .rejected, .cancelled, .tmuxMissing, .sessionLimit, .invalid: self = .ended
+        default: self = wasConnected ? .dropped : .unreachable
+        }
+    }
 }
 
 public enum SessionReconnect {

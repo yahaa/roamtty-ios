@@ -32,4 +32,22 @@ public struct ConnectionGenerations: Sendable {
         guard hosts[id] == generation else { return false }
         return owner.map { owners[$0] == ownerGeneration } ?? true
     }
+
+    /// Marks the start of work for `host` on behalf of `owner` (none: the host alone decides).
+    public mutating func attempt(host id: String, owner: String?) -> ConnectionAttempt {
+        ConnectionAttempt(host: id, hostGeneration: host(id), owner: owner, ownerGeneration: owner.map { self.owner($0) })
+    }
+
+    /// Whether neither the attempt's host nor its owner moved on since it started.
+    public func isCurrent(_ attempt: ConnectionAttempt) -> Bool {
+        isCurrent(host: attempt.host, generation: attempt.hostGeneration, owner: attempt.owner, ownerGeneration: attempt.ownerGeneration)
+    }
+}
+
+/// The generations a piece of work started at, kept by its callbacks to tell whether their results are still wanted.
+public struct ConnectionAttempt: Equatable, Sendable {
+    public let host: String
+    public let hostGeneration: UUID
+    public let owner: String?
+    public let ownerGeneration: UUID?
 }

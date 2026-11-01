@@ -6,10 +6,8 @@ import RoamttyTransport
 extension AppModel {
     // MARK: Staleness
 
-    /// Whether the host still exists and neither it nor `owner` moved on since an attempt started.
-    func isCurrent(hostID: String, generation: UUID, owner: String?, ownerGeneration: UUID?) -> Bool {
-        host(hostID) != nil && generations.isCurrent(host: hostID, generation: generation, owner: owner, ownerGeneration: ownerGeneration)
-    }
+    /// Whether the host still exists and neither it nor the attempt's owner moved on since the attempt started.
+    func isCurrent(_ attempt: ConnectionAttempt) -> Bool { host(attempt.host) != nil && generations.isCurrent(attempt) }
     /// Drops everything under way for the host: its shared connection, metadata probes, monitor and logins.
     func invalidateHostConnections(_ hostID: String) {
         generations.invalidateHost(hostID)
@@ -31,7 +29,7 @@ extension AppModel {
     /// The login for `host`: cached, saved, or asked for. A session kept on its original login passes the
     /// `retained` credentials and does not touch the saved ones. `asking: false` fails instead of asking.
     func credentials(for host: Host, owner: String? = nil, retained: Credentials? = nil, useSavedCredentials: Bool = true, asking: Bool = true) async throws -> Credentials {
-        let hostGeneration = generations.host(host.id), ownerGeneration = owner.map { generations.owner($0) }
+        let attempt = generations.attempt(host: host.id, owner: owner)
         try Task.checkCancellation()
         guard foreground else { throw RoamError.cancelled }
         if useSavedCredentials, let existing = credentialCache[host.id] { return existing }
@@ -39,7 +37,7 @@ extension AppModel {
             ? Credentials(password: credentialCache.savedPasswordRejected(host.id) ? nil : try vault.read(hostID: host.id, purpose: .password), privateKey: try vault.read(hostID: host.id, purpose: .key), passphrase: nil)
             : retained ?? Credentials()
         let originalTarget = useSavedCredentials ? "" : "\(host.username)@\(host.address):\(host.port)\n"
-        func stillWanted() -> Bool { foreground && !Task.isCancelled && isCurrent(hostID: host.id, generation: hostGeneration, owner: owner, ownerGeneration: ownerGeneration) }
+        func stillWanted() -> Bool { foreground && !Task.isCancelled && isCurrent(attempt) }
         if host.auth == .password && credentials.password == nil {
             guard asking else { throw RoamError.cancelled }
             let answer = await ask(title: host.name, message: originalTarget + text("密码仅用于本次连接", "Password is used for this connection"), labels: [text("密码", "Password")], echo: [false], owner: owner)
@@ -81,14 +79,14 @@ extension AppModel {
     /// A connection whose host-key and keyboard-interactive questions go to the user while the attempt is current.
     func makeConnection(_ host: Host, credentials: Credentials, owner: String? = nil) throws -> SSHConnection {
         guard let store else { throw RoamError.invalid("Storage unavailable") }
-        let hostGeneration = generations.host(host.id), ownerGeneration = owner.map { generations.owner($0) }
+        let attempt = generations.attempt(host: host.id, owner: owner)
         return SSHConnection(host: host, credentials: credentials, pinStore: store) { [weak self] prompt in
             let answer = PromptAnswer()
             let id = UUID()
             DispatchQueue.main.async {
-                guard let self, self.foreground, self.isCurrent(hostID: host.id, generation: hostGeneration, owner: owner, ownerGeneration: ownerGeneration) else { answer.finish(nil); return }
+                guard let self, self.foreground, self.isCurrent(attempt) else { answer.finish(nil); return }
                 let respond: ([String]?) -> Void = { [weak self] values in
-                    guard let self, self.foreground, self.isCurrent(hostID: host.id, generation: hostGeneration, owner: owner, ownerGeneration: ownerGeneration) else { answer.finish(nil); return }
+                    guard let self, self.foreground, self.isCurrent(attempt) else { answer.finish(nil); return }
                     answer.finish(values)
                 }
                 var request: AuthenticationRequest
@@ -133,9 +131,9 @@ extension AppModel {
         if let ssh = connections[hostID], hostPhases[hostID] == .connected, ssh.isConnected { return ssh }
         guard let host = host(hostID) else { throw RoamError.invalid("Host no longer exists") }
         connections.removeValue(forKey: hostID)?.disconnectInBackground()
-        let hostGeneration = generations.host(hostID), ownerGeneration = generations.owner(hostID), token = UUID()
+        let attempt = generations.attempt(host: hostID, owner: hostID), token = UUID()
         connectionTokens[hostID] = token
-        func current() -> Bool { connectionTokens[hostID] == token && isCurrent(hostID: hostID, generation: hostGeneration, owner: hostID, ownerGeneration: ownerGeneration) }
+        func current() -> Bool { connectionTokens[hostID] == token && isCurrent(attempt) }
         let task = Task<SSHConnection, Error> {
             let credentials = try await self.credentials(for: host, owner: hostID)
             guard !Task.isCancelled, current() else { throw RoamError.cancelled }
@@ -143,7 +141,7 @@ extension AppModel {
             self.connectingSSH[hostID] = ssh
             ssh.onPhase = { [weak self] phase in
                 DispatchQueue.main.async {
-                    guard let self, self.connectionTokens[hostID] == token, self.isCurrent(hostID: hostID, generation: hostGeneration, owner: hostID, ownerGeneration: ownerGeneration) else { return }
+                    guard let self, self.connectionTokens[hostID] == token, self.isCurrent(attempt) else { return }
                     self.hostPhases[hostID] = phase
                 }
             }
@@ -152,7 +150,7 @@ extension AppModel {
                 guard !Task.isCancelled, current() else { throw RoamError.cancelled }
                 self.connections[hostID] = ssh
                 self.hostPhases[hostID] = .connected
-                self.detectMetadata(host: host, ssh: ssh, hostGeneration: hostGeneration, ownerGeneration: ownerGeneration, token: token)
+                self.detectMetadata(host: host, ssh: ssh, attempt: attempt, token: token)
                 return ssh
             } catch { ssh.disconnectInBackground(); throw error }
         }
@@ -165,14 +163,14 @@ extension AppModel {
         }
     }
     /// Probes a newly connected host for its plugins and system, which the host's page shows.
-    private func detectMetadata(host: Host, ssh: SSHConnection, hostGeneration: UUID, ownerGeneration: UUID, token: UUID) {
+    private func detectMetadata(host: Host, ssh: SSHConnection, attempt: ConnectionAttempt, token: UUID) {
         metadataJobs[host.id]?.cancel()
         let cancellation = TransferCancellation()
         let task = Task { [weak self] in
             await withTaskCancellationHandler(operation: {
                 guard let self else { return }
                 defer { if self.connectionTokens[host.id] == token { self.metadataJobs.removeValue(forKey: host.id) } }
-                @MainActor func current() -> Bool { !Task.isCancelled && self.connectionTokens[host.id] == token && self.connections[host.id] === ssh && self.isCurrent(hostID: host.id, generation: hostGeneration, owner: host.id, ownerGeneration: ownerGeneration) }
+                @MainActor func current() -> Bool { !Task.isCancelled && self.connectionTokens[host.id] == token && self.connections[host.id] === ssh && self.isCurrent(attempt) }
                 do {
                     guard current() else { return }
                     let plugins = try await ssh.probePlugins(timeout: 8, cancellation: cancellation)

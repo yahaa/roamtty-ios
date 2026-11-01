@@ -86,9 +86,7 @@ extension AppModel {
             guard StartDirectory.isSupported(directory), agent.map({ StartDirectory.isSupported($0.directory) }) ?? true else { throw RoamError.invalid(text("文件夹路径含有不支持的控制字符", "The folder path contains unsupported control characters")) }
             let directory = StartDirectory.normalize(directory)
             let record = try journal.create(hostID: host.id, mode: mode, title: agent?.title ?? "")
-            // A terminal started from its host's page returns there; one started from the home page returns home.
-            persistJournal(); sheet = nil
-            path = path.first == .host(host.id) ? [.host(host.id), .terminal(record.id)] : [.terminal(record.id)]
+            showNewTerminal(record)
             connectSession(record, directory: directory, agent: agent, preferMosh: mosh, originalLogin: originalLogin)
         } catch { self.error = error.localizedDescription }
     }
@@ -99,10 +97,16 @@ extension AppModel {
         }
         do {
             let record = try journal.create(hostID: host.id, mode: .tmux, title: name, external: name)
-            persistJournal(); sheet = nil
-            path = path.first == .host(host.id) ? [.host(host.id), .terminal(record.id)] : [.terminal(record.id)]
+            showNewTerminal(record)
             connectSession(record, preferMosh: mosh)
         } catch { self.error = error.localizedDescription }
+    }
+    /// Saves a new session and shows its terminal. One started from its host's page returns there; one started from
+    /// the home page returns home.
+    private func showNewTerminal(_ record: SessionRecord) {
+        persistJournal(); sheet = nil
+        let host = AppRoute.host(record.hostID)
+        path = path.first == host ? [host, .terminal(record.id)] : [.terminal(record.id)]
     }
     func reconnect(_ record: SessionRecord, shell: Bool = false) {
         guard let host = host(record.hostID) else { return }
@@ -120,19 +124,19 @@ extension AppModel {
         let host = originalLogin?.reconnect(using: savedHost).host ?? savedHost
         let usesSavedCredentials = host.hasSameLoginIdentity(as: savedHost)
         cancelLaunch(record.id)
-        let hostGeneration = generations.host(host.id), ownerGeneration = generations.owner(record.id)
+        let attempt = generations.attempt(host: host.id, owner: record.id)
         let preference = preferMosh ?? MoshPreference.value(record.id) ?? (savedHost.plugins?.contains("mosh") == true)
         if let preferMosh { MoshPreference.set(preferMosh, for: record.id) }
         let runtime = SessionRuntime(record: record, host: host, loginSnapshot: originalLogin)
         runtime.onFailure = { [weak self, weak runtime] failure in
-            guard let self, let runtime, self.runtimes[record.id] === runtime, self.isCurrent(hostID: host.id, generation: hostGeneration, owner: record.id, ownerGeneration: ownerGeneration) else { return }
+            guard let self, let runtime, self.runtimes[record.id] === runtime, self.isCurrent(attempt) else { return }
             if usesSavedCredentials, let current = self.host(host.id), host.hasSameLoginIdentity(as: current), (failure as? RoamError) == .authentication {
                 self.credentialCache.rejectLogin(host.id)
             }
         }
         // Only a login that needs no answer from the user: it runs in the background, from the status poll.
         runtime.reopenSideConnection = { [weak self, weak runtime] in
-            guard let self, let runtime, host.auth != .interactive, self.runtimes[record.id] === runtime, self.isCurrent(hostID: host.id, generation: hostGeneration, owner: record.id, ownerGeneration: ownerGeneration) else { throw RoamError.cancelled }
+            guard let self, let runtime, host.auth != .interactive, self.runtimes[record.id] === runtime, self.isCurrent(attempt) else { throw RoamError.cancelled }
             let retained = runtime.loginSnapshot.reconnect(using: savedHost).retainedCredentials
             let creds = try await self.credentials(for: host, owner: record.id, retained: retained, useSavedCredentials: usesSavedCredentials, asking: false)
             let ssh = try self.makeConnection(host, credentials: creds, owner: record.id)
@@ -154,10 +158,10 @@ extension AppModel {
                 let retained = runtime.loginSnapshot.reconnect(using: savedHost).retainedCredentials
                 let creds = try await credentials(for: host, owner: record.id, retained: retained, useSavedCredentials: usesSavedCredentials)
                 guard foreground else { throw RoamError.cancelled }
-                guard !Task.isCancelled, sessionLaunches[record.id]?.token == token, runtimes[record.id] === runtime, runtime.phase.active, isCurrent(hostID: host.id, generation: hostGeneration, owner: record.id, ownerGeneration: ownerGeneration) else { return }
+                guard !Task.isCancelled, sessionLaunches[record.id]?.token == token, runtimes[record.id] === runtime, runtime.phase.active, isCurrent(attempt) else { return }
                 let ssh = try makeConnection(host, credentials: creds, owner: record.id)
                 runtime.connect(ssh: ssh, credentials: creds, preferMosh: preference, directory: directory, agent: agent)
-            } catch { if isCurrent(hostID: host.id, generation: hostGeneration, owner: record.id, ownerGeneration: ownerGeneration), runtimes[record.id] === runtime { runtime.fail(error) } }
+            } catch { if isCurrent(attempt), runtimes[record.id] === runtime { runtime.fail(error) } }
         }
         sessionLaunches[record.id] = TrackedTask(token: token, task: task)
     }

@@ -27,3 +27,26 @@ enum MoshPreference {
         else { UserDefaults.standard.removeObject(forKey: key(recordID)) }
     }
 }
+
+/// What the launch sheet remembers: the agent and mode picked last, and each host's recent folders.
+enum LaunchPreferences {
+    private static let agentKey = "launchAgent", agentModeKey = "launchAgentMode"
+    private static func foldersKey(_ hostID: String) -> String { "recentFolders-" + hostID }
+
+    static var agent: CodingAgent { CodingAgent.from(UserDefaults.standard.string(forKey: agentKey)) }
+    static var agentMode: AgentMode { UserDefaults.standard.string(forKey: agentModeKey).map(AgentMode.from) ?? .yolo }
+    static func rememberAgent(_ agent: CodingAgent, mode: AgentMode) {
+        UserDefaults.standard.set(agent.rawValue, forKey: agentKey)
+        UserDefaults.standard.set(mode.rawValue, forKey: agentModeKey)
+    }
+
+    static func recentFolders(_ hostID: String) -> [String] {
+        StartDirectory.sanitizeRecent(UserDefaults.standard.stringArray(forKey: foldersKey(hostID)) ?? [])
+    }
+    /// Saves the folders as the list keeps them, and returns that list.
+    static func setRecentFolders(_ folders: [String], for hostID: String) -> [String] {
+        let sanitized = StartDirectory.sanitizeRecent(folders)
+        UserDefaults.standard.set(sanitized, forKey: foldersKey(hostID))
+        return sanitized
+    }
+}
