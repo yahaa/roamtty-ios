@@ -16,6 +16,9 @@ environment = {"ROAMTTY_TEST_" + key.upper(): str(fixture[key]) for key in ["hos
 schemas = [
     {"ROAMTTY_RECOVERY_HOST", "ROAMTTY_RECOVERY_PORT", "ROAMTTY_RECOVERY_CONTROL_PORT", "ROAMTTY_RECOVERY_TOKEN"},
     {"ROAMTTY_PLUGIN_HOST", "ROAMTTY_PLUGIN_PORT", "ROAMTTY_PLUGIN_CANCEL_PORT", "ROAMTTY_PLUGIN_FINGERPRINT", "ROAMTTY_PLUGIN_CANCEL_FINGERPRINT"},
+    # scripts/test-desktop-gestures.sh: the main fixture is then a live desktop host.
+    {"ROAMTTY_DESKTOP_GESTURE_HOST"},
+    {"ROAMTTY_DESKTOP_GESTURE_HOST", "ROAMTTY_TAP_POINTS"},
 ]
 for filename in sys.argv[3:]:
     extra = json.loads(Path(filename).read_text())

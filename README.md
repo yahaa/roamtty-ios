@@ -120,6 +120,15 @@ ROAMTTY_TEST_HOST=YOUR_LAN_IP ROAMTTY_TEST_PORT=23016 \
 
 These checks stop a real sudo command and a real apt download, verify the package remains absent, and keep another exec on the same SSH connection running.
 
+The desktop gesture tests need a live desktop host with `roamtty-desktop`, so the full suite skips them. Run them on the Mac against a disposable Ubuntu, Windows or macOS host. The host file has the same fields as `device-fixture.json`:
+
+```sh
+./scripts/test-desktop-gestures.sh .private/ubuntu.json                           # the whole class
+./scripts/test-desktop-gestures.sh .private/ubuntu.json testTrackpadModeGestures  # one test
+```
+
+Some of these tests act on the host itself: they show its desktop, toggle full screen with ⌃⌘F, or type its password at the lock screen. Read a test's comment before running it against a machine someone is using.
+
 The custom font checks use real CoreText on macOS:
 
 ```sh

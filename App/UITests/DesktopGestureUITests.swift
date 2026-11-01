@@ -3,15 +3,18 @@ import XCTest
 /// The gesture table (docs/DESKTOP-GESTURES.md) against a real desktop host: every gesture is made with
 /// real synthesized touches on the live page, and the input it sent is read back from the page's probe
 /// (ROAMTTY_DESKTOP_INPUT_PROBE=1). Screenshots of the host's picture after each step show its effect.
-/// Opt-in: needs ROAMTTY_TEST_HOST / _PORT / _USERNAME / _PASSWORD of a disposable desktop host.
+/// Opt-in: `scripts/test-desktop-gestures.sh host.json` sets ROAMTTY_DESKTOP_GESTURE_HOST=1 and points
+/// ROAMTTY_TEST_HOST / _PORT / _USERNAME / _PASSWORD at a disposable desktop host. The full suite's SSH
+/// fixture has no desktop, so there these tests skip; `testSwipeBackFromOutsideThePicture` needs no host.
 final class DesktopGestureUITests: XCTestCase {
     private var app: XCUIApplication!
     private var surface: CGRect = .zero
 
     private func launch(pointer: String) throws {
         let env = ProcessInfo.processInfo.environment
-        guard let host = env["ROAMTTY_TEST_HOST"], !host.isEmpty, env["ROAMTTY_TEST_PASSWORD"] != nil else {
-            throw XCTSkip("Set ROAMTTY_TEST_HOST, _PORT, _USERNAME and _PASSWORD to a disposable desktop host")
+        guard env["ROAMTTY_DESKTOP_GESTURE_HOST"] == "1", let host = env["ROAMTTY_TEST_HOST"], !host.isEmpty,
+              env["ROAMTTY_TEST_PASSWORD"] != nil else {
+            throw XCTSkip("Needs a live desktop host: run scripts/test-desktop-gestures.sh host.json")
         }
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
@@ -93,17 +96,26 @@ final class DesktopGestureUITests: XCTestCase {
 
     /// Esc from the keyboard panel's shortcut bar: closes a menu or an overview on the host.
     private func escape() {
+        withShortcutBar { tapBarKey("Esc") }
+    }
+
+    /// Opens the keyboard panel with its shortcut bar, runs `body`, and closes the panel again.
+    private func withShortcutBar(_ body: () -> Void) {
         let keys = app.buttons.matching(NSPredicate(format: "label == '键盘' OR label == 'Keys'")).firstMatch
         guard keys.waitForExistence(timeout: 3) else { return XCTFail("no keyboard button") }
         keys.tap()
         let toggle = app.buttons["desktop-kb-toggle"]
         if toggle.waitForExistence(timeout: 3) { toggle.tap() }
-        let esc = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Esc'")).firstMatch
-        if esc.waitForExistence(timeout: 3) { esc.tap() } else { XCTFail("no Esc key") }
+        body()
         let close = app.buttons.matching(NSPredicate(format: "label == '关闭键盘' OR label == 'Close keyboard'")).firstMatch
         if close.waitForExistence(timeout: 3) { close.tap() }
         _ = app.keyboards.firstMatch.waitForNonExistence(timeout: 3)
         pause(1)
+    }
+
+    private func tapBarKey(_ label: String) {
+        let key = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
+        if key.waitForExistence(timeout: 3) { key.tap() } else { XCTFail("no \(label) key") }
     }
 
     /// Trackpad mode: the cursor to the middle of the host's screen, from its bottom-left corner by a slow
@@ -295,10 +307,15 @@ final class DesktopGestureUITests: XCTestCase {
         pause(1.5)
     }
 
-    /// ⌃⌘F on the host from a hardware keyboard (the simulator's): puts a Mac's front window in full screen, or takes it out.
+    /// ⌃⌘F on the host through the shortcut bar's latched modifiers: puts a Mac's front window in full screen, or
+    /// takes it out. Not `typeKey("f", modifierFlags:)`: the simulator hands the page a plain F, and the host gets that.
     func testToggleHostFullScreen() throws {
         try launch(pointer: "touch")
-        app.typeKey("f", modifierFlags: [.command, .control])
+        withShortcutBar {
+            tapBarKey("⌃")
+            tapBarKey("⌘")
+            app.typeText("f")
+        }
         pause(3)
         capture("after control-command-F")
     }
@@ -491,10 +508,18 @@ final class DesktopGestureUITests: XCTestCase {
         let countAtLift = probeCount()
         pause(0.6)
         XCTAssertGreaterThan(probeCount(), countAtLift + 3, "inertia carries the scroll on after lifting")
-        assertChanged(before, "the document under the cursor scrolled")
-        capture("scrolled")
-        pause(2)
-        try Touches.perform([[(pic(0.45, 0.25), 0), (pic(0.45, 0.75), 0.15)], [(pic(0.55, 0.25), 0), (pic(0.55, 0.75), 0.15)]])
+        pause(1)
+        let back: [Touches.Finger] = [[(pic(0.45, 0.25), 0), (pic(0.45, 0.75), 0.15)], [(pic(0.55, 0.25), 0), (pic(0.55, 0.75), 0.15)]]
+        if share(before, picture()) <= 0.004 {
+            // At the end of the document already, as touch mode allows: the flick the other way must scroll it.
+            let end = picture()
+            try Touches.perform(back)
+            assertChanged(end, "the document under the cursor scrolled (back from its end)")
+        } else {
+            capture("scrolled")
+            pause(2)
+            try Touches.perform(back)
+        }
         pause(2.5)
     }
 
