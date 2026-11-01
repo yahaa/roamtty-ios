@@ -208,8 +208,13 @@ class RoamttyLiveUITestCase: XCTestCase {
             guard let value = (element as? XCUIElement)?.value as? String else { return false }
             return value.replacingOccurrences(of: "\r", with: "").replacingOccurrences(of: "\n", with: "").contains(text)
         }
-        expectation(for: rendered, evaluatedWith: surface).expectationDescription = "Terminal output contains \(text)"
-        waitForExpectations(timeout: timeout)
+        let expectation = XCTNSPredicateExpectation(predicate: rendered, object: surface)
+        expectation.expectationDescription = "Terminal output contains \(text)"
+        guard XCTWaiter.wait(for: [expectation], timeout: timeout) != .completed else { return }
+        // What the terminal showed instead, so the failure explains itself.
+        let shown = (surface.value as? String ?? "").replacingOccurrences(of: "\r", with: "").split(separator: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.suffix(6).joined(separator: " | ")
+        XCTFail("Terminal output does not contain \(text) after \(Int(timeout)) s; its last rows: \(shown)")
     }
 
     func replace(_ field: XCUIElement, with text: String) {

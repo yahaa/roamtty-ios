@@ -1,5 +1,18 @@
 # Simulator acceptance coverage
 
+## 2026-11-01: deep review refactor (`refactor/deep-review`)
+
+Simulator: Roamtty Validation (iPhone 17, iOS 26.4), the Docker SSH fixture on the Mac, recovery and plugin fixtures on the dev box.
+
+| Evidence | Result |
+| --- | --- |
+| Full UI run, `TestResults/Simulator-20261101-025207.xcresult` | **86 total: 63 passed, 7 skipped, 16 failed.** All 16 were environment or pre-existing. 8 DesktopGestureUITests need a live desktop host. The 5 recovery/plugin tests got the container's password, which no longer matched the real test account. `testPinchZoomsThePicture` and `testTapMovesTheCursorInsideAMultiLineInput` also fail on `main`. |
+| Fixes | The pinch test now spreads two fingers at once: `XCUIElement.pinch` rests first, which the page takes for a two-finger hold, as on Android. The container now sets `/etc/default/locale`, so tmux draws UTF-8 (`你好` was shown as `____`). `waitForOutput` now reports what the terminal showed. |
+| Reruns on the same app build | NetworkRecovery 3/3, PluginInstallation 2/2, TerminalGesture 9/9 and DesktopLaunch 10/10 passed, plus NativeFileWorkflow `testImportedFontAndChosenDownloadFolderSurviveRelaunch`. |
+| Live desktop gestures on the Ubuntu VM | `testTouchModeGestures` passed. `testTrackpadModeGestures` sends the wheel and inertia as expected, but nothing under the cursor scrolled on the host; it fails the same way on `main`. The Mac-host tests were not run against the user's Mac. |
+| Unit tests (`swift test`, clean build) | **440 total: 426 passed, 14 skipped (live services), 0 failed**, no warnings. |
+| Lint and build | `scripts/lint.sh` passes with 0 warnings. Clean xcodebuild warnings: only Xcode's "Metadata extraction skipped. No AppIntents.framework" note. |
+
 ## 2026-10-15: Android parity to `5fc87b3`
 
 Source: this branch's final working tree (home sessions/hosts tabs, agent status, close/force delete/restart, pet arrow keys, terminal URLs, SSH greeting probe).
