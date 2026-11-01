@@ -6,7 +6,7 @@ enum HostDetailTab: Hashable { case overview, processes, info }
 
 /// Where each landscape section sits in the page's scroll.
 struct HostSectionFrames: PreferenceKey {
-    static var defaultValue: [HostDetailTab: CGRect] = [:]
+    static let defaultValue: [HostDetailTab: CGRect] = [:]
     static func reduce(value: inout [HostDetailTab: CGRect], nextValue: () -> [HostDetailTab: CGRect]) { value.merge(nextValue()) { $1 } }
 }
 

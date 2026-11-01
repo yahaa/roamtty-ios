@@ -1,4 +1,3 @@
-#if canImport(UIKit) && canImport(VideoToolbox) && canImport(CoreMedia)
 import SwiftUI
 import UIKit
 import AVFoundation
@@ -224,4 +223,3 @@ final class DesktopVideoHostView: UIView {
         CATransaction.commit()
     }
 }
-#endif

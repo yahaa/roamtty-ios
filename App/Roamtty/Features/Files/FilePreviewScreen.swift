@@ -352,7 +352,7 @@ struct MarkdownContent: View {
     }
 }
 private struct MarkdownImageFrameKey: PreferenceKey {
-    static var defaultValue: CGRect = .zero
+    static let defaultValue: CGRect = .zero
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
 }
 

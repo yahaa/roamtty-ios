@@ -1,4 +1,3 @@
-#if canImport(UIKit)
 import SwiftUI
 import UIKit
 import RoamttyDesktopCore
@@ -164,4 +163,3 @@ private struct DesktopStatusSpinner: View {
             .onAppear { spinning = true }
     }
 }
-#endif

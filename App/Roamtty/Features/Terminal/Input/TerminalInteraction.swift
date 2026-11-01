@@ -79,7 +79,7 @@ struct TerminalStartupGate {
 /// `TerminalToolbox.dockHideMillis` (countdown ring on the collapse control).
 struct TerminalToolboxState {
     /// Android `TerminalToolbox.dockHideMillis` / 1000. 0 disables floating-dock auto-hide.
-    static var dockHideSeconds: TimeInterval = 5
+    static let dockHideSeconds: TimeInterval = 5
     private(set) var pinned = false
     private(set) var expanded = false
     private(set) var awake = true

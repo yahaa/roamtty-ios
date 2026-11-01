@@ -1653,6 +1653,26 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "FD95E4BA05DE0B8F82CBC8C2";
 		};
+		"AF728D00D79479C342578648" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Features/Desktop/DesktopGestureView.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"4241F59F15110DC570B41269" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "AF728D00D79479C342578648";
+		};
+		"B3AFEB07524685A45CC93F10" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Features/Desktop/DesktopInputViews.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"D4CABE2FEFBE9E39A1FE0247" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "B3AFEB07524685A45CC93F10";
+		};
 		"E141EFA8404E93DBC6F842A6" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/Roamtty/Features/Desktop/DesktopPage.swift";
@@ -2448,6 +2468,8 @@
 				"1DDA4A25308A02113138E6C0",
 				"4B43049E682EB6241D9323A4",
 				"6A935FEDBFF81FE7283D1430",
+				"4241F59F15110DC570B41269",
+				"D4CABE2FEFBE9E39A1FE0247",
 				"D5E10AFFB2A511263FEF5585",
 				"69119A85CFCB1484B3A9EA74",
 				"EA1B54AB3AB6F05C5560088E",
@@ -3835,6 +3857,8 @@
 				"F8750F867E3429D175D3957A",
 				"2C6A5B7E10DADC4DBC5248D9",
 				"FD95E4BA05DE0B8F82CBC8C2",
+				"AF728D00D79479C342578648",
+				"B3AFEB07524685A45CC93F10",
 				"E141EFA8404E93DBC6F842A6",
 				"1ADA88A30302E2D195D883DE",
 				"6DF5BD7A41ABA93A5B3BCC6A",
