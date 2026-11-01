@@ -19,17 +19,19 @@ public enum RemoteCommands {
     private static let bottomPromptPane = ##"n=$(tmux display-message -p "#{pane_height}" 2>/dev/null); [ -n "$n" ] || { set -- $(stty size 2>/dev/null); n=${1:-0}; }; while [ "$n" -gt 1 ]; do echo; n=$((n - 1)); done; s=${SHELL:-/bin/sh}; c=$(tmux show-options -gv default-command 2>/dev/null); [ -n "$c" ] && exec "$s" -c "$c"; exec "$s" -l"##
 
     /// `existing`: a session that was already on the server, attached as it is: never created, its other clients stay
-    /// attached and its status line stays; only mouse mode goes on, so swipes scroll its history.
+    /// attached and its status line stays; only mouse mode goes on, so swipes scroll its history. The client runs with
+    /// `-u` because sshd may start the command without a UTF-8 locale (macOS does), and tmux then draws every
+    /// non-ASCII character as "_".
     public static func tmuxAttach(_ name: String, existing: Bool = false) -> String {
         let name = sanitizeSessionName(name)
-        if existing { return "exec " + shell(pathSetup + "; exec tmux attach-session -t =\(name) \\; set-option -t \(name) mouse on") }
+        if existing { return "exec " + shell(pathSetup + "; exec tmux -u attach-session -t =\(name) \\; set-option -t \(name) mouse on") }
         let pane = bottomPromptPane.replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "$", with: "\\$")
         let options = "\\; set-option -t \(name) mouse on \\; set-option -t \(name) status off"
         let script = pathSetup + "; " +
             "if [ \"$(tmux display-message -p -t \(name) \"#{pane_mode}\" 2>/dev/null)\" = copy-mode ]; then " +
             "tmux send-keys -t \(name) -X cancel || true; fi; " +
-            "case \"$(tmux -V 2>/dev/null)\" in \"tmux \"[0-2].*) exec tmux new-session -A -D -s \(name) \(options);; esac; " +
-            "exec tmux new-session -A -D -s \(name) /bin/sh -c \"\(pane)\" \(options)"
+            "case \"$(tmux -V 2>/dev/null)\" in \"tmux \"[0-2].*) exec tmux -u new-session -A -D -s \(name) \(options);; esac; " +
+            "exec tmux -u new-session -A -D -s \(name) /bin/sh -c \"\(pane)\" \(options)"
         return "exec " + shell(script)
     }
     /// One line per tmux session on the server, `windows<TAB>attached clients<TAB>last activity<TAB>pane command<TAB>
