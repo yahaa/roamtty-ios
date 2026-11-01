@@ -38,17 +38,17 @@ public struct CursorImage: Equatable, Sendable {
 
 /// What the network badge and the statistics show.
 public struct DesktopStats: Equatable, Sendable {
-    public var rttMs: Int? = nil
+    public var rttMs: Int?
     public var fps = 0, kbps = 0, width = 0, height = 0
     public var frames: Int64 = 0
     public var decoder = "", link = "SSH", encoder = ""
     /// UDP only: share of shards lost before FEC, frames FEC rebuilt, frames lost outright.
-    public var lossPercent: Double? = nil
+    public var lossPercent: Double?
     public var fecRecovered: Int64 = 0, lostFrames: Int64 = 0
     /// Where the last second's frames spent their time, host to screen.
-    public var latency: LatencyMeter.Latency? = nil
+    public var latency: LatencyMeter.Latency?
     /// Sound waiting to be heard on the phone, while sound plays.
-    public var audioMs: Int? = nil
+    public var audioMs: Int?
     public init() {}
 }
 
@@ -645,8 +645,7 @@ public final class DesktopSession: @unchecked Sendable {
         // On UDP the link itself says it: heartbeats answer every 250 ms, so 700 ms without a datagram is
         // a stall; heavy loss counts too. Lost pings there are just loss.
         let bad: Bool
-        if let l, l.alive { bad = l.silentUs > 700_000 || l.loss > 0.25 || Int64(rtt) > Self.POOR_MS }
-        else { bad = missed >= 2 || Int64(rtt) > Self.POOR_MS }
+        if let l, l.alive { bad = l.silentUs > 700_000 || l.loss > 0.25 || Int64(rtt) > Self.POOR_MS } else { bad = missed >= 2 || Int64(rtt) > Self.POOR_MS }
         let newPhase: DesktopPhase? = sync {
             if bad { goodSinceMs = 0 } else if goodSinceMs == 0 { goodSinceMs = now }
             guard case .connected(let wasPoor, let paused) = _phase else { return nil }
@@ -790,7 +789,12 @@ public final class DesktopSession: @unchecked Sendable {
         // Only a desktop on its way up: a frame the decoder still held after a kick or a failure (UDP keeps
         // them coming until the link closes) must not bring a dead connection back to life.
         let up: Bool = sync {
-            switch _phase { case .connecting, .recovering: everConnected = true; return true; default: return false }
+            switch _phase {
+            case .connecting, .recovering:
+                everConnected = true
+                return true
+            default: return false
+            }
         }
         if up { setPhase(.connected(poor: false, paused: sync { desiredPaused })) }
     }

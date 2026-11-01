@@ -16,7 +16,7 @@ enum SessionRemote {
     static func tmuxClients(_ ssh: SSHConnection, name: String, cancellation: TransferCancellation, timeout: TimeInterval = 2) throws -> Set<String> {
         let target = "=" + RemoteCommands.sanitizeSessionName(name)
         let script = RemoteCommands.pathSetup + "; tmux list-clients -t " + RemoteCommands.shellQuote(target) + " -F '__ROAMTTY_CLIENT__#{client_pid}|#{client_tty}' 2>/dev/null"
-        let result = try ssh.exec("/bin/sh -c " + RemoteCommands.shellQuote(script), input: Data(), timeout: timeout, cancellation: cancellation)
-        return result.status == 0 ? TerminalStartupGate.clients(from: String(decoding: result.output, as: UTF8.self)) : []
+        let result = try ssh.exec(RemoteCommands.shell(script), input: Data(), timeout: timeout, cancellation: cancellation)
+        return result.status == 0 ? TerminalStartupGate.clients(from: result.text) : []
     }
 }

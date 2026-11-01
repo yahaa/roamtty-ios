@@ -42,8 +42,7 @@ import Foundation
         let demand = UUID()
         let id: UUID
         let entry: Entry
-        if let existing = keys[key], let found = entries[existing] { id = existing; entry = found }
-        else {
+        if let existing = keys[key], let found = entries[existing] { id = existing; entry = found } else {
             id = UUID(); entry = Entry(key: key, loader: load)
             keys[key] = id; entries[id] = entry; pending.append(id)
         }
@@ -64,8 +63,7 @@ import Foundation
             accountedBytes -= bytes
             entry.resource = nil
         }
-        if let task = entry.task { task.cancel() }
-        else { entries.removeValue(forKey: id); pending.removeAll { $0 == id } }
+        if let task = entry.task { task.cancel() } else { entries.removeValue(forKey: id); pending.removeAll { $0 == id } }
         drain()
     }
 

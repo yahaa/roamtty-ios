@@ -127,6 +127,8 @@
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
+				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -182,6 +184,8 @@
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
+				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -566,6 +570,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "91E23E61F928968365F02DAF";
 		};
+		"FB640DA7118FFAF78BD8BD5E" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyCore/Text/RegexLiteral.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"4EFBCFF3A702371B6FE24C7C" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "FB640DA7118FFAF78BD8BD5E";
+		};
 		"2CD3CACF87AB7B4914962BCB" = {
 			"isa" = "PBXFileReference";
 			"path" = "Sources/RoamttyCore/Text/Syntax.swift";
@@ -612,6 +626,7 @@
 				"C36B34D28C95AD0371A59F08",
 				"6CB83B8975132D16C8046F92",
 				"669116967C8FC1FDFE7F381D",
+				"4EFBCFF3A702371B6FE24C7C",
 				"904A11563A19F7A00C3582C3",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
@@ -643,6 +658,8 @@
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
+				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -696,6 +713,8 @@
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
+				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -903,6 +922,8 @@
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
+				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -956,6 +977,8 @@
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
+				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -1328,6 +1351,8 @@
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
+				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -1381,6 +1406,8 @@
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
+				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -1482,6 +1509,16 @@
 		"FCBAB353D5F0BC683B5E8229" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "577C2081524F6D31E90EF88F";
+		};
+		"E73517CFB108CBC79DFA0A3B" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Debug/AppModel+Fixtures.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"079C6550A89A5AD9361E6147" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "E73517CFB108CBC79DFA0A3B";
 		};
 		"404F0694E3CD88C22A958250" = {
 			"isa" = "PBXFileReference";
@@ -1632,6 +1669,36 @@
 		"4B43049E682EB6241D9323A4" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "2C6A5B7E10DADC4DBC5248D9";
+		};
+		"FD95E4BA05DE0B8F82CBC8C2" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Features/Desktop/DesktopController.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"6A935FEDBFF81FE7283D1430" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "FD95E4BA05DE0B8F82CBC8C2";
+		};
+		"AF728D00D79479C342578648" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Features/Desktop/DesktopGestureView.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"4241F59F15110DC570B41269" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "AF728D00D79479C342578648";
+		};
+		"B3AFEB07524685A45CC93F10" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Features/Desktop/DesktopInputViews.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"D4CABE2FEFBE9E39A1FE0247" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "B3AFEB07524685A45CC93F10";
 		};
 		"E141EFA8404E93DBC6F842A6" = {
 			"isa" = "PBXFileReference";
@@ -2353,6 +2420,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "DACDF14B148B60D710793B90";
 		};
+		"DD8FC09DB204B207B66DA7B8" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Services/SSHConnection+Async.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"1E5E6B100ACE77F830AECC1A" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "DD8FC09DB204B207B66DA7B8";
+		};
 		"52C0E61190107DD201A7D211" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/Roamtty/Services/SessionPreferences.swift";
@@ -2401,6 +2478,7 @@
 				"C7716B50DC300605E10A3F99",
 				"DAC524378CE113C35523C793",
 				"FCBAB353D5F0BC683B5E8229",
+				"079C6550A89A5AD9361E6147",
 				"3D844E0D227A8063160AC9D1",
 				"5F29D1EC30498895BFD1E919",
 				"9107B4B12E6AE7BF68C39086",
@@ -2416,6 +2494,9 @@
 				"C30972585B0E368F1789B3FC",
 				"1DDA4A25308A02113138E6C0",
 				"4B43049E682EB6241D9323A4",
+				"6A935FEDBFF81FE7283D1430",
+				"4241F59F15110DC570B41269",
+				"D4CABE2FEFBE9E39A1FE0247",
 				"D5E10AFFB2A511263FEF5585",
 				"69119A85CFCB1484B3A9EA74",
 				"EA1B54AB3AB6F05C5560088E",
@@ -2488,6 +2569,7 @@
 				"960754CB326E8238838DD365",
 				"743DB4EFD34F3A8CC0B09B54",
 				"96E31590497DD5F2463F1D45",
+				"1E5E6B100ACE77F830AECC1A",
 				"3CA37FF21651889E6D99B981",
 				"F2664F6988963FD8EF5C00F8",
 				"1FC050EFE9B74172005CD96C",
@@ -2866,6 +2948,8 @@
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
+				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -2925,6 +3009,8 @@
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
+				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -3131,6 +3217,8 @@
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
+				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -3187,6 +3275,8 @@
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
+				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -3568,6 +3658,8 @@
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
+				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -3615,6 +3707,8 @@
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
+				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -3750,6 +3844,7 @@
 				"A986020F5DF4C4B0EB053611",
 				"57FEC7FE39114A38EBCC061B",
 				"91E23E61F928968365F02DAF",
+				"FB640DA7118FFAF78BD8BD5E",
 				"2CD3CACF87AB7B4914962BCB",
 				"7C26E08C1C0DA8DF118B38E5",
 				"222C3CC93EAC0C2D4CB6B3AC",
@@ -3785,6 +3880,7 @@
 				"8AADF96DA52A4385487B76A0",
 				"5840B97A1E2E2F0D654FAFB9",
 				"577C2081524F6D31E90EF88F",
+				"E73517CFB108CBC79DFA0A3B",
 				"404F0694E3CD88C22A958250",
 				"0C1A6AD0AC6F4BD341261786",
 				"C4719BB7A40C69B4BB90949C",
@@ -3800,6 +3896,9 @@
 				"7672C1D1E26CB56E4D1FA8A3",
 				"F8750F867E3429D175D3957A",
 				"2C6A5B7E10DADC4DBC5248D9",
+				"FD95E4BA05DE0B8F82CBC8C2",
+				"AF728D00D79479C342578648",
+				"B3AFEB07524685A45CC93F10",
 				"E141EFA8404E93DBC6F842A6",
 				"1ADA88A30302E2D195D883DE",
 				"6DF5BD7A41ABA93A5B3BCC6A",
@@ -3872,6 +3971,7 @@
 				"4945D30DB826049A20AB314B",
 				"EC4C008C4F1F0E4A42D53E21",
 				"DACDF14B148B60D710793B90",
+				"DD8FC09DB204B207B66DA7B8",
 				"52C0E61190107DD201A7D211",
 				"07EC1078D64F2213288D559C",
 				"275E3DB022CBE6D670178A5A",
@@ -3950,6 +4050,8 @@
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
+				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";
@@ -3997,6 +4099,8 @@
 				"TARGETED_DEVICE_FAMILY" = "1,2";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"DEVELOPMENT_TEAM" = "";
+				"COPY_PHASE_STRIP" = "NO";
+				"LM_SKIP_METADATA_EXTRACTION" = "YES";
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"ROAMTTY_APP_GROUP_ENABLED" = "NO";
 				"ROAMTTY_ENTITLEMENTS" = "App/Support/Development.entitlements";

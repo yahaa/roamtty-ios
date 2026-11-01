@@ -91,7 +91,7 @@ public final class DesktopPageModel: @unchecked Sendable {
         (1...12).map { ("F\($0)", HidUsage.f($0)) } + [
             ("Home", HidUsage.HOME), ("End", HidUsage.END), ("PgUp", HidUsage.PAGE_UP), ("PgDn", HidUsage.PAGE_DOWN),
             ("Del", HidUsage.DELETE), ("Ins", HidUsage.INSERT), ("Shift", HidUsage.LEFT_SHIFT),
-            ("PrtSc", HidUsage.PRINT_SCREEN), ("←", HidUsage.LEFT), ("↑", HidUsage.UP), ("↓", HidUsage.DOWN), ("→", HidUsage.RIGHT),
+            ("PrtSc", HidUsage.PRINT_SCREEN), ("←", HidUsage.LEFT), ("↑", HidUsage.UP), ("↓", HidUsage.DOWN), ("→", HidUsage.RIGHT)
         ]
     }
 

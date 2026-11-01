@@ -131,7 +131,11 @@ final class DesktopLaunchUITests: XCTestCase {
         func drawnWidth() -> Int { Int((picture.value as? String)?.split(separator: "x").first ?? "") ?? 0 }
         let before = drawnWidth()
         XCTAssertGreaterThan(before, 0)
-        picture.pinch(withScale: 2.5, velocity: 2)
+        // XCUIElement.pinch rests both fingers before spreading them, which the page takes for a two-finger hold (as
+        // Android does); a pinch spreads them at once.
+        let frame = picture.frame
+        func at(_ x: CGFloat) -> CGPoint { CGPoint(x: frame.minX + frame.width * x, y: frame.midY) }
+        try Touches.perform([[(at(0.45), 0), (at(0.15), 0.4)], [(at(0.55), 0), (at(0.85), 0.4)]])
         let zoomed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in drawnWidth() > before + 20 }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [zoomed], timeout: 5), .completed, "A pinch enlarges the picture: \(before) -> \(drawnWidth())")
         capture(app, "Pinch zoomed")
@@ -187,7 +191,7 @@ final class DesktopLaunchUITests: XCTestCase {
             ("login", "启动桌面插件", ["进行中", "等待中", "等待中"]),
             ("install", "安装桌面插件", ["已完成", "进行中", "等待中"]),
             ("start", "启动桌面插件", ["已完成", "进行中", "等待中"]),
-            ("first-frame", "启动桌面插件", ["已完成", "已完成", "进行中"]),
+            ("first-frame", "启动桌面插件", ["已完成", "已完成", "进行中"])
         ] {
             launchStatusFixture(app, phase: phase)
             XCTAssertTrue(app.staticTexts["正在打开桌面"].waitForExistence(timeout: 10))

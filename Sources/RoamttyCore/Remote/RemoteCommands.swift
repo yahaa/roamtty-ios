@@ -4,33 +4,41 @@ import Foundation
 
 public enum RemoteCommands {
     public static func shellQuote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+    /// `script` as one command line for `/bin/sh`, whatever the login shell is.
+    public static func shell(_ script: String) -> String { "/bin/sh -c " + shellQuote(script) }
+    /// Runs the script sent on standard input, which keeps it out of the command line and the process list.
+    public static let stdinShell = "/bin/sh -s"
     public static let extraPath = "/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/home/linuxbrew/.linuxbrew/bin:/snap/bin"
     public static let pathSetup = "PATH=\"$PATH:\(extraPath)\"; export PATH"
-    public static let tmuxProbe = "/bin/sh -c " + shellQuote(pathSetup + "; command -v tmux >/dev/null 2>&1")
+    public static let tmuxProbe = shell(pathSetup + "; command -v tmux >/dev/null 2>&1")
     public static func sanitizeSessionName(_ name: String) -> String {
         let safe = String(name.unicodeScalars.filter { CharacterSet.letters.contains($0) || CharacterSet.decimalDigits.contains($0) || $0 == "-" || $0 == "_" }.prefix(64))
         return safe.isEmpty ? "roamtty" : safe
     }
+    // swiftlint:disable:next line_length - one shell script line
     private static let bottomPromptPane = ##"n=$(tmux display-message -p "#{pane_height}" 2>/dev/null); [ -n "$n" ] || { set -- $(stty size 2>/dev/null); n=${1:-0}; }; while [ "$n" -gt 1 ]; do echo; n=$((n - 1)); done; s=${SHELL:-/bin/sh}; c=$(tmux show-options -gv default-command 2>/dev/null); [ -n "$c" ] && exec "$s" -c "$c"; exec "$s" -l"##
 
     /// `existing`: a session that was already on the server, attached as it is: never created, its other clients stay
-    /// attached and its status line stays; only mouse mode goes on, so swipes scroll its history.
+    /// attached and its status line stays; only mouse mode goes on, so swipes scroll its history. The client runs with
+    /// `-u` because sshd may start the command without a UTF-8 locale (macOS does), and tmux then draws every
+    /// non-ASCII character as "_".
     public static func tmuxAttach(_ name: String, existing: Bool = false) -> String {
         let name = sanitizeSessionName(name)
-        if existing { return "exec /bin/sh -c " + shellQuote(pathSetup + "; exec tmux attach-session -t =\(name) \\; set-option -t \(name) mouse on") }
+        if existing { return "exec " + shell(pathSetup + "; exec tmux -u attach-session -t =\(name) \\; set-option -t \(name) mouse on") }
         let pane = bottomPromptPane.replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "$", with: "\\$")
         let options = "\\; set-option -t \(name) mouse on \\; set-option -t \(name) status off"
         let script = pathSetup + "; " +
             "if [ \"$(tmux display-message -p -t \(name) \"#{pane_mode}\" 2>/dev/null)\" = copy-mode ]; then " +
             "tmux send-keys -t \(name) -X cancel || true; fi; " +
-            "case \"$(tmux -V 2>/dev/null)\" in \"tmux \"[0-2].*) exec tmux new-session -A -D -s \(name) \(options);; esac; " +
-            "exec tmux new-session -A -D -s \(name) /bin/sh -c \"\(pane)\" \(options)"
-        return "exec /bin/sh -c " + shellQuote(script)
+            "case \"$(tmux -V 2>/dev/null)\" in \"tmux \"[0-2].*) exec tmux -u new-session -A -D -s \(name) \(options);; esac; " +
+            "exec tmux -u new-session -A -D -s \(name) /bin/sh -c \"\(pane)\" \(options)"
+        return "exec " + shell(script)
     }
     /// One line per tmux session on the server, `windows<TAB>attached clients<TAB>last activity<TAB>pane command<TAB>
     /// agent report<TAB>name<TAB>folder`, the report as `agentStatus` reads it (see `TmuxSessionInfo.parse`); nothing
     /// when no tmux server runs, and exit status 127 without tmux. The hook strips tabs from what it records.
-    public static let tmuxSessions = "/bin/sh -c " + shellQuote(pathSetup + "; command -v tmux >/dev/null 2>&1 || exit 127; " +
+    public static let tmuxSessions = shell(pathSetup + "; command -v tmux >/dev/null 2>&1 || exit 127; " +
+        // swiftlint:disable:next line_length - the tmux format string is one argument
         "tmux -u list-sessions -F '#{session_windows}\t#{session_attached}\t#{session_activity}\t#{pane_current_command}\t#{@roamtty_agent}|#{@roamtty_worked}|#{@roamtty_task}|#{@roamtty_reply}\t#{session_name}\t#{pane_current_path}' 2>/dev/null; exit 0")
     public static func killTmux(_ name: String) -> String {
         let name = sanitizeSessionName(name)
@@ -42,7 +50,7 @@ public enum RemoteCommands {
     /// commands without a UTF-8 locale, and tmux then prints each non-ASCII character of a prompt or a folder as "_".
     public static func agentStatus(_ name: String) -> String {
         let name = sanitizeSessionName(name)
-        return "/bin/sh -c " + shellQuote(pathSetup + "; tmux -u display-message -p -t \(name) " +
+        return shell(pathSetup + "; tmux -u display-message -p -t \(name) " +
             "\"#{pane_current_command}|#{@roamtty_agent}|#{@roamtty_worked}|#{@roamtty_task}|#{@roamtty_reply}\" 2>/dev/null && " +
             "tmux -u display-message -p -t \(name) \"#{pane_current_path}\" 2>/dev/null; date +%s")
     }
@@ -51,7 +59,7 @@ public enum RemoteCommands {
     /// has no `respawn-pane -c`, so it falls back to a plain respawn.
     public static func restartPane(_ name: String) -> String {
         let name = sanitizeSessionName(name)
-        return "/bin/sh -c " + shellQuote(pathSetup + "; " +
+        return shell(pathSetup + "; " +
             "p=$(tmux display-message -p -t \(name) \"#{pane_pid}\") && [ -n \"$p\" ] || exit 1; " +
             "d=$(tmux display-message -p -t \(name) \"#{pane_current_path}\"); " +
             "ps -A -ww -o ppid= -o stat= -o args= | while read q s a; do [ \"$q\" = \"$p\" ] || continue; " +
@@ -62,15 +70,15 @@ public enum RemoteCommands {
     public static func writeHostFile(_ name: String, executable: Bool = false) -> String? {
         guard !name.isEmpty, !name.hasPrefix("."), name.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) || "-_.".unicodeScalars.contains($0) }) else { return nil }
         let chmod = executable ? " && chmod +x \"$HOME/.roamtty/\(name)\"" : ""
-        return "/bin/sh -c " + shellQuote("mkdir -p \"$HOME/.roamtty\" && cat > \"$HOME/.roamtty/\(name)\"" + chmod)
+        return shell("mkdir -p \"$HOME/.roamtty\" && cat > \"$HOME/.roamtty/\(name)\"" + chmod)
     }
     /// Prints the folder the terminal is in: the tmux pane's, or for a plain shell the login shell of this same SSH
     /// connection (found by its `SSH_CONNECTION` and `SSH_TTY`), without typing anything into its terminal.
     public static func workingDirectory(tmux name: String?) -> String {
         if let name {
-            return "/bin/sh -c " + shellQuote(pathSetup + "; tmux -u display-message -p -t " + shellQuote("=" + sanitizeSessionName(name) + ":") + " '#{pane_current_path}'")
+            return shell(pathSetup + "; tmux -u display-message -p -t " + shellQuote("=" + sanitizeSessionName(name) + ":") + " '#{pane_current_path}'")
         }
-        return "/bin/sh -c " + shellQuote(#"""
+        return shell(#"""
             test -n "$SSH_CONNECTION" || exit 1
             for pid in $(ps -u "$(id -u)" -o pid=,sid= | awk '$1 == $2 { print $1 }'); do
                 p=/proc/$pid
@@ -86,7 +94,7 @@ public enum RemoteCommands {
     public static func tmuxAlternateScreen(_ name: String) -> String {
         // The colon selects the active pane. A session-only target produces an empty format value.
         let target = "=" + sanitizeSessionName(name) + ":"
-        return "/bin/sh -c " + shellQuote(pathSetup + "; tmux display-message -p -t " + shellQuote(target) + " '#{alternate_on}'")
+        return shell(pathSetup + "; tmux display-message -p -t " + shellQuote(target) + " '#{alternate_on}'")
     }
 }
 
@@ -94,10 +102,22 @@ public enum CodingAgent: String, Codable, CaseIterable, Identifiable, Sendable {
     case claude = "CLAUDE", codex = "CODEX", grok = "GROK"
     public var id: String { rawValue }
     public var label: String { self == .claude ? "Claude Code" : shortLabel }
-    public var shortLabel: String { switch self { case .claude: return "Claude"; case .codex: return "Codex"; case .grok: return "Grok" } }
+    public var shortLabel: String {
+        switch self {
+        case .claude: return "Claude"
+        case .codex: return "Codex"
+        case .grok: return "Grok"
+        }
+    }
     public var command: String { rawValue.lowercased() }
     public var readOnlyFlag: String { self == .claude ? "--permission-mode plan" : "--sandbox read-only" }
-    public var yoloFlag: String { switch self { case .claude: return "--dangerously-skip-permissions"; case .codex: return "--dangerously-bypass-approvals-and-sandbox"; case .grok: return "--always-approve" } }
+    public var yoloFlag: String {
+        switch self {
+        case .claude: return "--dangerously-skip-permissions"
+        case .codex: return "--dangerously-bypass-approvals-and-sandbox"
+        case .grok: return "--always-approve"
+        }
+    }
     public static func from(_ value: String?) -> Self { value.flatMap(Self.init(rawValue:)) ?? .codex }
     /// The agent a hook reported itself as (its `command`), or nil for one this app does not know.
     public static func fromCommand(_ value: String?) -> Self? { allCases.first { $0.command == value } }
@@ -116,7 +136,13 @@ public struct AgentLaunch: Equatable, Sendable {
     public var directory: String
     public var mode: AgentMode
     public init(agent: CodingAgent, directory: String, mode: AgentMode = .standard) { self.agent = agent; self.directory = directory; self.mode = mode }
-    public var agentCommand: String { switch mode { case .standard: return agent.command; case .readOnly: return agent.command + " " + agent.readOnlyFlag; case .yolo: return agent.command + " " + agent.yoloFlag } }
+    public var agentCommand: String {
+        switch mode {
+        case .standard: return agent.command
+        case .readOnly: return agent.command + " " + agent.readOnlyFlag
+        case .yolo: return agent.command + " " + agent.yoloFlag
+        }
+    }
     /// Agents report their state through hooks on hosts that run POSIX scripts.
     public var reportsStatus: Bool { true }
     /// `agentCommand` as typed: with the hooks `AgentHooks.hostFile` puts on the host, which Claude Code reads from its
@@ -155,9 +181,15 @@ public enum StartDirectory {
     public static func segments(_ directory: String) -> [(name: String, path: String)] {
         guard isSupported(directory) else { return [] }
         let directory = normalize(directory), root: String, rest: String
-        if directory == home || directory.hasPrefix("~/") { root = home; rest = String(directory.dropFirst()) }
-        else if directory.hasPrefix("/") { root = "/"; rest = directory }
-        else { return [(directory, directory)] }
+        if directory == home || directory.hasPrefix("~/") {
+            root = home
+            rest = String(directory.dropFirst())
+        } else if directory.hasPrefix("/") {
+            root = "/"
+            rest = directory
+        } else {
+            return [(directory, directory)]
+        }
         var path = root, result = [(root, root)]
         for name in rest.split(separator: "/") { path += (path.hasSuffix("/") ? "" : "/") + name; result.append((String(name), path)) }
         return result
@@ -237,8 +269,10 @@ public enum HostPlugin: String, Codable, CaseIterable, Sendable { case tmux, mos
 public enum HostPluginProbe {
     public static let tmuxMarker = "__ITERMUX_TMUX__="
     public static let moshMarker = "__ITERMUX_MOSH__="
-    public static let command = "/bin/sh -s"
-    public static var script: String { RemoteCommands.pathSetup + "\nm=$(command -v mosh-server 2>/dev/null)\nprintf '\(tmuxMarker)%s\\n' \"$(command -v tmux 2>/dev/null)\"\nprintf '\(moshMarker)%s\\n' \"$m\"\nexit 0" }
+    public static let command = RemoteCommands.stdinShell
+    public static var script: String {
+        RemoteCommands.pathSetup + "\nm=$(command -v mosh-server 2>/dev/null)\nprintf '\(tmuxMarker)%s\\n' \"$(command -v tmux 2>/dev/null)\"\nprintf '\(moshMarker)%s\\n' \"$m\"\nexit 0"
+    }
     public static func parse(_ output: String?) -> Set<HostPlugin>? {
         guard let lines = output?.components(separatedBy: .newlines).map({ $0.trimmingCharacters(in: .whitespaces) }),
               let tmux = lines.first(where: { $0.hasPrefix(tmuxMarker) }), let mosh = lines.first(where: { $0.hasPrefix(moshMarker) }) else { return nil }
@@ -315,18 +349,33 @@ public enum HostPluginInstaller {
 
 public enum HostSystem: String, Codable, CaseIterable, Sendable {
     case UNKNOWN, OTHER, LINUX, WINDOWS, MACOS, UBUNTU, DEBIAN, CENTOS, FEDORA, ARCH, REDHAT, OPENSUSE, ROCKY, ALMALINUX, GENTOO, NIXOS, LINUXMINT
-    public var label: String { switch self {
-        case .UNKNOWN: return "未知系统"; case .OTHER: return "其他系统"; case .LINUX: return "Linux"; case .WINDOWS: return "Windows"; case .MACOS: return "macOS"
-        case .UBUNTU: return "Ubuntu"; case .DEBIAN: return "Debian"; case .CENTOS: return "CentOS"; case .FEDORA: return "Fedora"; case .ARCH: return "Arch Linux"
-        case .REDHAT: return "Red Hat Enterprise Linux"; case .OPENSUSE: return "openSUSE"; case .ROCKY: return "Rocky Linux"; case .ALMALINUX: return "AlmaLinux"
-        case .GENTOO: return "Gentoo"; case .NIXOS: return "NixOS"; case .LINUXMINT: return "Linux Mint"
-    } }
+    public var label: String {
+        switch self {
+        case .UNKNOWN: return "未知系统"
+        case .OTHER: return "其他系统"
+        case .LINUX: return "Linux"
+        case .WINDOWS: return "Windows"
+        case .MACOS: return "macOS"
+        case .UBUNTU: return "Ubuntu"
+        case .DEBIAN: return "Debian"
+        case .CENTOS: return "CentOS"
+        case .FEDORA: return "Fedora"
+        case .ARCH: return "Arch Linux"
+        case .REDHAT: return "Red Hat Enterprise Linux"
+        case .OPENSUSE: return "openSUSE"
+        case .ROCKY: return "Rocky Linux"
+        case .ALMALINUX: return "AlmaLinux"
+        case .GENTOO: return "Gentoo"
+        case .NIXOS: return "NixOS"
+        case .LINUXMINT: return "Linux Mint"
+        }
+    }
     public static func fromStored(_ value: String) -> Self { Self(rawValue: value) ?? .UNKNOWN }
 }
 
 public enum HostSystemProbe {
     public static let kernelMarker = "__ITERMUX_KERNEL__", releaseMarker = "__ITERMUX_OS_RELEASE__", legacyMarker = "__ITERMUX_LEGACY_RELEASE__"
-    public static let command = "/bin/sh -s", windowsCommand = "cmd.exe /c ver"
+    public static let command = RemoteCommands.stdinShell, windowsCommand = "cmd.exe /c ver"
     public static let script = #"""
     printf '__ITERMUX_KERNEL__\n'; uname -s 2>/dev/null
     printf '__ITERMUX_OS_RELEASE__\n'
@@ -354,7 +403,9 @@ public enum HostSystemProbe {
                 for quote in ["\"", "'"] where value.count >= 2 && value.hasPrefix(quote) && value.hasSuffix(quote) { value = String(value.dropFirst().dropLast()) }
                 values[key] = value
             }
-            let supported: [String: HostSystem] = ["ubuntu": .UBUNTU, "debian": .DEBIAN, "centos": .CENTOS, "fedora": .FEDORA, "arch": .ARCH, "rhel": .REDHAT, "opensuse": .OPENSUSE, "opensuse-leap": .OPENSUSE, "opensuse-tumbleweed": .OPENSUSE, "rocky": .ROCKY, "almalinux": .ALMALINUX, "gentoo": .GENTOO, "nixos": .NIXOS, "linuxmint": .LINUXMINT]
+            let supported: [String: HostSystem] = ["ubuntu": .UBUNTU, "debian": .DEBIAN, "centos": .CENTOS, "fedora": .FEDORA, "arch": .ARCH,
+                "rhel": .REDHAT, "opensuse": .OPENSUSE, "opensuse-leap": .OPENSUSE, "opensuse-tumbleweed": .OPENSUSE, "rocky": .ROCKY,
+                "almalinux": .ALMALINUX, "gentoo": .GENTOO, "nixos": .NIXOS, "linuxmint": .LINUXMINT]
             if let id = values["ID"], !id.isEmpty { return supported[id.lowercased()] ?? .LINUX }
             let legacy = section(legacyMarker, until: nil).lowercased()
             if legacy.hasPrefix("centos") { return .CENTOS }

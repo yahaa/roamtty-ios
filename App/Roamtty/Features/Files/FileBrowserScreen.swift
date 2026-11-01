@@ -8,7 +8,7 @@ struct FileBrowserScreen: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.dismiss) private var dismiss
     let host: Host
-    var sessionID: String? = nil
+    var sessionID: String?
     var initialDirectory = "."
     var downloadSelection = false
     var onLaunchDirectory: ((Bool, String) -> Void)?
@@ -48,7 +48,8 @@ struct FileBrowserScreen: View {
     @State private var mutationCancellation: TransferCancellation?
     @State private var mutationTask: Task<Void, Never>?
     @State private var mutationCancelling = false
-    init(host: Host, sessionID: String? = nil, initialDirectory: String = ".", downloadSelection: Bool = false, connectionTarget: RemoteConnectionTarget, onLaunchDirectory: ((Bool, String) -> Void)? = nil) {
+    init(host: Host, sessionID: String? = nil, initialDirectory: String = ".", downloadSelection: Bool = false,
+         connectionTarget: RemoteConnectionTarget, onLaunchDirectory: ((Bool, String) -> Void)? = nil) {
         self.host = host; self.sessionID = sessionID; self.initialDirectory = initialDirectory; self.downloadSelection = downloadSelection
         self.onLaunchDirectory = onLaunchDirectory
         _connectionTarget = State(initialValue: connectionTarget)
@@ -89,7 +90,11 @@ struct FileBrowserScreen: View {
             if let actionError {
                 HStack(alignment: .top, spacing: 12) {
                     Text(actionError).font(.footnote).foregroundStyle(Palette.warning).frame(maxWidth: .infinity, alignment: .leading).accessibilityIdentifier("files-operation-error")
-                    Button { self.actionError = nil } label: { Image(systemName: "xmark.circle") }.accessibilityLabel(model.text("关闭错误", "Dismiss error")).accessibilityIdentifier("files-operation-error-dismiss")
+                    Button {
+                        self.actionError = nil
+                    } label: {
+                        Image(systemName: "xmark.circle")
+                    }.accessibilityLabel(model.text("关闭错误", "Dismiss error")).accessibilityIdentifier("files-operation-error-dismiss")
                 }.padding(12).background(Palette.panel)
             }
             if let searchWarning { Text(searchWarning).font(.caption).foregroundStyle(Palette.warning).padding(.horizontal, 16).accessibilityIdentifier("files-search-warning") }
@@ -98,14 +103,15 @@ struct FileBrowserScreen: View {
                     Text(failure).font(.subheadline).foregroundStyle(Palette.secondary).multilineTextAlignment(.center)
                     Button(model.text("重试", "Retry")) { navigate(directory) }.buttonStyle(TextActionStyle())
                 }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            else {
+            } else {
                 List(shown) { entry in
                     HStack(spacing: 0) {
                         Button { if entry.isDirectory { navigate(entry.path) } else if selecting { toggleSelection(entry) } else { preview = entry } } label: {
                             if compact { landscapeRow(entry) } else {
                             HStack(spacing: 16) {
-                                if selecting && !entry.isDirectory { Image(systemName: selected.contains(where: { $0.path == entry.path }) ? "checkmark.circle.fill" : "circle").foregroundStyle(Palette.accent) }
+                                if selecting && !entry.isDirectory {
+                                    Image(systemName: selected.contains(where: { $0.path == entry.path }) ? "checkmark.circle.fill" : "circle").foregroundStyle(Palette.accent)
+                                }
                                 RemoteFileIcon(name: entry.name, directory: entry.isDirectory, permissions: entry.isSymlink ? 0 : entry.permissions, link: entry.isSymlink, size: 28)
                                     .opacity(entry.name.hasPrefix(".") ? 0.6 : 1)
                                 VStack(alignment: .leading, spacing: 2) {
@@ -125,14 +131,20 @@ struct FileBrowserScreen: View {
                         .listRowInsets(compact ? EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 0) : EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 4))
                         .contextMenu { entryActions(entry) }.swipeActions(edge: .trailing) {
                         Button(role: .destructive) { deleteEntry = entry } label: { Label(model.text("删除", "Delete"), systemImage: "trash") }
-                        Button { model.files.download(entry, host: host, model: model, connectionTarget: connectionTarget); transfers = true } label: { Label(model.text("下载", "Download"), systemImage: "arrow.down.circle") }.tint(Palette.accent)
-                    }
+                        Button {
+                            model.files.download(entry, host: host, model: model, connectionTarget: connectionTarget)
+                            transfers = true
+                        } label: {
+                            Label(model.text("下载", "Download"), systemImage: "arrow.down.circle")
+                        }.tint(Palette.accent)
+                        }
                 }.listStyle(.plain).scrollContentBackground(.hidden).disabled(mutationID != nil).refreshable { if mutationID == nil { await load(directory) } }
                     .overlay {
                         if !loading && !searching && shown.isEmpty {
                             VStack(spacing: 12) {
                                 RemoteFileIcon(name: "", directory: true, size: 56).opacity(0.5)
-                                Text(entries.isEmpty ? model.text("此目录为空", "This folder is empty") : !filter.isEmpty ? model.text("没有匹配的项目", "No matching items") : model.text("没有可显示的项目", "Nothing to show"))
+                                Text(entries.isEmpty ? model.text("此目录为空", "This folder is empty") : !filter.isEmpty ? model.text("没有匹配的项目",
+                                    "No matching items") : model.text("没有可显示的项目", "Nothing to show"))
                                     .font(.subheadline).foregroundStyle(Palette.secondary)
                             }
                         } else if loading && entries.isEmpty {
@@ -151,7 +163,9 @@ struct FileBrowserScreen: View {
             .onChange(of: searchDismissal) { _ in searchFocused = false }
             .toolbar {
                 ToolbarItem(placement: .principal) { pathBar.disabled(mutationID != nil) }
-                ToolbarItem(placement: .navigationBarTrailing) { Menu { optionsMenu } label: { AppIcon("ic_more", size: 24) }.accessibilityLabel(model.text("更多", "More")).accessibilityIdentifier("files-options") }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Menu { optionsMenu } label: { AppIcon("ic_more", size: 24) }.accessibilityLabel(model.text("更多", "More")).accessibilityIdentifier("files-options")
+                }
             }
             .task { if downloadSelection { selecting = true }; await load(initialDirectory == "~" ? "." : initialDirectory) }
             .onAppear { visible = true; receiveSharedUpload() }
@@ -171,10 +185,13 @@ struct FileBrowserScreen: View {
             .sheet(isPresented: $transfers, onDismiss: { navigate(directory); receiveSharedUpload() }) { TransferScreen(transfers: model.files).environmentObject(model) }
             .sheet(isPresented: Binding(get: { !uploadURLs.isEmpty }, set: { if !$0 { uploadURLs = [] } }), onDismiss: {
                 if let sharedUploadID { model.files.finishSharedUpload(sharedUploadID); self.sharedUploadID = nil }
-                if showTransfersAfterUpload { showTransfersAfterUpload = false; transfers = true }
-                else { receiveSharedUpload() }
+                if showTransfersAfterUpload { showTransfersAfterUpload = false; transfers = true } else { receiveSharedUpload() }
             }) {
-                UploadFilesSheet(host: host, urls: uploadURLs, initialDirectory: directory == "." ? initialDirectory : directory, sessionID: sessionID, insertionRuntime: targetRuntime, connectionTarget: connectionTarget) { showTransfersAfterUpload = true; uploadURLs = [] }.environmentObject(model)
+                UploadFilesSheet(host: host, urls: uploadURLs, initialDirectory: directory == "." ? initialDirectory : directory,
+                    sessionID: sessionID, insertionRuntime: targetRuntime, connectionTarget: connectionTarget) {
+                    showTransfersAfterUpload = true
+                    uploadURLs = []
+                }.environmentObject(model)
             }
             .alert(model.text("重命名", "Rename"), isPresented: Binding(get: { renameEntry != nil }, set: { if !$0 { renameEntry = nil } })) {
                 TextField(model.text("文件名", "Name"), text: $newName).accessibilityIdentifier("files-rename-name")
@@ -186,11 +203,15 @@ struct FileBrowserScreen: View {
                 Button(model.text("创建", "Create")) { createFolder() }.disabled(!isSafeRemoteEntryName(newFolderName)).accessibilityIdentifier("files-create-folder")
                 Button(model.text("取消", "Cancel"), role: .cancel) { newFolderName = "" }
             }
-            .alert(deleteEntry?.isDirectory == true ? model.text("删除文件夹？", "Delete folder?") : model.text("删除文件？", "Delete file?"), isPresented: Binding(get: { deleteEntry != nil }, set: { if !$0 { deleteEntry = nil } }), presenting: deleteEntry) { entry in
+            .alert(deleteEntry?.isDirectory == true ? model.text("删除文件夹？", "Delete folder?") : model.text("删除文件？", "Delete file?"),
+                isPresented: Binding(get: { deleteEntry != nil }, set: { if !$0 { deleteEntry = nil } }),
+                presenting: deleteEntry) { entry in
                 Button(model.text("取消", "Cancel"), role: .cancel) { deleteEntry = nil }
                 Button(model.text("删除", "Delete"), role: .destructive) { remove(entry) }.accessibilityIdentifier("files-delete-confirm")
             } message: { entry in
-                Text(entry.path + "\n\n" + (entry.isDirectory ? model.text("将永久删除远端目录及其全部内容，此操作不可撤销。", "The remote folder and everything in it will be deleted permanently. This cannot be undone.") : model.text("将永久删除远端文件，此操作不可撤销。", "The remote file will be deleted permanently. This cannot be undone.")))
+                Text(entry.path + "\n\n" + (entry.isDirectory ? model.text("将永久删除远端目录及其全部内容，此操作不可撤销。",
+                    "The remote folder and everything in it will be deleted permanently. This cannot be undone.") : model.text("将永久删除远端文件，此操作不可撤销。",
+                    "The remote file will be deleted permanently. This cannot be undone.")))
             }
     }
     @ViewBuilder private var optionsMenu: some View {
@@ -198,19 +219,35 @@ struct FileBrowserScreen: View {
         Button { launchHere(agent: true) } label: { Label { Text("Agent") } icon: { Image("ic_agent") } }.accessibilityIdentifier("files-open-agent")
         Divider()
         Button { navigate(directory) } label: { Label { Text(model.text("刷新", "Refresh")) } icon: { Image("ic_refresh") } }.disabled(loading || mutationID != nil)
-        Button { newFolderName = ""; creatingFolder = true } label: { Label { Text(model.text("新建文件夹", "New folder")) } icon: { Image("ic_folder_add") } }.disabled(mutationID != nil).accessibilityIdentifier("files-new-folder")
+        Button {
+            newFolderName = ""
+            creatingFolder = true
+        } label: {
+            Label { Text(model.text("新建文件夹", "New folder")) } icon: { Image("ic_folder_add") }
+        }.disabled(mutationID != nil).accessibilityIdentifier("files-new-folder")
         Menu {
             Button(model.text("上传文件", "Upload files")) { folderImporter = false; importer = true }
             Button(model.text("上传文件夹", "Upload folder")) { folderImporter = true; importer = true }
         } label: { Label { Text(model.text("上传", "Upload")) } icon: { Image("ic_upload") } }.accessibilityIdentifier("files-upload")
-        Button { selecting.toggle(); if !selecting { selectedOnly = false } } label: { Label { Text(selecting ? model.text("结束批量下载", "Finish batch download") : model.text("批量下载", "Batch download")) } icon: { Image("ic_download") } }.accessibilityIdentifier("files-select")
+        Button {
+            selecting.toggle()
+            if !selecting { selectedOnly = false }
+        } label: {
+            Label { Text(selecting ? model.text("结束批量下载", "Finish batch download") : model.text("批量下载", "Batch download")) } icon: { Image("ic_download") }
+        }.accessibilityIdentifier("files-select")
         Button { transfers = true } label: { Label { Text(model.text("传输", "Transfers")) } icon: { Image("ic_cloud_download") } }.accessibilityIdentifier("files-transfers")
-        Button { UIPasteboard.general.string = directory } label: { Label { Text(model.text("复制当前路径", "Copy current path")) } icon: { Image("ic_copy") } }.accessibilityIdentifier("files-copy-current-path")
+        Button {
+            UIPasteboard.general.string = directory
+        } label: {
+            Label { Text(model.text("复制当前路径", "Copy current path")) } icon: { Image("ic_copy") }
+        }.accessibilityIdentifier("files-copy-current-path")
         if !downloadSelection && model.path.contains(.host(host.id)) {
             Button { model.path = [.host(host.id)] } label: { Label { Text(model.text("返回主机详情", "Back to host details")) } icon: { Image("ic_close") } }.accessibilityIdentifier("files-close")
         }
         Divider()
-        Toggle(model.text("显示隐藏文件", "Show hidden files"), isOn: $model.settings.showHiddenFiles).onChange(of: model.settings.showHiddenFiles) { _ in model.saveSettings() }.accessibilityIdentifier("files-show-hidden")
+        Toggle(model.text("显示隐藏文件", "Show hidden files"), isOn: $model.settings.showHiddenFiles).onChange(of: model.settings.showHiddenFiles) { _ in
+            model.saveSettings()
+        }.accessibilityIdentifier("files-show-hidden")
     }
     private func receiveSharedUpload() {
         // Only the host-only browser selected by Root can receive this handoff. A terminal's
@@ -225,8 +262,7 @@ struct FileBrowserScreen: View {
         uploadURLs = request.urls
     }
     private func launchHere(agent: Bool) {
-        if let onLaunchDirectory { onLaunchDirectory(agent, directory) }
-        else { model.sheet = .launch(host, agent, directory: directory) }
+        if let onLaunchDirectory { onLaunchDirectory(agent, directory) } else { model.sheet = .launch(host, agent, directory: directory) }
     }
     /// Two lines in portrait; one in landscape, where the height is short.
     private var selectionBar: some View {
@@ -234,7 +270,9 @@ struct FileBrowserScreen: View {
         let layout = compact ? AnyLayout(HStackLayout(spacing: 16)) : AnyLayout(VStackLayout(spacing: 8))
         return layout {
             HStack {
-                Button(model.text("全选", "Select all")) { for entry in shown where !entry.isDirectory && !selected.contains(where: { $0.path == entry.path }) { selected.append(entry) } }.accessibilityIdentifier("files-select-all")
+                Button(model.text("全选", "Select all")) {
+                    for entry in shown where !entry.isDirectory && !selected.contains(where: { $0.path == entry.path }) { selected.append(entry) }
+                }.accessibilityIdentifier("files-select-all")
                 Button(model.text("清空", "Clear")) { selected = [] }.disabled(selected.isEmpty)
                 Spacer()
                 Toggle(model.text("仅已选", "Selected only"), isOn: $selectedOnly).fixedSize().accessibilityIdentifier("files-selected-only")
@@ -249,8 +287,7 @@ struct FileBrowserScreen: View {
         }.padding(.horizontal, 12).padding(.vertical, compact ? 6 : 12).background(Palette.panel)
     }
     private func toggleSelection(_ entry: RemoteEntry) {
-        if selected.contains(where: { $0.path == entry.path }) { selected.removeAll { $0.path == entry.path } }
-        else { selected.append(entry) }
+        if selected.contains(where: { $0.path == entry.path }) { selected.removeAll { $0.path == entry.path } } else { selected.append(entry) }
     }
     /// Android `FileBrowserPathBar`: the host as the root crumb, quiet parent folders, the current folder in title weight.
     private var pathBar: some View {
@@ -318,8 +355,11 @@ struct FileBrowserScreen: View {
     private func landscapeBar(_ shown: [RemoteEntry]) -> some View {
         HStack(spacing: 6) {
             Button { dismiss() } label: {
-                if downloadSelection { Text(model.text("完成", "Done")).font(.system(size: 16, weight: .semibold)).foregroundStyle(Palette.accent).padding(.horizontal, 10).frame(height: 44) }
-                else { AppIcon("ic_chevron_left", size: 24).foregroundStyle(Palette.foreground).frame(width: 44, height: 44).contentShape(Rectangle()) }
+                if downloadSelection {
+                    Text(model.text("完成", "Done")).font(.system(size: 16, weight: .semibold)).foregroundStyle(Palette.accent).padding(.horizontal, 10).frame(height: 44)
+                } else {
+                    AppIcon("ic_chevron_left", size: 24).foregroundStyle(Palette.foreground).frame(width: 44, height: 44).contentShape(Rectangle())
+                }
             }.buttonStyle(.plain).accessibilityLabel(downloadSelection ? model.text("完成", "Done") : model.text("返回", "Back"))
                 .accessibilityIdentifier(downloadSelection ? "files-picker-done" : "files-back")
             pathBar.disabled(mutationID != nil).layoutPriority(1)
@@ -379,13 +419,26 @@ struct FileBrowserScreen: View {
         return size < 1024 ? "\(size) B" : size < 1 << 20 ? "\(size / 1024) KiB" : size < 1 << 30 ? String(format: "%.1f MiB", value / 1048576) : String(format: "%.1f GiB", value / 1073741824)
     }
     @ViewBuilder private func entryActions(_ entry: RemoteEntry) -> some View {
-        Button(entry.isDirectory ? model.text("打开", "Open") : model.text("查看内容", "View")) { if entry.isDirectory { navigate(entry.path) } else { preview = entry } }.accessibilityIdentifier("files-action-open")
+        Button(entry.isDirectory ? model.text("打开", "Open") : model.text("查看内容", "View")) {
+            if entry.isDirectory { navigate(entry.path) } else { preview = entry }
+        }.accessibilityIdentifier("files-action-open")
         if entry.isDirectory && !downloadSelection {
-            Button { if let onLaunchDirectory { onLaunchDirectory(false, entry.path) } else { model.sheet = .launch(host, false, directory: entry.path) } } label: { Label { Text(model.text("打开终端", "Open terminal")) } icon: { Image("ic_sessions") } }.accessibilityIdentifier("files-action-open-terminal")
-            Button { if let onLaunchDirectory { onLaunchDirectory(true, entry.path) } else { model.sheet = .launch(host, true, directory: entry.path) } } label: { Label { Text("Agent") } icon: { Image("ic_agent") } }.accessibilityIdentifier("files-action-open-agent")
+            Button {
+                if let onLaunchDirectory { onLaunchDirectory(false, entry.path) } else { model.sheet = .launch(host, false, directory: entry.path) }
+            } label: {
+                Label { Text(model.text("打开终端", "Open terminal")) } icon: { Image("ic_sessions") }
+            }.accessibilityIdentifier("files-action-open-terminal")
+            Button {
+                if let onLaunchDirectory { onLaunchDirectory(true, entry.path) } else { model.sheet = .launch(host, true, directory: entry.path) }
+            } label: {
+                Label { Text("Agent") } icon: { Image("ic_agent") }
+            }.accessibilityIdentifier("files-action-open-agent")
         }
         // iOS also downloads folders recursively, so 下载 is offered for both.
-        Button(model.text("下载", "Download")) { model.files.download(entry, host: host, model: model, connectionTarget: connectionTarget); transfers = true }.accessibilityIdentifier("files-action-download")
+        Button(model.text("下载", "Download")) {
+            model.files.download(entry, host: host, model: model, connectionTarget: connectionTarget)
+            transfers = true
+        }.accessibilityIdentifier("files-action-download")
         if !entry.isDirectory { Button(model.text("选择", "Select")) { selecting = true; toggleSelection(entry) } }
         Button(model.text("复制路径", "Copy path")) { UIPasteboard.general.string = entry.path }.accessibilityIdentifier("files-action-copy-path")
         if let runtime = targetRuntime {
@@ -404,8 +457,7 @@ struct FileBrowserScreen: View {
         if runtime.pasteText(text) { model.path = [.host(host.id), .terminal(runtime.record.id)] }
     }
     private func receiveImport(_ result: Result<[URL], Error>) {
-        do { uploadURLs = try result.get() }
-        catch { if (error as NSError).code != NSUserCancelledError { actionError = error.localizedDescription } }
+        do { uploadURLs = try result.get() } catch { if (error as NSError).code != NSUserCancelledError { actionError = error.localizedDescription } }
     }
     private func navigate(_ path: String) { searchDismissal += 1; filter = ""; selectedOnly = false; Task { await load(path) } }
     private func search(_ request: SearchRequest) async {
@@ -413,7 +465,7 @@ struct FileBrowserScreen: View {
         guard !request.prefix.isEmpty else { searchEntries = []; searching = false; return }
         searching = true; searchEntries = []
         do {
-            try await Task.sleep(nanoseconds: 200_000_000)
+            try await Task.sleep(for: .milliseconds(200))
             let ssh = try await model.connection(for: connectionTarget)
             try model.validate(connectionTarget)
             // One SFTP session for every folder the search reads, instead of a new subsystem per folder.
@@ -428,10 +480,12 @@ struct FileBrowserScreen: View {
             guard searchRequest == request else { return }
             var seen = Set<String>()
             searchEntries = result.directories.flatMap(\.entries).filter { seen.insert($0.path).inserted }
-            if result.limited { searchWarning = model.text("搜索达到目录读取上限，请缩小路径范围。", "Search reached its folder limit. Refine the path.") }
-            else if result.unreadable { searchWarning = model.text("部分目录无法读取。", "Some folders could not be read.") }
-        } catch is CancellationError { return }
-        catch { guard searchRequest == request else { return }; searchWarning = error.localizedDescription }
+            if result.limited {
+                searchWarning = model.text("搜索达到目录读取上限，请缩小路径范围。", "Search reached its folder limit. Refine the path.")
+            } else if result.unreadable {
+                searchWarning = model.text("部分目录无法读取。", "Some folders could not be read.")
+            }
+        } catch is CancellationError { return } catch { guard searchRequest == request else { return }; searchWarning = error.localizedDescription }
         if searchRequest == request { searching = false }
     }
     private func load(_ path: String) async {
@@ -469,8 +523,7 @@ struct FileBrowserScreen: View {
     }
     private func sortChoice(_ sort: RemoteFileSort, chinese: String, english: String) -> some View {
         Button { model.settings.chooseFileSort(sort); model.saveSettings() } label: {
-            if model.settings.fileSort == sort { Label(model.text(chinese, english), systemImage: "checkmark") }
-            else { Text(model.text(chinese, english)) }
+            if model.settings.fileSort == sort { Label(model.text(chinese, english), systemImage: "checkmark") } else { Text(model.text(chinese, english)) }
         }.accessibilityIdentifier("files-sort-" + sort.rawValue)
     }
     private var mutationProgress: some View {

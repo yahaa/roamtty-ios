@@ -105,6 +105,7 @@ private struct Inflater {
         var l = [Int](repeating: 8, count: 288)
         for i in 144..<256 { l[i] = 9 }
         for i in 256..<280 { l[i] = 7 }
+        // swiftlint:disable:next force_try - RFC 1951's fixed code lengths always build a valid table.
         return (try! Huffman(lengths: l[...]), try! Huffman(lengths: [Int](repeating: 5, count: 30)[...]))
     }()
 

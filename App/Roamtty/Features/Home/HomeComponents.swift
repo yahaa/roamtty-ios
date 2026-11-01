@@ -34,7 +34,7 @@ struct HomeEmptyState<Action: View>: View {
 /// How far a home list has scrolled: its content's top in its scroll view (0 at rest, negative as it scrolls on) and
 /// how tall the content is.
 struct HomeScrollOffsetKey: PreferenceKey {
-    static var defaultValue = CGRect.zero
+    static let defaultValue = CGRect.zero
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
 }
 

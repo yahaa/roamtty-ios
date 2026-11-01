@@ -200,7 +200,9 @@ import RoamttyTransport
         let hooks = agent.flatMap { $0.reportsStatus ? $0.agent : nil }
         let token = generation
         // Once mosh carries the terminal, SSH only does side work: its drop must not stop a terminal that still works.
-        ssh.onPhase = { [weak self] value in DispatchQueue.main.async { guard self?.generation == token, self?.mosh == nil else { return }; self?.phase = value == .connected && self?.startupSent == false ? .connecting : value } }
+        ssh.onPhase = { [weak self] value in
+            DispatchQueue.main.async { guard self?.generation == token, self?.mosh == nil else { return }; self?.phase = value == .connected && self?.startupSent == false ? .connecting : value }
+        }
         let startup: String? = agent?.commandLine ?? StartDirectory.command(directory)
         let mode = record.mode, name = record.remoteName, existing = record.external, cols = columns, rows = rows
         let lifetime = lifetimeCancellation
@@ -262,9 +264,9 @@ import RoamttyTransport
         let token = generation
         let task = Task { [weak self] () -> SSHConnection? in
             guard let connection = try? await reopenSideConnection() else { return nil }
-            guard let self, self.generation == token, self.mosh != nil else { DispatchQueue.global(qos: .utility).async { connection.disconnect() }; return nil }
+            guard let self, self.generation == token, self.mosh != nil else { connection.disconnectInBackground(); return nil }
             let previous = self.ssh; self.ssh = connection; self.sideReconnectAt = nil
-            DispatchQueue.global(qos: .utility).async { previous?.disconnect() }
+            previous?.disconnectInBackground()
             return connection
         }
         sideReconnect = task
@@ -275,8 +277,7 @@ import RoamttyTransport
     static let sideReconnectInterval: TimeInterval = 30
     private func receive(_ data: Data, token: UUID, attempt: UUID) {
         guard generation == token, startupAttempt == attempt else { return }
-        if let view = terminalView as? AccessibleTerminalView { view.feedKeepingPlace(Array(data)[...]) }
-        else { terminalView.feed(byteArray: Array(data)[...]) }
+        if let view = terminalView as? AccessibleTerminalView { view.feedKeepingPlace(Array(data)[...]) } else { terminalView.feed(byteArray: Array(data)[...]) }
         mouseTracking.consume(data); restoreMouseTracking()
         queueCursorRefresh()
         if !startupSent {
@@ -333,7 +334,7 @@ import RoamttyTransport
         startupCancellation = cancellation
         startupTimeoutTask = Task { [weak self] in
             do {
-                try await Task.sleep(nanoseconds: 8_000_000_000)
+                try await Task.sleep(for: .seconds(8))
                 guard let self, self.generation == token, self.startupAttempt == attempt, !self.startupSent else { return }
                 self.close(); self.fail(RoamError.transport(Self.tmuxNotReadyMessage))
             } catch { }
@@ -353,7 +354,7 @@ import RoamttyTransport
                         }
                         self.finishStartup(token: token, attempt: attempt)
                         if self.startupSent { return }
-                        try await Task.sleep(nanoseconds: 50_000_000)
+                        try await Task.sleep(for: .milliseconds(50))
                     }
                     throw RoamError.transport(Self.tmuxNotReadyMessage)
                 } catch {
@@ -374,28 +375,11 @@ import RoamttyTransport
     func fail(_ error: Error) {
         pendingPaste = nil
         stopAgentStatusPolling()
-        end = Self.end(after: error, wasConnected: startupSent)
+        end = SessionEnd(failure: error, wasConnected: startupSent)
         if (error as? RoamError) == .authentication { loginSnapshot.invalidateAuthentication() }
         onFailure?(error)
-        if let error = error as? RoamError {
-            switch error {
-            case .authentication: phase = .authFailed
-            case .hostKeyChanged: phase = .hostKeyChanged
-            case .tmuxMissing: phase = .tmuxMissing
-            case .cancelled, .rejected: phase = .disconnected
-            default: phase = .failed
-            }
-        } else { phase = .failed }
+        phase = ConnectionPhase(failure: error)
         message = error.localizedDescription
-    }
-    /// A login that failed or was refused waits for the user; a connection lost after it was up drops, and a host
-    /// that could not be reached may be back later.
-    static func end(after error: Error, wasConnected: Bool) -> SessionEnd {
-        switch error as? RoamError {
-        case .authentication, .hostKeyChanged, .rejected, .cancelled, .tmuxMissing, .sessionLimit, .invalid: return .ended
-        case .timeout: return wasConnected ? .dropped : .unreachable
-        default: return wasConnected ? .dropped : .unreachable
-        }
     }
     func close() {
         pendingPaste = nil; capturedPaste = nil
@@ -406,7 +390,7 @@ import RoamttyTransport
         cursorTimer?.cancel(); keyboardHide?.cancel(); cursorControls = TerminalCursorControls(); cursorRowBounds = nil; cursorRowKey = .escape
         stopAgentStatusPolling()
         sideReconnect?.cancel(); sideReconnect = nil; sideReconnectAt = nil
-        let connection = ssh; ssh = nil; DispatchQueue.global(qos: .utility).async { connection?.disconnect() }
+        ssh?.disconnectInBackground(); ssh = nil
         end = .ended; phase = .disconnected; _ = terminalView.resignFirstResponder()
     }
     func probe() { mosh?.probe() }

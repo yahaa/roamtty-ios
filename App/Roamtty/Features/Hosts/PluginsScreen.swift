@@ -33,7 +33,9 @@ import RoamttyTransport
         .task { system = HostSystem.fromStored(host.system); startProbe() }
         .onDisappear { cancelOperation(); sudoPassword = "" }
         .overlay { AuthenticationOverlay() }
-        .confirmationDialog(model.text("安装 \(confirmInstall?.rawValue ?? "")？", "Install \(confirmInstall?.rawValue ?? "")?"), isPresented: Binding(get: { confirmInstall != nil }, set: { if !$0 { confirmInstall = nil } }), titleVisibility: .visible) {
+        .confirmationDialog(model.text("安装 \(confirmInstall?.rawValue ?? "")？", "Install \(confirmInstall?.rawValue ?? "")?"),
+            isPresented: Binding(get: { confirmInstall != nil }, set: { if !$0 { confirmInstall = nil } }),
+            titleVisibility: .visible) {
             Button(model.text("安装", "Install")) {
                 if let plugin = confirmInstall { confirmInstall = nil; startInstall(plugin) }
             }
@@ -85,8 +87,10 @@ import RoamttyTransport
     @ViewBuilder private var statusSections: some View {
         if probed && installed == nil && !busy {
             Text(system == .WINDOWS
-                 ? model.text("Windows 的 cmd 和 PowerShell 无法运行 tmux 与 mosh。请将 OpenSSH 默认 shell 改为 MSYS2 或 Cygwin 的 bash，或单独添加 WSL 的 SSH 主机。", "Windows cmd and PowerShell cannot run tmux or mosh. Use MSYS2 or Cygwin bash as the OpenSSH default shell, or add a separate WSL SSH host.")
-                 : model.text("无法检测插件。目前支持 Linux、macOS、BSD，以及使用 MSYS2 或 Cygwin shell 的 Windows 主机。", "Plugins could not be detected. Supported hosts include Linux, macOS, BSD, and Windows using an MSYS2 or Cygwin shell."))
+                 ? model.text("Windows 的 cmd 和 PowerShell 无法运行 tmux 与 mosh。请将 OpenSSH 默认 shell 改为 MSYS2 或 Cygwin 的 bash，或单独添加 WSL 的 SSH 主机。",
+                     "Windows cmd and PowerShell cannot run tmux or mosh. Use MSYS2 or Cygwin bash as the OpenSSH default shell, or add a separate WSL SSH host.")
+                 : model.text("无法检测插件。目前支持 Linux、macOS、BSD，以及使用 MSYS2 或 Cygwin shell 的 Windows 主机。",
+                              "Plugins could not be detected. Supported hosts include Linux, macOS, BSD, and Windows using an MSYS2 or Cygwin shell."))
                 .font(.footnote).foregroundStyle(Palette.secondary)
         }
         if let outcome {
@@ -181,8 +185,13 @@ import RoamttyTransport
         case .sudoPassword: return model.text("需要 sudo 密码，或密码不正确。", "A sudo password is required, or the password was incorrect.")
         case .noPrivilege: return model.text("当前用户没有 root 或 sudo 权限，请联系管理员安装。", "This account has no root or sudo access. Ask an administrator to install the plugin.")
         case .noPackageManager:
-            if system == .MACOS { return model.text("未找到 Homebrew 或 MacPorts。请先在 Mac 上安装 Homebrew（brew.sh），再重试。", "Homebrew and MacPorts were not found. Install Homebrew on the Mac (brew.sh), then retry.") }
-            if system == .WINDOWS { return model.text("未找到 pacman 或 apt-cyg。Git Bash 无法安装软件，请改用 MSYS2，或为 Cygwin 安装 apt-cyg。", "Neither pacman nor apt-cyg was found. Use MSYS2, or install apt-cyg in Cygwin; Git Bash cannot install these packages.") }
+            if system == .MACOS {
+                return model.text("未找到 Homebrew 或 MacPorts。请先在 Mac 上安装 Homebrew（brew.sh），再重试。", "Homebrew and MacPorts were not found. Install Homebrew on the Mac (brew.sh), then retry.")
+            }
+            if system == .WINDOWS {
+                return model.text("未找到 pacman 或 apt-cyg。Git Bash 无法安装软件，请改用 MSYS2，或为 Cygwin 安装 apt-cyg。",
+                    "Neither pacman nor apt-cyg was found. Use MSYS2, or install apt-cyg in Cygwin; Git Bash cannot install these packages.")
+            }
             return model.text("未找到支持的包管理器，请手动安装。", "No supported package manager was found. Install the plugin manually.")
         case .failed: return model.text("\(plugin.rawValue) 安装失败，请查看下方输出。", "\(plugin.rawValue) installation failed. See the output below.")
         }
@@ -199,8 +208,7 @@ import RoamttyTransport
         cancellation = token; busy = true; errorMessage = nil
         operation = Task {
             defer { finishOperation(id) }
-            do { try await probe(id, token) }
-            catch { if operationID == id && !token.isCancelled { errorMessage = error.localizedDescription } }
+            do { try await probe(id, token) } catch { if operationID == id && !token.isCancelled { errorMessage = error.localizedDescription } }
         }
     }
 
@@ -219,7 +227,7 @@ import RoamttyTransport
                 let result = try await performInBackground {
                     var input = Data(HostPluginInstaller.script(plugin: plugin, sudoPassword: password).utf8)
                     defer { input.resetBytes(in: 0..<input.count) }
-                    return try ssh.exec("/bin/sh -s", input: input, timeout: 15 * 60, cancellation: token) { data in
+                    return try ssh.exec(RemoteCommands.stdinShell, input: input, timeout: 15 * 60, cancellation: token) { data in
                         DispatchQueue.main.async {
                             guard operationID == id && streaming && !token.isCancelled else { return }
                             log.append(data)
@@ -229,7 +237,7 @@ import RoamttyTransport
                 try checkOperation(id, token)
                 streaming = false
                 var completeLog = PluginInstallLog(); completeLog.append(result.output); completeLog.finish(); log = completeLog
-                outcome = (plugin, HostPluginInstaller.classify(exitStatus: Int(result.status), output: String(decoding: result.output, as: UTF8.self)))
+                outcome = (plugin, HostPluginInstaller.classify(exitStatus: Int(result.status), output: result.text))
                 try await probe(id, token)
             } catch {
                 if operationID == id && !token.isCancelled {
@@ -252,17 +260,10 @@ import RoamttyTransport
     private func probe(_ id: UUID, _ token: TransferCancellation) async throws {
         let ssh = try await model.connection(for: host.id)
         try checkOperation(id, token)
-        let result = try await performInBackground { try ssh.exec(HostPluginProbe.command, input: Data(HostPluginProbe.script.utf8), cancellation: token) }
+        let plugins = try await ssh.probePlugins(timeout: 20, cancellation: token)
         try checkOperation(id, token)
-        installed = HostPluginProbe.parse(String(decoding: result.output, as: UTF8.self)); probed = true
-        let unix = try await performInBackground { try ssh.exec(HostSystemProbe.command, input: Data(HostSystemProbe.script.utf8), cancellation: token) }
-        try checkOperation(id, token)
-        var detected = HostSystemProbe.parse(unix: String(decoding: unix.output, as: UTF8.self))
-        if detected == .UNKNOWN {
-            let windows = try await performInBackground { try ssh.exec(HostSystemProbe.windowsCommand, input: Data(), cancellation: token) }
-            try checkOperation(id, token)
-            detected = HostSystemProbe.parse(unix: nil, windows: String(decoding: windows.output, as: UTF8.self))
-        }
+        installed = plugins; probed = true
+        let detected = try await ssh.probeSystem(timeout: 20, cancellation: token) { try checkOperation(id, token) }
         system = detected == .UNKNOWN ? HostSystem.fromStored(host.system) : detected
         model.updateMetadata(host: host, plugins: installed?.map(\.rawValue), system: system.rawValue)
     }

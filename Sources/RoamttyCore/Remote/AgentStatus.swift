@@ -268,7 +268,7 @@ public enum AgentHooks {
             "  header=\"[hooks.state.\\\"/<session-flags>/config.toml:$1:0:0\\\"]\"",
             "  grep -qF \"$header\" \"$config\" 2>/dev/null || printf '\\n%s\\ntrusted_hash = \"%s\"\\n' \"$header\" \"$2\" >> \"$config\"",
             "}",
-            "mkdir -p \"$(dirname \"$config\")\"",
+            "mkdir -p \"$(dirname \"$config\")\""
         ]
         return (head + trust + ["codex \\"] + hooks + ["  \"$@\""] + launcherEnd(.codex)).joined(separator: "\n") + "\n"
     }
@@ -290,7 +290,7 @@ public enum AgentHooks {
             "dir=\"${GROK_HOME:-$HOME/.grok}/hooks\"",
             "mkdir -p \"$dir\" && printf '%s\\n' '{\"hooks\":{\(hooks)}}' > \"$dir/roamtty.json\"",
             "export ROAMTTY_AGENT=grok",
-            "grok \"$@\"",
+            "grok \"$@\""
         ]
         return (lines + launcherEnd(.grok)).joined(separator: "\n") + "\n"
     }

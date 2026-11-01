@@ -1,4 +1,3 @@
-#if canImport(UIKit)
 import SwiftUI
 import UIKit
 import RoamttyCore
@@ -124,10 +123,10 @@ struct DesktopPage: View {
         .defersSystemGestures(on: .vertical)
         .persistentSystemOverlays(.hidden)
         .task {
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            try? await Task.sleep(for: .milliseconds(1500))
             while !Task.isCancelled {
                 saveThumbnail()
-                do { try await Task.sleep(nanoseconds: 10_000_000_000) } catch { break }
+                do { try await Task.sleep(for: .seconds(10)) } catch { break }
             }
         }
         .onAppear {
@@ -224,7 +223,7 @@ struct DesktopPage: View {
             ("ic_windows_all", model.text("所有窗口", "Windows"), false, {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 controller.input(DesktopProtocol.action(DesktopProtocol.ACTION_ALL_WINDOWS))
-            }),
+            })
         ]
         // 操作 stays in the bottom corner: leftmost in portrait, lowest in landscape.
         let ordered = landscape ? Array(items.reversed()) : items
@@ -297,8 +296,12 @@ struct DesktopPage: View {
                                   : model.text("在手机上播放电脑的声音", "Play the computer's sound on the phone"),
                                   value: Binding(get: { controller.audioOn }, set: { controller.setAudio($0) }))
                             .accessibilityIdentifier("desktop-audio")
-                        toggleRow(model.text("仅观看", "View only"), model.text("不向电脑发送任何操作", "Do not send input to the computer"), value: Binding(get: { controller.viewOnly }, set: { controller.setViewOnly($0) }))
-                        toggleRow(model.text("虚拟鼠标", "Virtual mouse"), model.text("悬浮的左键、右键和滚轮", "Floating left, right buttons and scroll wheel"), value: Binding(get: { virtualMouse }, set: { virtualMouse = $0; page.virtualMouse = $0 }))
+                        toggleRow(model.text("仅观看", "View only"), model.text("不向电脑发送任何操作", "Do not send input to the computer"),
+                            value: Binding(get: { controller.viewOnly }, set: { controller.setViewOnly($0) }))
+                        toggleRow(model.text("虚拟鼠标", "Virtual mouse"), model.text("悬浮的左键、右键和滚轮", "Floating left, right buttons and scroll wheel"), value: Binding(get: { virtualMouse }, set: {
+                            virtualMouse = $0
+                            page.virtualMouse = $0
+                        }))
                         toggleRow(model.text("显示网络状态", "Show network stats"), model.text("画面左上角显示延迟、帧率和码率", "Latency, frame rate and bitrate at top left"), value: Binding(get: { showStats }, set: {
                             showStats = $0; controller.setShowStats($0); model.settings.desktopShowStats = $0; model.saveSettings()
                         }))
@@ -327,7 +330,8 @@ struct DesktopPage: View {
                                 }
                             }
                         }
-                        toggleRow(model.text("断开后锁定电脑", "Lock after disconnect"), model.text("断开连接时锁屏，返回不算", "Lock on disconnect, not when going back"), value: Binding(get: { controller.lockOnClose }, set: { controller.setLockOnClose($0) }))
+                        toggleRow(model.text("断开后锁定电脑", "Lock after disconnect"), model.text("断开连接时锁屏，返回不算", "Lock on disconnect, not when going back"),
+                            value: Binding(get: { controller.lockOnClose }, set: { controller.setLockOnClose($0) }))
                         Button(role: .destructive) { showDisconnect = true } label: {
                             HStack(spacing: 8) {
                                 AppIcon("ic_power", size: 20)
@@ -427,7 +431,7 @@ struct DesktopPage: View {
     }
 
     private var shortcutKeys: some View {
-        let _ = latchRevision
+        _ = latchRevision
         return HStack(spacing: 5) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 5) {
@@ -615,8 +619,8 @@ struct DesktopPage: View {
         shortcutBar = false
         keyboardPage = .ime
         page.keyboardPage = .ime
-        for hid in [HidUsage.LEFT_CTRL, HidUsage.LEFT_ALT, HidUsage.LEFT_GUI, HidUsage.LEFT_SHIFT] {
-            if page.latch.state(hid) != .off { page.tapModifier(hid) }
+        for hid in [HidUsage.LEFT_CTRL, HidUsage.LEFT_ALT, HidUsage.LEFT_GUI, HidUsage.LEFT_SHIFT] where page.latch.state(hid) != .off {
+            page.tapModifier(hid)
         }
         latchRevision += 1
     }
@@ -649,430 +653,15 @@ struct DesktopPage: View {
     }
 
     private func dismissDesktopKeepingLink() {
-        if model.path.last == .desktop(controller.host.id) { _ = model.path.popLast() }
-        else { model.path.removeAll { $0 == .desktop(controller.host.id) } }
+        if model.path.last == .desktop(controller.host.id) { _ = model.path.popLast() } else { model.path.removeAll { $0 == .desktop(controller.host.id) } }
     }
 }
 
-// MARK: - Gesture overlay
-
-private struct DesktopGestureOverlay: UIViewRepresentable {
-    @ObservedObject var controller: DesktopController
-    let size: CGSize
-
-    func makeUIView(context: Context) -> DesktopGestureView {
-        let view = DesktopGestureView()
-        view.controller = controller
-        return view
-    }
-    func updateUIView(_ uiView: DesktopGestureView, context: Context) {
-        uiView.controller = controller
-        uiView.boundsSize = size
-        uiView.hostCursorChanged(controller.cursor)
-    }
-    static func dismantleUIView(_ uiView: DesktopGestureView, coordinator: ()) {
-        uiView.stopTicking()
-        uiView.controller = nil
-    }
-}
-
-/// Raw touches into `DesktopGestures`, and what it asks for out to the host. It also draws what the
-/// gestures need on the phone: the cursor where the phone put it, the hold ring, and haptics.
-final class DesktopGestureView: UIView {
-    weak var controller: DesktopController?
-    var boundsSize: CGSize = .zero
-    private let gestures = DesktopGestures(mode: .touch, density: 1)
-    /// Fires once, when `gestures` next needs a tick (a hold, a waiting right click, inertia); nil while nothing waits.
-    private var tickTimer: Timer?
-    /// The timer's target: the run loop retains it, never the view.
-    private final class TickTarget: NSObject {
-        weak var view: DesktopGestureView?
-        init(_ view: DesktopGestureView) { self.view = view }
-        @objc func tick() { view?.tick() }
-    }
-    /// Each finger's id for `gestures`, for as long as it touches.
-    private var touchIDs: [ObjectIdentifier: Int] = [:]
-    private var nextTouchID = 0
-    private var lastTouchEnded: Int64 = 0
-
-    private let cursorLayer = CALayer()
-    private var cursorShape: CursorImage?
-    private var cursorShown: RemoteCursor?
-    private let ringLayer = CAShapeLayer()
-    private var ringShown: HoldIndicator?
-    private let impact = UIImpactFeedbackGenerator(style: .medium)
-    private let tapFeel = UIImpactFeedbackGenerator(style: .light)
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        backgroundColor = .clear
-        isMultipleTouchEnabled = true
-        isUserInteractionEnabled = true
-        cursorLayer.contentsScale = UIScreen.main.scale
-        cursorLayer.contentsGravity = .resize
-        cursorLayer.magnificationFilter = .nearest
-        cursorLayer.isHidden = true
-        cursorLayer.zPosition = 2
-        layer.addSublayer(cursorLayer)
-        ringLayer.isHidden = true
-        ringLayer.zPosition = 1
-        layer.addSublayer(ringLayer)
-        accessibilityIdentifier = "desktop-gestures"
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:)") }
-    deinit { tickTimer?.invalidate() }
-
-    /// Three-finger swipes are the host's, not the system's undo and redo.
-    override var editingInteractionConfiguration: UIEditingInteractionConfiguration { .none }
-
-    /// Arms the timer for `gestures.tickAt`, instead of ticking every display frame while the page shows.
-    private func scheduleTick() {
-        tickTimer?.invalidate(); tickTimer = nil
-        guard window != nil, let at = gestures.tickAt else { return }
-        let timer = Timer(timeInterval: max(0, Double(at - Self.nowMs()) / 1000), target: TickTarget(self),
-                          selector: #selector(TickTarget.tick), userInfo: nil, repeats: false)
-        RunLoop.main.add(timer, forMode: .common)
-        tickTimer = timer
-    }
-
-    func stopTicking() {
-        touchIDs.removeAll()
-        apply(gestures.cancel())
-        tickTimer?.invalidate(); tickTimer = nil
-    }
-
-    /// The clock touches carry: seconds since boot.
-    private static func nowMs() -> Int64 { Int64(ProcessInfo.processInfo.systemUptime * 1000) }
-    private static func ms(_ touch: UITouch) -> Int64 { Int64(touch.timestamp * 1000) }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        syncViewport()
-        refreshCursor()
-    }
-
-    private func syncViewport() {
-        guard let c = controller else { return }
-        gestures.mode = c.page.pointerMode
-        let w = Float(bounds.width > 0 ? bounds.width : boundsSize.width)
-        let h = Float(bounds.height > 0 ? bounds.height : boundsSize.height)
-        var vp = gestures.viewport
-        vp.viewWidth = max(1, w); vp.viewHeight = max(1, h)
-        let remote = (max(1, c.remoteSize.0), max(1, c.remoteSize.1))
-        // A new screen size starts unzoomed, as on Android.
-        if (vp.remoteWidth, vp.remoteHeight) != remote { vp = Viewport(viewWidth: vp.viewWidth, viewHeight: vp.viewHeight, remoteWidth: remote.0, remoteHeight: remote.1) }
-        show(vp.clamped())
-    }
-
-    func hostCursorChanged(_ cursor: RemoteCursor?) {
-        guard let cursor, cursor != cursorShown else { return }
-        cursorShown = cursor
-        gestures.hostCursor(x: cursor.x, y: cursor.y, time: Self.nowMs())
-        refreshCursor()
-    }
-
-    @objc private func tick() {
-        apply(gestures.tick(Self.nowMs()))
-    }
-
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        syncViewport()
-        #if DEBUG
-        // A double tap's second tap belongs with the first.
-        if touchIDs.isEmpty, Self.nowMs() - lastTouchEnded > 500 { controller?.probeGestureStarted() }
-        #endif
-        for t in touches.sorted(by: { $0.timestamp < $1.timestamp }) {
-            let id = nextTouchID; nextTouchID += 1
-            touchIDs[ObjectIdentifier(t)] = id
-            let p = t.location(in: self)
-            apply(gestures.began(id, Float(p.x), Float(p.y), time: Self.ms(t)))
-        }
-    }
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        let moved = touches.compactMap { t -> (id: Int, x: Float, y: Float)? in
-            guard let id = touchIDs[ObjectIdentifier(t)] else { return nil }
-            let p = t.location(in: self)
-            return (id, Float(p.x), Float(p.y))
-        }
-        guard !moved.isEmpty else { return }
-        apply(gestures.moved(moved, time: touches.map(Self.ms).max() ?? Self.nowMs()))
-    }
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for t in touches {
-            guard let id = touchIDs.removeValue(forKey: ObjectIdentifier(t)) else { continue }
-            let p = t.location(in: self)
-            apply(gestures.ended(id, Float(p.x), Float(p.y), time: Self.ms(t)))
-            lastTouchEnded = Self.ms(t)
-        }
-    }
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        touchIDs.removeAll()
-        apply(gestures.cancel())
-    }
-
-    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        for press in presses {
-            if let key = press.key, let hid = HidUsage.fromKeyboardHIDUsage(Int(key.keyCode.rawValue)) {
-                controller?.input(DesktopProtocol.key(hid, down: true))
-            }
-        }
-        super.pressesBegan(presses, with: event)
-    }
-    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        for press in presses {
-            if let key = press.key, let hid = HidUsage.fromKeyboardHIDUsage(Int(key.keyCode.rawValue)) {
-                controller?.input(DesktopProtocol.key(hid, down: false))
-            }
-        }
-        super.pressesEnded(presses, with: event)
-    }
-    override var canBecomeFirstResponder: Bool { true }
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        if window != nil { becomeFirstResponder(); scheduleTick(); InteractivePopGesture.desktop = self }
-        else { stopTicking(); if InteractivePopGesture.desktop === self { InteractivePopGesture.desktop = nil } }
-    }
-
-    /// Whether an edge swipe from this point (view coordinates) is the desktop's: it starts on the picture.
-    func keepsEdgeSwipe(at point: CGPoint) -> Bool {
-        controller?.remoteSize.0 ?? 0 > 0 && gestures.viewport.contains(Float(point.x), Float(point.y))
-    }
-
-    private func show(_ vp: Viewport) {
-        gestures.viewport = vp
-        // Layout calls this inside a SwiftUI update, which must not publish.
-        DispatchQueue.main.async { [weak self] in
-            if let c = self?.controller, c.viewport != vp { c.viewport = vp }
-        }
-    }
-
-    private func apply(_ actions: [GestureAction]) {
-        // Every gesture call comes through here, so the next tick follows whatever it changed.
-        defer { scheduleTick(); refreshCursor(); refreshRing() }
-        guard let c = controller else { return }
-        for a in actions {
-            switch a {
-            case .moveTo(let x, let y):
-                c.input(DesktopProtocol.abs(display: c.displayIndex, x: x, y: y))
-            case .button(let b, let down):
-                c.input(DesktopProtocol.button(b, down: down))
-            case .wheel(let dx, let dy):
-                c.input(DesktopProtocol.wheel(dx: dx, dy: dy))
-            case .view(let vp):
-                show(vp)
-            case .swipe(let direction):
-                DesktopSwipeShortcut.frames(direction, os: c.hello?.os ?? c.host.system).forEach(c.input)
-            case .feedback(let kind):
-                switch kind {
-                case .hold, .pickup: impact.impactOccurred()
-                case .click, .shortcut: tapFeel.impactOccurred()
-                }
-            }
-            #if DEBUG
-            c.probeInput(a)
-            #endif
-        }
-    }
-
-    // MARK: Cursor and ring
-
-    /// The host's cursor image at the picture's scale, kept between 15 and 24 pt (the picture is often a
-    /// fifth of the host's size, and zoomed in five times); an arrow until it sends one, about iOS's own pointer size.
-    private func refreshCursor() {
-        let visible = cursorShown?.visible ?? true
-        guard gestures.hasCursor, visible, controller?.remoteSize.0 ?? 0 > 0 else { cursorLayer.isHidden = true; return }
-        CATransaction.begin(); CATransaction.setDisableActions(true)
-        defer { CATransaction.commit() }
-        let shape = cursorShown?.shape
-        if shape != cursorShape || cursorLayer.contents == nil {
-            cursorShape = shape
-            if let shape, let image = Self.image(shape) {
-                cursorLayer.contents = image
-                cursorLayer.anchorPoint = CGPoint(x: CGFloat(shape.hotX) / CGFloat(max(1, shape.width)), y: CGFloat(shape.hotY) / CGFloat(max(1, shape.height)))
-            } else {
-                cursorLayer.contents = Self.arrow
-                cursorLayer.anchorPoint = CGPoint(x: 1.5 / 14, y: 1.5 / 21)
-            }
-        }
-        let vp = gestures.viewport
-        if let shape = cursorShape {
-            let size = CGFloat(max(1, shape.height, shape.width))
-            let s = min(max(CGFloat(vp.scale), 15 / size), 24 / size)
-            cursorLayer.bounds = CGRect(x: 0, y: 0, width: CGFloat(shape.width) * s, height: CGFloat(shape.height) * s)
-        } else {
-            cursorLayer.bounds = CGRect(x: 0, y: 0, width: 10, height: 15)
-        }
-        let p = vp.toView(gestures.cursorX, gestures.cursorY)
-        cursorLayer.position = CGPoint(x: CGFloat(p.x), y: CGFloat(p.y))
-        cursorLayer.isHidden = false
-    }
-
-    private static func image(_ shape: CursorImage) -> CGImage? {
-        guard shape.width > 0, shape.height > 0, shape.rgba.count >= shape.width * shape.height * 4,
-              let provider = CGDataProvider(data: Data(shape.rgba) as CFData) else { return nil }
-        return CGImage(width: shape.width, height: shape.height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: shape.width * 4,
-                       space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
-                       provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
-    }
-
-    /// The standard arrow, white with a black edge, its tip the hot spot.
-    private static let arrow: CGImage? = {
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = UIScreen.main.scale
-        return UIGraphicsImageRenderer(size: CGSize(width: 14, height: 21), format: format).image { ctx in
-            let path = UIBezierPath()
-            path.move(to: CGPoint(x: 1.5, y: 1.5))
-            path.addLine(to: CGPoint(x: 1.5, y: 17))
-            path.addLine(to: CGPoint(x: 5.5, y: 13.2))
-            path.addLine(to: CGPoint(x: 8.3, y: 19.5))
-            path.addLine(to: CGPoint(x: 10.8, y: 18.4))
-            path.addLine(to: CGPoint(x: 8.1, y: 12.3))
-            path.addLine(to: CGPoint(x: 13, y: 12.3))
-            path.close()
-            UIColor.white.setFill(); path.fill()
-            UIColor.black.setStroke(); path.lineWidth = 1.2; path.lineJoinStyle = .round; path.stroke()
-            _ = ctx
-        }.cgImage
-    }()
-
-    /// The hold ring: it fills while a hold is coming, then turns solid, blue for the left button, red for the right.
-    private func refreshRing() {
-        let next = gestures.indicator
-        guard next != ringShown else { return }
-        ringShown = next
-        ringLayer.removeAllAnimations()
-        guard let next else { ringLayer.isHidden = true; return }
-        CATransaction.begin(); CATransaction.setDisableActions(true)
-        let r: CGFloat = next.fingers > 1 ? 34 : 26
-        ringLayer.path = UIBezierPath(arcCenter: .zero, radius: r, startAngle: -.pi / 2, endAngle: .pi * 1.5, clockwise: true).cgPath
-        ringLayer.position = CGPoint(x: CGFloat(next.x), y: CGFloat(next.y))
-        let color = next.fingers > 1 ? UIColor.systemRed : UIColor.systemBlue
-        ringLayer.lineWidth = 3
-        ringLayer.isHidden = false
-        if next.armed {
-            ringLayer.strokeColor = color.cgColor
-            ringLayer.fillColor = color.withAlphaComponent(0.3).cgColor
-            ringLayer.strokeEnd = 1
-            ringLayer.opacity = 1
-        } else {
-            // Nothing shows for a tap: the ring starts after a moment and fills as the hold comes.
-            ringLayer.strokeColor = UIColor.white.withAlphaComponent(0.85).cgColor
-            ringLayer.fillColor = UIColor.clear.cgColor
-            ringLayer.strokeEnd = 1
-            // A tap lasts under 0.2 s: only a finger still down after that sees the ring.
-            let delay = 0.2
-            let total = max(0.05, Double(next.firesAt - Self.nowMs()) / 1000 - delay)
-            let fill = CABasicAnimation(keyPath: "strokeEnd")
-            fill.fromValue = 0; fill.toValue = 1
-            fill.beginTime = CACurrentMediaTime() + delay; fill.duration = total
-            fill.fillMode = .both
-            ringLayer.add(fill, forKey: "fill")
-        }
-        CATransaction.commit()
-        if next.armed { impact.prepare() } else { impact.prepare(); tapFeel.prepare() }
-    }
-}
-
-// MARK: - Small helpers
-
-/// A native IME client keeps marked text local until composition commits, just like Android's
-/// hidden BasicTextField. Empty-field Delete and Return still emit remote key events.
-private struct DesktopIMEInput: UIViewRepresentable {
-    var focused: Bool
-    var onText: (String) -> Void
-    var onControl: (Int) -> Void
-    var onComposing: (String) -> Void
-
-    func makeUIView(context: Context) -> DesktopIMETextView {
-        let view = DesktopIMETextView()
-        view.backgroundColor = .clear
-        view.textColor = .clear
-        view.tintColor = .clear
-        view.autocorrectionType = .no
-        view.autocapitalizationType = .none
-        view.smartQuotesType = .no
-        view.smartDashesType = .no
-        view.keyboardAppearance = .dark
-        view.delegate = context.coordinator
-        view.onControl = onControl
-        return view
-    }
-
-    func updateUIView(_ view: DesktopIMETextView, context: Context) {
-        context.coordinator.parent = self
-        view.onControl = onControl
-        if focused && !view.isFirstResponder {
-            DispatchQueue.main.async { [weak view] in
-                guard context.coordinator.parent.focused else { return }
-                view?.becomeFirstResponder()
-            }
-        } else if !focused && view.isFirstResponder { view.resignFirstResponder() }
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-    final class Coordinator: NSObject, UITextViewDelegate {
-        var parent: DesktopIMEInput
-        init(_ parent: DesktopIMEInput) { self.parent = parent }
-        func textViewDidChange(_ textView: UITextView) {
-            if textView.markedTextRange != nil {
-                parent.onComposing(textView.text ?? "")
-                return
-            }
-            parent.onComposing("")
-            guard !textView.text.isEmpty else { return }
-            let text = textView.text ?? ""
-            textView.text = ""
-            parent.onText(text)
-        }
-    }
-}
-
-private final class DesktopIMETextView: UITextView {
-    var onControl: ((Int) -> Void)?
-    override func deleteBackward() {
-        if text.isEmpty && markedTextRange == nil { onControl?(HidUsage.BACKSPACE) }
-        else { super.deleteBackward() }
-    }
-}
-
-private struct VirtualMousePad: View {
-    var click: (Int, Bool) -> Void
-    var wheel: (Int, Int) -> Void
-    @State private var drag: CGSize = .zero
-    var body: some View {
-        VStack(spacing: 8) {
-            Text(modelText).font(.caption2).foregroundStyle(.white.opacity(0.7))
-            HStack(spacing: 8) {
-                mouseBtn(modelTextLeft) { click(1, true); click(1, false) }
-                mouseBtn(modelTextRight) { click(2, true); click(2, false) }
-            }
-            RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.15))
-                .frame(height: 48)
-                .overlay(Text("⇅").foregroundStyle(.white.opacity(0.5)))
-                .gesture(DragGesture().onChanged { v in
-                    let dy = Int((-v.translation.height + drag.height) / 4)
-                    if dy != 0 { wheel(0, dy); drag = .init(width: 0, height: v.translation.height) }
-                }.onEnded { _ in drag = .zero })
-        }
-        .padding(10)
-        .background(Color.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 12))
-    }
-    private var modelText: String { "Virtual" }
-    private var modelTextLeft: String { "L" }
-    private var modelTextRight: String { "R" }
-    private func mouseBtn(_ title: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title).foregroundStyle(.white).frame(maxWidth: .infinity).padding(10)
-                .background(Color.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
-        }.buttonStyle(.plain)
-    }
-}
 private struct RailHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
+    static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 private struct RailWidthKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
+    static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
-#endif

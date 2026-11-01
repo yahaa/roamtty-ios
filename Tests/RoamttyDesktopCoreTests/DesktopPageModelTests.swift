@@ -9,7 +9,7 @@ final class DesktopPageModelTests: XCTestCase {
         m.togglePanel(.operations)
         XCTAssertEqual(m.panel, .none)
         m.tapModifier(HidUsage.LEFT_CTRL)
-        guard case .frames(let frames) = m.commitIME("c", composing: false) else { return XCTFail() }
+        guard case .frames(let frames) = m.commitIME("c", composing: false) else { return XCTFail("a committed character sends frames") }
         XCTAssertEqual(frames.count, 4)
         XCTAssertTrue(frames.contains { $0 == DesktopProtocol.key(HidUsage.LEFT_CTRL, down: true) })
         XCTAssertTrue(frames.contains { $0 == DesktopProtocol.key(HidUsage.letter("c"), down: true) })
@@ -17,7 +17,7 @@ final class DesktopPageModelTests: XCTestCase {
 
     func testIMETextAndNewline() {
         let m = DesktopPageModel()
-        guard case .frames(let frames) = m.commitIME("hi\nthere", composing: false) else { return XCTFail() }
+        guard case .frames(let frames) = m.commitIME("hi\nthere", composing: false) else { return XCTFail("committed text sends frames") }
         XCTAssertEqual(frames[0], DesktopProtocol.text("hi"))
         XCTAssertTrue(frames.contains { $0 == DesktopProtocol.key(HidUsage.ENTER, down: true) })
         XCTAssertEqual(frames.last, DesktopProtocol.text("there"))

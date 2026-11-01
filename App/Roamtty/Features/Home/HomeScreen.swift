@@ -28,7 +28,13 @@ struct HomeScreen: View {
                     Image(systemName: "magnifyingglass").foregroundStyle(Palette.secondary)
                     TextField(model.homeTab == .sessions ? model.text("标题、主机、地址或用户名", "Title, host, address or username") : model.text("名称、地址或用户名", "Name, address or username"), text: $search)
                         .focused($searchFocused).textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("host-search")
-                    Button { search = ""; searching = false; searchFocused = false } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.secondary) }.accessibilityLabel(model.text("关闭搜索", "Close search")).accessibilityIdentifier("host-search-close")
+                    Button {
+                        search = ""
+                        searching = false
+                        searchFocused = false
+                    } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.secondary)
+                    }.accessibilityLabel(model.text("关闭搜索", "Close search")).accessibilityIdentifier("host-search-close")
                 }.padding(12).background(Palette.panel, in: RoundedRectangle(cornerRadius: 10)).padding(.horizontal, 16).padding(.bottom, 8)
             }
             TabView(selection: $model.homeTab) {
@@ -40,7 +46,7 @@ struct HomeScreen: View {
             .onChange(of: compact) { _ in barHidden = 0 }
             .onChange(of: searching) { _ in barHidden = 0 }
             .task(id: model.hosts) {
-                while !Task.isCancelled { await model.probeHosts(model.hosts); do { try await Task.sleep(nanoseconds: 30_000_000_000) } catch { break } }
+                while !Task.isCancelled { await model.probeHosts(model.hosts); do { try await Task.sleep(for: .seconds(30)) } catch { break } }
             }
 
     }
@@ -54,7 +60,7 @@ struct HomeScreen: View {
         barHidden = offset >= 0 ? 0 : min(HomeCompactBar.height, max(0, barHidden - moved))
         barSnap?.cancel()
         barSnap = Task { @MainActor in
-            do { try await Task.sleep(nanoseconds: 180_000_000) } catch { return }
+            do { try await Task.sleep(for: .milliseconds(180)) } catch { return }
             withAnimation(.easeOut(duration: 0.18)) { barHidden = barHidden > HomeCompactBar.height / 2 ? HomeCompactBar.height : 0 }
         }
     }
@@ -68,7 +74,7 @@ struct HomeScreen: View {
             Spacer(minLength: 0)
             HomeTabs()
             Spacer(minLength: 0)
-            Button(action: toggleSearch) { 
+            Button(action: toggleSearch) {
                 AppIcon("ic_search", size: 26).foregroundStyle(Palette.foreground)
                     .frame(width: 48, height: 48).contentShape(Rectangle())
             }.accessibilityLabel(model.homeTab == .sessions ? model.text("搜索会话", "Search sessions") : model.text("搜索主机", "Search hosts"))

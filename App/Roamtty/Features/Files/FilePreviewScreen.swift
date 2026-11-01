@@ -32,29 +32,44 @@ struct FilePreviewScreen: View {
             VStack(spacing: 0) {
                 if compact { landscapeBar }
                 if searchVisible { searchBar }
-                if let image { ZoomableImage(image: image).accessibilityIdentifier("file-image-preview").onTapGesture(count: 2) { fullImage = true } }
-                else if document != nil { documentView(fullscreen: false) }
-                else if let failure {
+                if let image {
+                    ZoomableImage(image: image).accessibilityIdentifier("file-image-preview").onTapGesture(count: 2) { fullImage = true }
+                } else if document != nil {
+                    documentView(fullscreen: false)
+                } else if let failure {
                     EmptyMessage(icon: "exclamationmark.triangle", title: model.text("无法预览", "Unable to preview"), message: failure)
                     Button(model.text("重试", "Retry")) { reloadID += 1 }.accessibilityIdentifier("preview-retry")
                     Spacer()
+                } else if content != nil {
+                    EmptyMessage(icon: "doc", title: model.text("二进制文件", "Binary file"), message: model.text("下载文件后使用其他应用打开。", "Download this file to open it in another app."))
+                    Spacer()
+                } else {
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                else if content != nil { EmptyMessage(icon: "doc", title: model.text("二进制文件", "Binary file"), message: model.text("下载文件后使用其他应用打开。", "Download this file to open it in another app.")); Spacer() }
-                else { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
                 if let content, !compact {
                     HStack {
                         Text(formattedBytes(content.size))
-                        if content.truncated { Text(previewLimit == imagePreviewBytes ? model.text("图片上限 8 MiB", "Image limit: 8 MiB") : model.text("仅预览前 256 KiB", "Preview limited to 256 KiB")).foregroundStyle(Palette.warning) }
+                        if content.truncated {
+                            Text(previewLimit == imagePreviewBytes ? model.text("图片上限 8 MiB", "Image limit: 8 MiB") : model.text("仅预览前 256 KiB",
+                                "Preview limited to 256 KiB")).foregroundStyle(Palette.warning)
+                        }
                         Spacer()
                         if let imageDimensions { Text(imageDimensions).accessibilityIdentifier("preview-image-dimensions") }
-                        if let document { Text("\(document.lineCount) " + model.text("行", "lines")); Text(document.language.displayName); Text("\(Int(previewFontSize)) pt").accessibilityIdentifier("preview-font-size"); Text(model.settings.codeWrap ? model.text("换行", "Wrapped") : model.text("不换行", "No wrap")).accessibilityIdentifier("preview-wrap-status") }
+                        if let document {
+                            Text("\(document.lineCount) " + model.text("行", "lines"))
+                            Text(document.language.displayName)
+                            Text("\(Int(previewFontSize)) pt").accessibilityIdentifier("preview-font-size")
+                            Text(model.settings.codeWrap ? model.text("换行", "Wrapped") : model.text("不换行", "No wrap")).accessibilityIdentifier("preview-wrap-status")
+                        }
                     }.font(.caption).foregroundStyle(Palette.secondary).padding(12).background(Palette.panel)
                 }
             }.pageBackground().navigationTitle(entry.name).navigationBarTitleDisplayMode(.inline)
                 .toolbar(compact ? .hidden : .automatic, for: .navigationBar)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { doneButton }
-                    ToolbarItem(placement: .navigationBarTrailing) { Button { download() } label: { Image(systemName: "arrow.down.circle") }.accessibilityLabel(model.text("下载", "Download")).accessibilityIdentifier("preview-download") }
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button { download() } label: { Image(systemName: "arrow.down.circle") }.accessibilityLabel(model.text("下载", "Download")).accessibilityIdentifier("preview-download")
+                    }
                     ToolbarItem(placement: .navigationBarTrailing) { Menu { optionsMenu } label: { Image(systemName: "ellipsis.circle") }.accessibilityIdentifier("preview-options") }
                 }
         }.onChange(of: query) { _ in updateMatches() }
@@ -87,7 +102,9 @@ struct FilePreviewScreen: View {
                         try Task.checkCancellation()
                         document = highlighted; blocks = parsed; updateMatches()
                     } else if isImage {
-                        failure = result.truncated ? model.text("图片超过 8 MiB，请下载后查看。", "This image exceeds 8 MiB. Download it to view the complete file.") : model.text("此图片格式无法预览，请下载后查看。", "This image format cannot be previewed. Download it to open in another app.")
+                        failure = result.truncated ? model.text("图片超过 8 MiB，请下载后查看。",
+                            "This image exceeds 8 MiB. Download it to view the complete file.") : model.text("此图片格式无法预览，请下载后查看。",
+                            "This image format cannot be previewed. Download it to open in another app.")
                     }
                 } catch {
                     if !Task.isCancelled { failure = error.localizedDescription }
@@ -97,11 +114,20 @@ struct FilePreviewScreen: View {
         .modifier(ChildModalPresence())
         .overlay { AuthenticationOverlay() }
         .fullScreenCover(isPresented: $fullImage) {
-            if let image { ZStack(alignment: .topTrailing) { Color.black.ignoresSafeArea(); ZoomableImage(image: image).ignoresSafeArea().accessibilityIdentifier("file-image-fullscreen"); Button { fullImage = false } label: { Image(systemName: "xmark.circle.fill").font(.largeTitle).foregroundStyle(.white).padding(24) }.accessibilityLabel(model.text("退出全屏", "Exit fullscreen")).accessibilityIdentifier("preview-image-close") } }
-            else {
+            if let image {
+                ZStack(alignment: .topTrailing) {
+                    Color.black.ignoresSafeArea()
+                    ZoomableImage(image: image).ignoresSafeArea().accessibilityIdentifier("file-image-fullscreen")
+                    Button { fullImage = false } label: {
+                        Image(systemName: "xmark.circle.fill").font(.largeTitle).foregroundStyle(.white).padding(24)
+                    }.accessibilityLabel(model.text("退出全屏", "Exit fullscreen")).accessibilityIdentifier("preview-image-close")
+                }
+            } else {
                 ZStack(alignment: .topTrailing) {
                     documentView(fullscreen: true).pageBackground()
-                    Button { fullImage = false } label: { Image(systemName: "xmark.circle.fill").font(.title).padding(12).background(.ultraThinMaterial, in: Circle()) }.padding(12).accessibilityLabel(model.text("退出全屏", "Exit fullscreen")).accessibilityIdentifier("preview-fullscreen-close")
+                    Button { fullImage = false } label: {
+                        Image(systemName: "xmark.circle.fill").font(.title).padding(12).background(.ultraThinMaterial, in: Circle())
+                    }.padding(12).accessibilityLabel(model.text("退出全屏", "Exit fullscreen")).accessibilityIdentifier("preview-fullscreen-close")
                 }
             }
         }
@@ -115,10 +141,18 @@ struct FilePreviewScreen: View {
             Toggle(model.text("自动换行", "Wrap lines"), isOn: $model.settings.codeWrap).onChange(of: model.settings.codeWrap) { _ in model.saveSettings() }.accessibilityIdentifier("preview-wrap")
             if document?.language.mode == .markdown { Toggle(model.text("渲染 Markdown", "Render Markdown"), isOn: $rendered).accessibilityIdentifier("preview-render-markdown") }
             if document != nil {
-                Button("A− · " + model.text("缩小字体", "Smaller text")) { model.settings.codeFontSize = max(9, previewFontSize - 1); model.saveSettings() }.disabled(previewFontSize <= 9).accessibilityIdentifier("preview-font-smaller")
-                Button("A+ · " + model.text("放大字体", "Larger text")) { model.settings.codeFontSize = min(22, previewFontSize + 1); model.saveSettings() }.disabled(previewFontSize >= 22).accessibilityIdentifier("preview-font-larger")
+                Button("A− · " + model.text("缩小字体", "Smaller text")) {
+                    model.settings.codeFontSize = max(9, previewFontSize - 1)
+                    model.saveSettings()
+                }.disabled(previewFontSize <= 9).accessibilityIdentifier("preview-font-smaller")
+                Button("A+ · " + model.text("放大字体", "Larger text")) {
+                    model.settings.codeFontSize = min(22, previewFontSize + 1)
+                    model.saveSettings()
+                }.disabled(previewFontSize >= 22).accessibilityIdentifier("preview-font-larger")
             }
-            if document != nil || image != nil { Button(model.text("全屏", "Fullscreen"), systemImage: "arrow.up.left.and.arrow.down.right") { fullImage = true }.accessibilityIdentifier("preview-fullscreen") }
+            if document != nil || image != nil {
+                Button(model.text("全屏", "Fullscreen"), systemImage: "arrow.up.left.and.arrow.down.right") { fullImage = true }.accessibilityIdentifier("preview-fullscreen")
+            }
             Button(model.text("复制路径", "Copy path"), systemImage: "link") { UIPasteboard.general.string = entry.path }.accessibilityIdentifier("preview-copy-path")
             if let text = content?.text { Button(model.text("复制全部", "Copy all"), systemImage: "doc.on.doc") { UIPasteboard.general.string = text } }
             Button(model.text("重新加载", "Reload"), systemImage: "arrow.clockwise") { reloadID += 1 }
@@ -150,8 +184,16 @@ struct FilePreviewScreen: View {
         HStack(spacing: 12) {
             TextField(model.text("在文件中查找", "Find in file"), text: $query).textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("preview-search")
             Text(query.isEmpty ? "" : matches.isEmpty ? model.text("无结果", "No results") : "\(match + 1)/\(matches.count)").font(.caption).fixedSize().accessibilityIdentifier("preview-search-count")
-            Button { match = codeMatchIndex(current: match, delta: -1, count: matches.count) } label: { Image(systemName: "chevron.up") }.disabled(matches.isEmpty).accessibilityLabel(model.text("上一个", "Previous match")).accessibilityIdentifier("preview-search-previous")
-            Button { match = codeMatchIndex(current: match, delta: 1, count: matches.count) } label: { Image(systemName: "chevron.down") }.disabled(matches.isEmpty).accessibilityLabel(model.text("下一个", "Next match")).accessibilityIdentifier("preview-search-next")
+            Button {
+                match = codeMatchIndex(current: match, delta: -1, count: matches.count)
+            } label: {
+                Image(systemName: "chevron.up")
+            }.disabled(matches.isEmpty).accessibilityLabel(model.text("上一个", "Previous match")).accessibilityIdentifier("preview-search-previous")
+            Button {
+                match = codeMatchIndex(current: match, delta: 1, count: matches.count)
+            } label: {
+                Image(systemName: "chevron.down")
+            }.disabled(matches.isEmpty).accessibilityLabel(model.text("下一个", "Next match")).accessibilityIdentifier("preview-search-next")
             Button { searchVisible = false; query = "" } label: { Image(systemName: "xmark") }.accessibilityLabel(model.text("关闭查找", "Close search")).accessibilityIdentifier("preview-search-close")
         }.padding(12).background(Palette.panel)
     }
@@ -170,7 +212,8 @@ struct FilePreviewScreen: View {
                         .accessibilityIdentifier(fullscreen ? "file-markdown-fullscreen" : "file-markdown-preview")
                 }
             } else {
-                CodeTextView(document: document, fontName: model.settings.font, fontSize: previewFontSize, wrap: model.settings.codeWrap, query: query, match: match, matches: matches, identifier: fullscreen ? "file-code-fullscreen" : "file-code-preview").id(reloadID)
+                CodeTextView(document: document, fontName: model.settings.font, fontSize: previewFontSize, wrap: model.settings.codeWrap,
+                    query: query, match: match, matches: matches, identifier: fullscreen ? "file-code-fullscreen" : "file-code-preview").id(reloadID)
             }
         }
     }
@@ -239,7 +282,8 @@ struct CodeTextView: UIViewRepresentable {
             coordinator.rowOffsets = rowOffsets
             view.attributedText = output
             view.textContainer.widthTracksTextView = wrap
-            view.textContainer.size = CGSize(width: wrap ? max(1, view.bounds.width - 20) : max(1000, CGFloat(document.maxColumns + digits + 4) * font.pointSize * 0.65), height: .greatestFiniteMagnitude)
+            view.textContainer.size = CGSize(width: wrap ? max(1, view.bounds.width - 20) : max(1000, CGFloat(document.maxColumns + digits + 4) * font.pointSize * 0.65),
+                height: .greatestFiniteMagnitude)
         }
         if coordinator.sourceMatches != matches {
             coordinator.sourceMatches = matches
@@ -283,7 +327,12 @@ struct ZoomableImage: UIViewRepresentable {
         let scroll = UIScrollView(); scroll.delegate = context.coordinator; scroll.minimumZoomScale = 1; scroll.maximumZoomScale = 6
         let view = UIImageView(image: image); view.contentMode = .scaleAspectFit; view.translatesAutoresizingMaskIntoConstraints = false
         scroll.addSubview(view); context.coordinator.image = view
-        NSLayoutConstraint.activate([view.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor), view.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor), view.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor), view.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor), view.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor), view.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor)])
+        NSLayoutConstraint.activate([view.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
+            view.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
+            view.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
+            view.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor),
+            view.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor)])
         return scroll
     }
     func updateUIView(_ view: UIScrollView, context: Context) { context.coordinator.image?.image = image }
@@ -322,11 +371,24 @@ struct MarkdownContent: View {
         switch block {
         case .heading(let level, let text): return AnyView(inline(text).font(.system(size: fontSize * (level == 1 ? 1.7 : level == 2 ? 1.4 : 1.15), weight: .semibold)).padding(.top, 8))
         case .paragraph(let text): return AnyView(inline(text).textSelection(.enabled))
-        case .code(_, let text): return AnyView(ScrollView(.horizontal) { Text(text).font(.system(size: fontSize, design: .monospaced)).textSelection(.enabled).padding(12) }.background(Palette.panel, in: RoundedRectangle(cornerRadius: 10)))
+        case .code(_, let text): return AnyView(ScrollView(.horizontal) {
+            Text(text).font(.system(size: fontSize, design: .monospaced)).textSelection(.enabled).padding(12)
+        }.background(Palette.panel, in: RoundedRectangle(cornerRadius: 10)))
         case .quote: return AnyView(EmptyView()) // Flattened above.
-        case .listItem(let depth, let marker, let checked, let text): return AnyView(HStack(alignment: .top, spacing: 8) { Text(checked.map { $0 ? "☑" : "☐" } ?? marker); inline(text) }.padding(.leading, CGFloat(depth) * 16))
-        case .table(let header, _, let rows): return AnyView(ScrollView(.horizontal) { Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 12) { GridRow { ForEach(Array(header.enumerated()), id: \.offset) { _, text in inline(text).bold() } }; Divider(); ForEach(Array(rows.enumerated()), id: \.offset) { _, row in GridRow { ForEach(Array(row.enumerated()), id: \.offset) { _, text in inline(text) } } } }.padding(12).background(Palette.panel, in: RoundedRectangle(cornerRadius: 12)) })
-        case .image(let alt, let path): return AnyView(RemoteMarkdownImage(connectionTarget: connectionTarget, directory: directory, path: path, alt: alt, viewport: viewport, coordinateSpace: coordinateSpace, enabled: imagesEnabled))
+        case .listItem(let depth, let marker, let checked, let text): return AnyView(HStack(alignment: .top, spacing: 8) {
+            Text(checked.map { $0 ? "☑" : "☐" } ?? marker)
+            inline(text)
+        }.padding(.leading, CGFloat(depth) * 16))
+        case .table(let header, _, let rows): return AnyView(ScrollView(.horizontal) {
+            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 12) {
+                GridRow { ForEach(Array(header.enumerated()), id: \.offset) { _, text in inline(text).bold() } }
+                Divider()
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in GridRow { ForEach(Array(row.enumerated()), id: \.offset) { _, text in inline(text) } } }
+            }.padding(12).background(Palette.panel, in: RoundedRectangle(cornerRadius: 12))
+        })
+        case .image(let alt, let path):
+            return AnyView(RemoteMarkdownImage(connectionTarget: connectionTarget, directory: directory, path: path, alt: alt,
+                                               viewport: viewport, coordinateSpace: coordinateSpace, enabled: imagesEnabled))
         case .rule: return AnyView(Divider())
         }
     }
@@ -352,7 +414,7 @@ struct MarkdownContent: View {
     }
 }
 private struct MarkdownImageFrameKey: PreferenceKey {
-    static var defaultValue: CGRect = .zero
+    static let defaultValue: CGRect = .zero
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
 }
 
@@ -409,8 +471,7 @@ private struct RemoteMarkdownImage: View {
     }
     private func updateDemand() {
         let key = demandKey
-        if key.visible, let path = key.path { demand.start(model: model, target: connectionTarget, path: path) }
-        else { demand.stop() }
+        if key.visible, let path = key.path { demand.start(model: model, target: connectionTarget, path: path) } else { demand.stop() }
     }
     private var placeholder: some View {
         Label(alt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? String(path.split(separator: "/").last ?? "") : alt, systemImage: "photo")

@@ -10,7 +10,10 @@ final class AgentHooksLiveTests: XCTestCase {
         let host = Host(name: "Fixture", address: "127.0.0.1", port: Int(ProcessInfo.processInfo.environment["ROAMTTY_TEST_PORT"] ?? "22992")!, username: "itermux_test", auth: .password)
         let store = try AppStore(url: URL(fileURLWithPath: ":memory:"))
         let connection = SSHConnection(host: host, credentials: Credentials(password: Data(password.utf8)), pinStore: store) { prompt in
-            switch prompt { case .verifyHost: return ["trust"]; case .keyboard(_, let labels, _): return labels.map { _ in password } }
+            switch prompt {
+            case .verifyHost: return ["trust"]
+            case .keyboard(_, let labels, _): return labels.map { _ in password }
+            }
         }
         try connection.connect()
         return connection
@@ -27,7 +30,8 @@ final class AgentHooksLiveTests: XCTestCase {
         defer { _ = try? sh(ssh, RemoteCommands.killTmux(name)) }
 
         // The app writes the script and Claude's settings into ~/.roamtty over exec's standard input.
-        for (file, content, executable) in [(AgentHooks.scriptName, AgentHooks.script, false), (AgentHooks.hostFile(.claude).name, AgentHooks.hostFile(.claude).content, false), (AgentHooks.hostFile(.codex).name, AgentHooks.hostFile(.codex).content, true)] {
+        for (file, content, executable) in [(AgentHooks.scriptName, AgentHooks.script, false), (AgentHooks.hostFile(.claude)
+            .name, AgentHooks.hostFile(.claude).content, false), (AgentHooks.hostFile(.codex).name, AgentHooks.hostFile(.codex).content, true)] {
             let command = try XCTUnwrap(RemoteCommands.writeHostFile(file, executable: executable))
             XCTAssertEqual(try ssh.exec(command, input: Data(content.utf8), timeout: 10).status, 0)
         }

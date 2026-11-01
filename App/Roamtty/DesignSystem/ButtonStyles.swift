@@ -35,7 +35,7 @@ struct TextActionStyle: ButtonStyle {
 
 struct AccentCapsuleButton: View {
     let title: String
-    var id: String? = nil
+    var id: String?
     let action: () -> Void
     var body: some View {
         Button(title, action: action).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.onAccent)

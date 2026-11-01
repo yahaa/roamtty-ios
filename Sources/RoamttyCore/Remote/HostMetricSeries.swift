@@ -9,16 +9,6 @@ public enum HostMonitorRetry {
         default: return nil
         }
     }
-
-    public static func phase(after error: Error) -> ConnectionPhase {
-        guard let error = error as? RoamError else { return .failed }
-        switch error {
-        case .authentication: return .authFailed
-        case .hostKeyChanged: return .hostKeyChanged
-        case .cancelled, .rejected: return .disconnected
-        default: return .failed
-        }
-    }
 }
 
 /// The rolling charts and network throughput used by Android's HostMonitor.

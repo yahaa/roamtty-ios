@@ -13,9 +13,13 @@ import UIKit
         let range = view.selectedRange
         let nsText = view.text as NSString
         let position: Int
-        if range.length > 0 { position = left ? range.location : range.location + range.length }
-        else if left { position = range.location == 0 ? 0 : nsText.rangeOfComposedCharacterSequence(at: range.location - 1).location }
-        else { position = range.location >= nsText.length ? nsText.length : NSMaxRange(nsText.rangeOfComposedCharacterSequence(at: range.location)) }
+        if range.length > 0 {
+            position = left ? range.location : range.location + range.length
+        } else if left {
+            position = range.location == 0 ? 0 : nsText.rangeOfComposedCharacterSequence(at: range.location - 1).location
+        } else {
+            position = range.location >= nsText.length ? nsText.length : NSMaxRange(nsText.rangeOfComposedCharacterSequence(at: range.location))
+        }
         view.selectedRange = NSRange(location: position, length: 0)
     }
     func deleteBackward() {

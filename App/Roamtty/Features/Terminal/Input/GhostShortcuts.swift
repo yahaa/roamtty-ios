@@ -78,7 +78,7 @@ struct GhostShortcuts: View {
             .onChange(of: submenu?.count) { _ in if toolbox.ringOpen { unfold() } }
             .task(id: hovered) {
                 guard let index = hovered, shortcuts.indices.contains(index), case .menu(let items) = shortcuts[index].action else { return }
-                do { try await Task.sleep(nanoseconds: 350_000_000); submenu = items; hovered = nil; UIImpactFeedbackGenerator(style: .light).impactOccurred() } catch { }
+                do { try await Task.sleep(for: .milliseconds(350)); submenu = items; hovered = nil; UIImpactFeedbackGenerator(style: .light).impactOccurred() } catch { }
             }
     }
     private func unfold() {
@@ -98,9 +98,7 @@ struct GhostShortcuts: View {
     }
     private func endHold(_ released: Bool) {
         guard toolbox.ringOpen else { return }
-        if !released { toolbox.completeRing(at: now) }
-        else if let hovered, shortcuts.indices.contains(hovered) { pick(shortcuts[hovered], byTap: false) }
-        else { toolbox.pinRing(at: now) }
+        if !released { toolbox.completeRing(at: now) } else if let hovered, shortcuts.indices.contains(hovered) { pick(shortcuts[hovered], byTap: false) } else { toolbox.pinRing(at: now) }
         hovered = nil
     }
     private func pick(_ item: TerminalShortcut, byTap: Bool) {

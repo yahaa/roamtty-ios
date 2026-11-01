@@ -119,8 +119,7 @@ public func remotePathSearch(directory: String, query: String) -> RemotePathSear
     for part in path.split(separator: "/") {
         if part == "." { continue }
         if part == ".." {
-            if let last = parts.last, last != ".." { parts.removeLast() }
-            else if !path.hasPrefix("/") { parts.append("..") }
+            if let last = parts.last, last != ".." { parts.removeLast() } else if !path.hasPrefix("/") { parts.append("..") }
         } else { parts.append(String(part)) }
     }
     return RemotePathSearch(directory: (path.hasPrefix("/") ? "/" : "") + parts.joined(separator: "/"), name: String(query[query.index(after: slash)...]))
@@ -133,7 +132,7 @@ public struct RemoteSearchDirectories: Equatable, Sendable {
 }
 
 public func resolveRemoteSearchDirectories(directory: String, prefix: String, showHidden: Bool, maxDirectories: Int = 32,
-    listDirectory: (String) async throws -> RemoteDirectory) async throws -> RemoteSearchDirectories {
+                                           listDirectory: (String) async throws -> RemoteDirectory) async throws -> RemoteSearchDirectories {
     guard maxDirectories > 0 else { throw RoamError.invalid("Directory read limit must be positive") }
     try Task.checkCancellation()
     let base = try await listDirectory(prefix.hasPrefix("/") ? "/" : prefix.hasPrefix("~/") ? "" : directory)
@@ -142,8 +141,7 @@ public func resolveRemoteSearchDirectories(directory: String, prefix: String, sh
     for part in parts {
         try Task.checkCancellation()
         let paths: [String]
-        if part == ".." { paths = directories.map { parentRemotePath($0.path) }.unique }
-        else {
+        if part == ".." { paths = directories.map { parentRemotePath($0.path) }.unique } else {
             let matches = directories.flatMap { parent in
                 parent.entries.compactMap { entry -> (path: String, name: String, rank: Int)? in
                     guard entry.isDirectory, showHidden || !entry.name.hasPrefix("."),
@@ -158,10 +156,16 @@ public func resolveRemoteSearchDirectories(directory: String, prefix: String, sh
             try Task.checkCancellation()
             if reads >= maxDirectories { limited = true; break }
             reads += 1
-            do { next.append(try await listDirectory(path)) }
-            catch is CancellationError { throw CancellationError() }
-            catch RoamError.cancelled { throw RoamError.cancelled }
-            catch { try Task.checkCancellation(); unreadable = true }
+            do {
+                next.append(try await listDirectory(path))
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch RoamError.cancelled {
+                throw RoamError.cancelled
+            } catch {
+                try Task.checkCancellation()
+                unreadable = true
+            }
         }
         var seen = Set<String>()
         directories = next.filter { seen.insert($0.path).inserted }

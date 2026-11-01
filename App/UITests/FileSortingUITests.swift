@@ -23,6 +23,7 @@ final class FileSortingUITests: RoamttyLiveUITestCase {
         openRemoteFolder(base)
 
         assertVisibleOrder([folder, "alpha.txt", "bravo.TXT", "middle.kt", "zulu.md"], in: base)
+        // swiftlint:disable:next large_tuple - one row per sort criterion
         let criteria: [(chinese: String, english: String, ascending: [String], descending: [String], startsDescending: Bool)] = [
             ("名称", "Name", ["alpha.txt", "bravo.TXT", "middle.kt", "zulu.md"], ["zulu.md", "middle.kt", "bravo.TXT", "alpha.txt"], true),
             ("大小", "Size", ["middle.kt", "bravo.TXT", "zulu.md", "alpha.txt"], ["alpha.txt", "bravo.TXT", "zulu.md", "middle.kt"], true),

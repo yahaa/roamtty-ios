@@ -29,8 +29,7 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
         // Its long press and selection handles remain installed; normal taps use Android's rules.
         for recognizer in terminalView.gestureRecognizers ?? [] {
             guard let tap = recognizer as? UITapGestureRecognizer else { continue }
-            if tap.numberOfTapsRequired == 1 { selectionTap = tap; tap.delegate = self }
-            else { tap.isEnabled = false }
+            if tap.numberOfTapsRequired == 1 { selectionTap = tap; tap.delegate = self } else { tap.isEnabled = false }
         }
         let single = TerminalTapRecognizer(target: self, action: #selector(cursorTap(_:)))
         let double = TerminalTapRecognizer(target: self, action: #selector(completionTap(_:)))
@@ -122,7 +121,8 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
             _ = send(String(repeating: key, count: abs(rows)))
         } else {
             let cell = cellSize
-            let point = TerminalScrolling.mousePoint(CGPoint(x: position.x - terminalView.contentOffset.x, y: position.y - terminalView.contentOffset.y), cell: cell, columns: terminal.cols, rows: terminal.rows)
+            let point = TerminalScrolling.mousePoint(CGPoint(x: position.x - terminalView.contentOffset.x, y: position.y - terminalView.contentOffset.y),
+                cell: cell, columns: terminal.cols, rows: terminal.rows)
             let flags = terminal.encodeButton(button: TerminalScrolling.mouseButton(rowsDown: rows), release: false, shift: false, meta: false, control: false)
             sendingScrollEvent = true
             defer { sendingScrollEvent = false }
@@ -184,7 +184,7 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
         let token = generation
         swipeHold = Task { [weak self, weak recognizer] in
             do {
-                try await Task.sleep(nanoseconds: 500_000_000)
+                try await Task.sleep(for: .milliseconds(500))
                 guard let self, let recognizer, self.generation == token, self.swipeGeneration == token, self.writableViewport,
                       recognizer.state == .began || recognizer.state == .changed else { return }
                 let point = recognizer.translation(in: self.terminalView)

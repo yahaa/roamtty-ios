@@ -36,6 +36,10 @@ COMMON={
     'SWIFT_VERSION':'5.0', 'SWIFT_STRICT_CONCURRENCY':'minimal', 'CLANG_ENABLE_MODULES':'YES', 'CLANG_ENABLE_OBJC_ARC':'YES',
     'GCC_C_LANGUAGE_STANDARD':'gnu11', 'CLANG_CXX_LANGUAGE_STANDARD':'c++17', 'TARGETED_DEVICE_FAMILY':'1,2',
     'CODE_SIGN_STYLE':'Automatic', 'DEVELOPMENT_TEAM':os.environ.get('DEVELOPMENT_TEAM',''),
+    # Embedded products are signed when copied, so stripping them there only warns; each target strips its own binary.
+    'COPY_PHASE_STRIP':'NO',
+    # No target defines App Intents; extracting their metadata would only note that AppIntents.framework is not linked.
+    'LM_SKIP_METADATA_EXTRACTION':'YES',
     'ENABLE_USER_SCRIPT_SANDBOXING':'NO', 'ROAMTTY_APP_GROUP_ENABLED':'NO', 'ROAMTTY_ENTITLEMENTS':'App/Support/Development.entitlements', 'SWIFT_ACTIVE_COMPILATION_CONDITIONS':'$(inherited)',
     'HEADER_SEARCH_PATHS':['$(inherited)','$(SRCROOT)/Sources/CNative/include','$(SRCROOT)/Vendor/$(PLATFORM_NAME)/include'],
     'LIBRARY_SEARCH_PATHS':['$(inherited)','$(SRCROOT)/Vendor/$(PLATFORM_NAME)/lib'],

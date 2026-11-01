@@ -180,7 +180,8 @@ public final class DesktopGestures {
     private var vx: Float = 0, vy: Float = 0
     private var wheelX: Float = 0, wheelY: Float = 0
     /// Touch mode: the last tap, so a second one nearby lands on the same pixel.
-    private var lastTap: (x: Float, y: Float, rx: Int, ry: Int, at: Int64)?
+    private var lastTap: LastTap?
+    private struct LastTap { let x: Float, y: Float, rx: Int, ry: Int, at: Int64 }
     /// A two-finger tap's right click waits a moment for a second tap, which zooms instead.
     private var pendingRight: (at: Int64, x: Float, y: Float)?
     /// `panFirst`: a one-finger flick in touch mode, which moves a zoomed picture before scrolling.
@@ -610,7 +611,7 @@ public final class DesktopGestures {
                 if let t = lastTap, startedAt - t.at <= Self.DOUBLE_TAP_MS, hypot(downX - t.x, downY - t.y) <= doubleTapRadius {
                     r = (t.rx, t.ry)
                 }
-                lastTap = (downX, downY, r.x, r.y, time)
+                lastTap = LastTap(x: downX, y: downY, rx: r.x, ry: r.y, at: time)
                 setCursor(Float(r.x), Float(r.y))
                 out += [.moveTo(x: r.x, y: r.y), .button(1, down: true), .button(1, down: false)]
             } else {

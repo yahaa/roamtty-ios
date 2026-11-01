@@ -70,8 +70,7 @@ final class SessionCapacityUITests: RoamttyLiveUITestCase {
                 try runCommand("tmux detach-client")
                 let back = app.buttons["terminal-leave"]
                 XCTAssertTrue(back.waitForExistence(timeout: 10)); back.tap()
-            }
-            else { leaveTerminal() }
+            } else { leaveTerminal() }
         }
 
         let tmux = sessions[0]

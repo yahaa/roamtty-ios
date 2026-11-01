@@ -18,9 +18,13 @@ public struct RemoteFolders: Equatable, Sendable {
         guard StartDirectory.isSupported(directory) else { throw RoamError.invalid("Unsupported folder path") }
         let normalized = StartDirectory.normalize(directory)
         let target: String
-        if normalized == "~" { target = "\"$HOME\"" }
-        else if normalized.hasPrefix("~/") { target = "\"$HOME\"/" + RemoteCommands.shellQuote(String(normalized.dropFirst(2))) }
-        else { target = RemoteCommands.shellQuote(normalized) }
+        if normalized == "~" {
+            target = "\"$HOME\""
+        } else if normalized.hasPrefix("~/") {
+            target = "\"$HOME\"/" + RemoteCommands.shellQuote(String(normalized.dropFirst(2)))
+        } else {
+            target = RemoteCommands.shellQuote(normalized)
+        }
         return #"""
         cd -- \#(target) 2>/dev/null || exit 3
         safe_path() {

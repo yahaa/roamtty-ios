@@ -168,8 +168,7 @@ final class NetworkRecoveryUITests: RoamttyLiveUITestCase {
         func receive() {
             connection.receive(minimumIncompleteLength: 1, maximumLength: 16_384) { bytes, _, ended, error in
                 if let bytes { answer.bytes.append(bytes) }
-                if error != nil || ended || answer.bytes.contains(10) { answer.finish(error); connection.cancel() }
-                else { receive() }
+                if error != nil || ended || answer.bytes.contains(10) { answer.finish(error); connection.cancel() } else { receive() }
             }
         }
         connection.stateUpdateHandler = { state in

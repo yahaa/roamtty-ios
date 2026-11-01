@@ -90,8 +90,7 @@ struct MoshState {
         if reply != .max {
             let rtt = TimeInterval(Self.timestamp(now) &- reply) / 1000
             if rtt < 5 {
-                if !heardAny { srtt = rtt; rttvar = rtt / 2 }
-                else { rttvar = 0.75 * rttvar + 0.25 * abs(srtt - rtt); srtt = 0.875 * srtt + 0.125 * rtt }
+                if !heardAny { srtt = rtt; rttvar = rtt / 2 } else { rttvar = 0.75 * rttvar + 0.25 * abs(srtt - rtt); srtt = 0.875 * srtt + 0.125 * rtt }
             }
         }
         if unappliedSince == nil { unappliedSince = now }

@@ -10,8 +10,8 @@ struct AppIcon: View {
     var body: some View { Image(name).renderingMode(.template).resizable().scaledToFit().frame(width: size, height: size) }
 }
 struct Panel<Content: View>: View {
-    var title: String? = nil
-    var footer: String? = nil
+    var title: String?
+    var footer: String?
     @ViewBuilder var content: Content
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -28,7 +28,7 @@ struct Panel<Content: View>: View {
 struct LandscapeBar<Leading: View, Trailing: View>: View {
     static var height: CGFloat { 48 }
     let title: String
-    var detail: String? = nil
+    var detail: String?
     @ViewBuilder var leading: Leading
     @ViewBuilder var trailing: Trailing
     var body: some View {
@@ -47,7 +47,7 @@ struct LandscapeBar<Leading: View, Trailing: View>: View {
 struct BarIconButton: View {
     let icon: String
     let label: String
-    var id: String? = nil
+    var id: String?
     var enabled = true
     let action: () -> Void
     var body: some View {
@@ -71,14 +71,13 @@ struct LandscapeColumns<Left: View, Right: View>: View {
 }
 struct InfoRow: View {
     let title: String
-    var value: String? = nil
-    var icon: String? = nil
-    var subtitle: String? = nil
+    var value: String?
+    var icon: String?
+    var subtitle: String?
     var body: some View {
         HStack(spacing: 12) {
             if let icon { Image(systemName: icon).foregroundStyle(Palette.accent).frame(width: 24) }
-            if let subtitle { VStack(alignment: .leading, spacing: 2) { Text(title); Text(subtitle).font(.footnote).foregroundStyle(Palette.secondary) } }
-            else { Text(title) }
+            if let subtitle { VStack(alignment: .leading, spacing: 2) { Text(title); Text(subtitle).font(.footnote).foregroundStyle(Palette.secondary) } } else { Text(title) }
             Spacer(minLength: 12)
             if let value { Text(value).foregroundStyle(Palette.secondary).multilineTextAlignment(.trailing).textSelection(.enabled) }
         }.font(.subheadline).padding(16).frame(minHeight: 52)
@@ -100,7 +99,9 @@ struct CardActionIcon: View {
 
 struct Badge: View {
     let text: String
-    var body: some View { Text(text).font(.caption).foregroundStyle(Palette.secondary).padding(.horizontal, 6).padding(.vertical, 3).background(Palette.foreground.opacity(0.06), in: RoundedRectangle(cornerRadius: 6)) }
+    var body: some View {
+        Text(text).font(.caption).foregroundStyle(Palette.secondary).padding(.horizontal, 6).padding(.vertical, 3).background(Palette.foreground.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+    }
 }
 struct EmptyMessage: View {
     var icon = "terminal"

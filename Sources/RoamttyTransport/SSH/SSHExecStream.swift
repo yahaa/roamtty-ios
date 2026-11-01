@@ -69,8 +69,7 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
 
     /// Drops the taken prefix once it is everything or at least half of the buffer, so each byte moves at most once.
     private static func compact(_ buffer: inout [UInt8], start: inout Int) {
-        if start == buffer.count { buffer.removeAll(keepingCapacity: true); start = 0 }
-        else if start >= 64 * 1024 && start >= buffer.count / 2 { buffer.removeFirst(start); start = 0 }
+        if start == buffer.count { buffer.removeAll(keepingCapacity: true); start = 0 } else if start >= 64 * 1024 && start >= buffer.count / 2 { buffer.removeFirst(start); start = 0 }
     }
 
     private func pump() {
@@ -122,8 +121,13 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
                         }
                         if count > 0 {
                             cond.lock()
-                            if stream == 0 { Self.compact(&incoming, start: &incomingStart); incoming.append(contentsOf: buffer[0..<count]) }
-                            else { errors.append(contentsOf: buffer[0..<count]); if errors.count > Self.maxErrors { errors.removeFirst(errors.count - Self.maxErrors) } }
+                            if stream == 0 {
+                                Self.compact(&incoming, start: &incomingStart)
+                                incoming.append(contentsOf: buffer[0..<count])
+                            } else {
+                                errors.append(contentsOf: buffer[0..<count])
+                                if errors.count > Self.maxErrors { errors.removeFirst(errors.count - Self.maxErrors) }
+                            }
                             cond.broadcast(); cond.unlock()
                             progressed = true
                             if stream == 0 && count == buffer.count { continue }
@@ -172,7 +176,7 @@ public final class SSHDesktopHost: DesktopHost, @unchecked Sendable {
     public init(connection: SSHConnection) { self.connection = connection }
 
     public func run(_ script: String, timeout: TimeInterval, onLine: @escaping (String) -> Void) -> Int? {
-        execute("/bin/sh -s", input: Data(script.utf8), timeout: timeout, onLine: onLine)
+        execute(RemoteCommands.stdinShell, input: Data(script.utf8), timeout: timeout, onLine: onLine)
     }
 
     public func runCommand(_ command: String, timeout: TimeInterval, onLine: @escaping (String) -> Void) -> Int? {

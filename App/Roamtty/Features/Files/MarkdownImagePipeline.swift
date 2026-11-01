@@ -60,8 +60,7 @@ struct MarkdownImageView: UIViewRepresentable {
     static let identities = NSMapTable<SSHConnection, NSUUID>(keyOptions: [.weakMemory, .objectPointerPersonality], valueOptions: .strongMemory)
     static func key(connection: SSHConnection, path: String) -> Key {
         let id: UUID
-        if let existing = identities.object(forKey: connection) { id = existing as UUID }
-        else { id = UUID(); identities.setObject(id as NSUUID, forKey: connection) }
+        if let existing = identities.object(forKey: connection) { id = existing as UUID } else { id = UUID(); identities.setObject(id as NSUUID, forKey: connection) }
         return Key(connection: id, path: path)
     }
     static func validate(model: AppModel, target: RemoteConnectionTarget, connection: SSHConnection) throws {

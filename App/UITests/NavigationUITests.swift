@@ -179,7 +179,11 @@ final class NavigationUITests: RoamttyLiveUITestCase {
             let top = max(frame.minY, app.navigationBars.firstMatch.frame.maxY)
             let visible = CGRect(x: frame.minX, y: top, width: frame.width, height: max(0, bottom - top))
             if element.exists && element.isHittable && visible.contains(element.frame) { return }
-            guard attempt < 6 else { XCTFail("The control did not become visible above the keyboard: \(element.frame) hittable \(element.isHittable), visible \(visible), keyboard \(keyboard.exists) keys \(app.keys.count)"); return }
+            guard attempt < 6 else {
+                XCTFail("The control did not become visible above the keyboard: \(element.frame) hittable \(element.isHittable), "
+                        + "visible \(visible), keyboard \(keyboard.exists) keys \(app.keys.count)")
+                return
+            }
             XCTAssertGreaterThan(bottom - top, 80)
             let origin = app.coordinate(withNormalizedOffset: .zero)
             origin.withOffset(CGVector(dx: frame.midX, dy: top + visible.height * 0.75)).press(forDuration: 0.05,

@@ -1,4 +1,3 @@
-#if canImport(UIKit) && canImport(VideoToolbox) && canImport(CoreMedia)
 import SwiftUI
 import UIKit
 import AVFoundation
@@ -141,8 +140,7 @@ final class VideoToolboxDisplay: NSObject, DesktopVideoDisplay {
         defer { VTDecompressionSessionInvalidate(session) }
         guard let sample = DesktopSampleBuffer.make(bytes, format: format, frame: 0) else { return nil }
         var result: CVPixelBuffer?
-        let status = VTDecompressionSessionDecodeFrame(session, sampleBuffer: sample, flags: [], infoFlagsOut: nil) {
-            status, _, image, _, _ in
+        let status = VTDecompressionSessionDecodeFrame(session, sampleBuffer: sample, flags: [], infoFlagsOut: nil) { status, _, image, _, _ in
             if status == noErr { result = image }
         }
         VTDecompressionSessionWaitForAsynchronousFrames(session)
@@ -176,7 +174,7 @@ final class VideoToolboxDisplay: NSObject, DesktopVideoDisplay {
 struct DesktopVideoSurface: UIViewRepresentable {
     let display: VideoToolboxDisplay
     /// The picture's frame inside the view when zoomed or panned; nil fills the view.
-    var content: CGRect? = nil
+    var content: CGRect?
     func makeUIView(context: Context) -> DesktopVideoHostView {
         let view = DesktopVideoHostView()
         view.attach(display)
@@ -224,4 +222,3 @@ final class DesktopVideoHostView: UIView {
         CATransaction.commit()
     }
 }
-#endif

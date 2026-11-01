@@ -6,7 +6,7 @@ import XCTest
 final class DesktopProtocolTests: XCTestCase {
     private func read(_ name: String) -> Frame { DesktopProtocol.read(Golden.bytes(name))! }
 
-    func testClientMessagesMatchGoldenBytes() {
+    func testClientMessagesMatchGoldenBytes() throws {
         XCTAssertEqual(Golden.bytes("input-abs.bin"), DesktopProtocol.abs(display: 0, x: 1512, y: 982))
         XCTAssertEqual(Golden.bytes("input-rel.bin"), DesktopProtocol.rel(dx: -5, dy: 12))
         XCTAssertEqual(Golden.bytes("input-button.bin"), DesktopProtocol.button(2, down: true))
@@ -23,8 +23,8 @@ final class DesktopProtocolTests: XCTestCase {
         let config = read("config.bin")
         XCTAssertEqual(DesktopProtocol.CONFIG, config.type)
         let ours = DesktopProtocol.read(DesktopProtocol.config(["fps": 60, "quality": "clear"]))!
-        let a = try! JSONSerialization.jsonObject(with: Data(config.payload)) as! NSDictionary
-        let b = try! JSONSerialization.jsonObject(with: Data(ours.payload)) as! NSDictionary
+        let a = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(config.payload)) as? NSDictionary)
+        let b = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(ours.payload)) as? NSDictionary)
         XCTAssertEqual(a, b)
     }
 
@@ -77,10 +77,10 @@ final class DesktopProtocolTests: XCTestCase {
 
     func testHelloUdpOffer() {
         let key = Data((0..<16).map { UInt8($0) }).base64EncodedString()
-        guard case .ready(let hello) = DesktopProtocol.parseStart(#"{"proto":1,"udp":{"port":40123,"key":"\#(key)"}}"#) else { return XCTFail() }
+        guard case .ready(let hello) = DesktopProtocol.parseStart(#"{"proto":1,"udp":{"port":40123,"key":"\#(key)"}}"#) else { return XCTFail("a start line with a UDP key must be ready") }
         XCTAssertEqual(UdpOffer(port: 40123, key: (0..<16).map { UInt8($0) }), hello.udp)
         // A key of the wrong length is no offer.
-        guard case .ready(let short) = DesktopProtocol.parseStart(#"{"proto":1,"udp":{"port":1,"key":"AAAA"}}"#) else { return XCTFail() }
+        guard case .ready(let short) = DesktopProtocol.parseStart(#"{"proto":1,"udp":{"port":1,"key":"AAAA"}}"#) else { return XCTFail("a short key still parses as ready") }
         XCTAssertNil(short.udp)
     }
 
@@ -89,7 +89,7 @@ final class DesktopProtocolTests: XCTestCase {
                        DesktopProtocol.parseStart(#"{"error":"proto_unsupported","min":2,"max":3}"#))
         XCTAssertEqual(.failed(code: "no_desktop", detail: "no X display"),
                        DesktopProtocol.parseStart(#"{"error":"no_desktop","detail":"no X display"}"#))
-        guard case .failed(let code, _, _, _) = DesktopProtocol.parseStart("bash: not json") else { return XCTFail() }
+        guard case .failed(let code, _, _, _) = DesktopProtocol.parseStart("bash: not json") else { return XCTFail("a shell error must fail the start") }
         XCTAssertEqual("internal", code)
     }
 
@@ -97,7 +97,7 @@ final class DesktopProtocolTests: XCTestCase {
         var p = FrameParser()
         p.push(Array("{\"a\":1}\n".utf8) + DesktopProtocol.ping(5))
         XCTAssertEqual(.hello("{\"a\":1}"), p.next())
-        guard case .frame(let f)? = p.next(), case .ping(let t1)? = DesktopProtocol.decode(f) else { return XCTFail() }
+        guard case .frame(let f)? = p.next(), case .ping(let t1)? = DesktopProtocol.decode(f) else { return XCTFail("expected a ping frame") }
         XCTAssertEqual(5, t1)
         XCTAssertNil(p.next())
     }

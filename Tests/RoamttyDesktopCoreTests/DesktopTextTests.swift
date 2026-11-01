@@ -12,7 +12,7 @@ final class DesktopTextTests: XCTestCase {
              "Allow Accessibility on the Mac: System Settings › Privacy & Security › Accessibility, turn on Roamtty Desktop"),
             ("locked", "请在本机解锁", "Unlock it on the computer"),
             ("portal-approval", "请在电脑上点“允许”共享屏幕", "Click Allow on the computer to share the screen"),
-            ("something-new", "需要在电脑上操作", "Something needs doing on the computer"),
+            ("something-new", "需要在电脑上操作", "Something needs doing on the computer")
         ]
         for (need, zh, en) in cases {
             XCTAssertEqual(DesktopText.needs([need]).text(english: false), zh)

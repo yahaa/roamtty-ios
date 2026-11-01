@@ -55,7 +55,7 @@ public enum MarkdownParser {
     public static func parse(_ source: String) -> [MdBlock] {
         let lines = source.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n").split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         var references: [String: String] = [:]
-        let reference = try! NSRegularExpression(pattern: #"^ {0,3}\[([^\]]+)]:\s*<?(\S+?)>?(?:\s+["'(].*["')])?\s*$"#)
+        let reference = NSRegularExpression(literal: #"^ {0,3}\[([^\]]+)]:\s*<?(\S+?)>?(?:\s+["'(].*["')])?\s*$"#)
         let content = lines.filter { line in
             let range = NSRange(line.startIndex..., in: line)
             guard let match = reference.firstMatch(in: line, range: range), match.range.length == range.length,
@@ -119,9 +119,7 @@ public enum MarkdownParser {
             while index < lines.count && !lines[index].trimmingCharacters(in: .whitespaces).isEmpty {
                 let current = lines[index]
                 let trimmed = current.trimmingCharacters(in: .whitespaces)
-                if trimmed.hasPrefix(">") { inner.append(String(trimmed.dropFirst()).dropPrefix(" ")) }
-                else if startsBlock(current) { break }
-                else { inner.append(current) }
+                if trimmed.hasPrefix(">") { inner.append(String(trimmed.dropFirst()).dropPrefix(" ")) } else if startsBlock(current) { break } else { inner.append(current) }
                 index += 1
             }
             out.append(.quote(Parser(inner, inline).blocks()))
@@ -135,7 +133,8 @@ public enum MarkdownParser {
             var body = group(line, #"^(\s*)([-*+]|\d{1,9}[.)])(?:\s+(.*))?$"#, 3) ?? ""
             let rawMarker = group(line, #"^(\s*)([-*+]|\d{1,9}[.)])(?:\s+(.*))?$"#, 2) ?? "•"
             index += 1
-            while index < lines.count && !lines[index].trimmingCharacters(in: .whitespaces).isEmpty && !startsBlock(lines[index]) && whole(lines[index], #"^(\s*)([-*+]|\d{1,9}[.)])(?:\s+(.*))?$"#) == nil {
+            while index < lines.count && !lines[index].trimmingCharacters(in: .whitespaces)
+                .isEmpty && !startsBlock(lines[index]) && whole(lines[index], #"^(\s*)([-*+]|\d{1,9}[.)])(?:\s+(.*))?$"#) == nil {
                 body += " " + lines[index].trimmingCharacters(in: .whitespaces); index += 1
             }
             let task = whole(body, #"^\[([ xX])](?:\s+(.*))?$"#)
@@ -165,12 +164,10 @@ public enum MarkdownParser {
             var i = trimmed.startIndex
             while i < trimmed.endIndex {
                 let c = trimmed[i]
-                if c == "\\" , let next = trimmed.index(i, offsetBy: 1, limitedBy: trimmed.endIndex), next < trimmed.endIndex, trimmed[next] == "|" {
+                if c == "\\", let next = trimmed.index(i, offsetBy: 1, limitedBy: trimmed.endIndex), next < trimmed.endIndex, trimmed[next] == "|" {
                     cell.append("|"); i = trimmed.index(after: next); continue
                 }
-                if c == "`" { code.toggle(); cell.append(c) }
-                else if c == "|" && !code { cells.append(cell.trimmingCharacters(in: .whitespaces)); cell = "" }
-                else { cell.append(c) }
+                if c == "`" { code.toggle(); cell.append(c) } else if c == "|" && !code { cells.append(cell.trimmingCharacters(in: .whitespaces)); cell = "" } else { cell.append(c) }
                 i = trimmed.index(after: i)
             }
             cells.append(cell.trimmingCharacters(in: .whitespaces))
@@ -335,8 +332,8 @@ private final class InlineParser {
                 i = j; continue
             }
             if c == "~", src.dropFirst(i).hasPrefix("~~"), let next = emphasis(chars, i, "~~", .strike, &out, &spans) { i = next; continue }
-            if (c == "*" || c == "_"), i + 1 < chars.count, chars[i + 1] == c, let next = emphasis(chars, i, String(c) + String(c), .bold, &out, &spans) { i = next; continue }
-            if (c == "*" || c == "_"), c == "*" || i == 0 || !(chars[i - 1].isLetter || chars[i - 1].isNumber), let next = emphasis(chars, i, String(c), .italic, &out, &spans) { i = next; continue }
+            if c == "*" || c == "_", i + 1 < chars.count, chars[i + 1] == c, let next = emphasis(chars, i, String(c) + String(c), .bold, &out, &spans) { i = next; continue }
+            if c == "*" || c == "_", c == "*" || i == 0 || !(chars[i - 1].isLetter || chars[i - 1].isNumber), let next = emphasis(chars, i, String(c), .italic, &out, &spans) { i = next; continue }
             append(String(c)); i += 1
         }
     }
@@ -345,8 +342,7 @@ private final class InlineParser {
         guard open < chars.count, chars[open] == "(" else { return nil }
         var depth = 0
         for j in open..<chars.count {
-            if chars[j] == "(" { depth += 1 }
-            else if chars[j] == ")" {
+            if chars[j] == "(" { depth += 1 } else if chars[j] == ")" {
                 depth -= 1
                 if depth == 0 {
                     let raw = String(chars[(open + 1)..<j]).trimmingCharacters(in: .whitespaces).split(separator: " ").first.map(String.init) ?? ""
@@ -360,9 +356,7 @@ private final class InlineParser {
         var depth = 0
         var j = open
         while j < chars.count {
-            if chars[j] == "\\" { j += 1 }
-            else if chars[j] == "[" { depth += 1 }
-            else if chars[j] == "]" { depth -= 1; if depth == 0 { return j } }
+            if chars[j] == "\\" { j += 1 } else if chars[j] == "[" { depth += 1 } else if chars[j] == "]" { depth -= 1; if depth == 0 { return j } }
             j += 1
         }
         return nil

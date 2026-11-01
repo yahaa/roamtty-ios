@@ -1,4 +1,3 @@
-#if canImport(UIKit)
 import SwiftUI
 import UIKit
 import RoamttyDesktopCore
@@ -91,14 +90,14 @@ struct DesktopStatusOverlay: View {
             guard let since = recoverySince else { return }
             let elapsed = Int64(Date().timeIntervalSince1970 * 1000) - since
             let remaining = max(0, 2_000 - elapsed)
-            do { try await Task.sleep(nanoseconds: UInt64(remaining) * 1_000_000) } catch { return }
+            do { try await Task.sleep(for: .milliseconds(remaining)) } catch { return }
             guard !Task.isCancelled else { return }
             recoveryShownFor = since
         }
     }
 
     private func card<Body: View, Footer: View>(_ title: DesktopText, size: CGSize, id: String = "desktop-status",
-                                              @ViewBuilder body: () -> Body, @ViewBuilder footer: () -> Footer) -> some View {
+                                                @ViewBuilder body: () -> Body, @ViewBuilder footer: () -> Footer) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(host).font(font(12)).foregroundStyle(dim).lineLimit(1).truncationMode(.tail)
             Text(text(title)).font(font(17, weight: .semibold)).foregroundStyle(ink)
@@ -164,4 +163,3 @@ private struct DesktopStatusSpinner: View {
             .onAppear { spinning = true }
     }
 }
-#endif

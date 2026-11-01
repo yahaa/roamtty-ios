@@ -76,24 +76,25 @@ import Foundation
         do {
             _ = try ShareImportLedger.commit(into: root, id: protectedID, names: ["keep.txt"]) { _ in }
             throw Failed(message: "Unrecognized existing import must not be overwritten")
-        } catch is Failed { throw Failed(message: "Unrecognized existing import was accepted") }
-        catch { }
+        } catch is Failed { throw Failed(message: "Unrecognized existing import was accepted") } catch { }
         try expect(try Data(contentsOf: existing) == Data("keep".utf8), "Recovery must not delete an existing import")
 
         do {
             _ = try ShareImportLedger.commit(into: root, id: UUID().uuidString, names: ["../escape"]) { _ in }
             throw Failed(message: "Unsafe file names must be rejected")
-        } catch is Failed { throw Failed(message: "Unsafe file name was accepted") }
-        catch { }
+        } catch is Failed { throw Failed(message: "Unsafe file name was accepted") } catch { }
         try ShareImportLedger.acknowledge([existing], in: root)
         try expect(FileManager.default.fileExists(atPath: existing.path), "Acknowledgement must not remove files without a valid receipt")
 
         let cancelled = ShareInboxCancellation()
         try expect(cancelled.cancel(), "Cancellation should win before publication")
         var published = false
-        do { try cancelled.publish { published = true }; throw Failed(message: "Cancelled publication should throw") }
-        catch is Failed { throw Failed(message: "Cancelled publication was accepted") }
-        catch { }
+        do {
+            try cancelled.publish { published = true }
+            throw Failed(message: "Cancelled publication should throw")
+        } catch is Failed {
+            throw Failed(message: "Cancelled publication was accepted")
+        } catch { }
         try expect(!published, "Cancelled work must not publish")
         let completed = ShareInboxCancellation()
         try completed.publish { published = true }

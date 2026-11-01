@@ -1,4 +1,3 @@
-#if canImport(UIKit)
 import SwiftUI
 import RoamttyDesktopCore
 
@@ -67,4 +66,3 @@ struct DesktopCardButton: View {
         }
     }
 }
-#endif

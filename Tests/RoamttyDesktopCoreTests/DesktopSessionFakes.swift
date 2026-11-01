@@ -17,6 +17,7 @@ final class FakeStream: DesktopStream, @unchecked Sendable {
     // Plugin side.
     func feed(_ bytes: [UInt8]) { cond.lock(); buffer += bytes; cond.broadcast(); cond.unlock() }
     func hello(_ json: [String: Any]) {
+        // swiftlint:disable:next force_try - fixture JSON built from literals
         let data = try! JSONSerialization.data(withJSONObject: json)
         feed(Array(data) + [0x0A])
     }
@@ -131,6 +132,7 @@ enum PluginFrames {
         return DesktopProtocol.frame(DesktopProtocol.VIDEO, b.bytes)
     }
     static func state(_ json: [String: Any]) -> [UInt8] {
+        // swiftlint:disable:next force_try - fixture JSON built from literals
         DesktopProtocol.frame(DesktopProtocol.STATE, Array(try! JSONSerialization.data(withJSONObject: json)))
     }
     static func audio(_ seq: Int64) -> [UInt8] {

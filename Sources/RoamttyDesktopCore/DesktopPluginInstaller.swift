@@ -209,8 +209,7 @@ public enum HTTPFetch {
         final class Box: @unchecked Sendable { var result: Result<Data, Error> = .failure(Failure(description: "no response")) }
         let box = Box()
         let task = session.dataTask(with: URLRequest(url: u, timeoutInterval: 15)) { data, response, error in
-            if let error { box.result = .failure(error) }
-            else if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            if let error { box.result = .failure(error) } else if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
                 box.result = .failure(Failure(description: "HTTP \(http.statusCode)"))
             } else { box.result = .success(data ?? Data()) }
             done.signal()

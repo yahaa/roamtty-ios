@@ -67,7 +67,7 @@ final class DesktopPluginInstallerTests: XCTestCase {
     func testPhoneDownloadFailureIsADownloadFailure() {
         struct Offline: Error {}
         let installer = DesktopPluginInstaller(remote: local, fetch: { _ in throw Offline() })
-        guard case .failed(.download, _) = installer.install(.init(version: "0.1.0", url: "http://127.0.0.1:9/x.gz", sha256: sha, openh264Url: nil)) else { return XCTFail() }
+        guard case .failed(.download, _) = installer.install(.init(version: "0.1.0", url: "http://127.0.0.1:9/x.gz", sha256: sha, openh264Url: nil)) else { return XCTFail("an unreachable download must fail as a download") }
     }
 
     func testPlaceScriptRejectsATamperedUpload() throws {
@@ -117,6 +117,18 @@ final class DesktopPluginInstallerTests: XCTestCase {
         let mac = try XCTUnwrap(DesktopPluginInstaller.Build.pinned(manifest, target: "macos-universal"))
         XCTAssertTrue(mac.app)
         XCTAssertNil(mac.openh264Url, "macOS encodes with VideoToolbox")
+    }
+
+    func testMirrorKeepsThePinnedBuildAndItsChecksums() throws {
+        let pinned = try PluginManifest.bundled()
+        let mirror = pinned.withBaseUrl("https://mirror.example/desktop/")
+        XCTAssertEqual(mirror.baseUrl, "https://mirror.example/desktop/")
+        XCTAssertEqual(mirror.targets, pinned.targets)
+        XCTAssertEqual([mirror.version, mirror.openh264], [pinned.version, pinned.openh264])
+        XCTAssertEqual([mirror.protoMin, mirror.protoMax], [pinned.protoMin, pinned.protoMax])
+        let target = try XCTUnwrap(mirror.targets["linux-x86_64"])
+        XCTAssertEqual(mirror.url(target), "https://mirror.example/desktop/" + target.file)
+        XCTAssertEqual(pinned.withBaseUrl(pinned.baseUrl), pinned)
     }
 
     func testZipBuildsAreApps() {

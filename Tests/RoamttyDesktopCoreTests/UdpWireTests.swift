@@ -43,7 +43,7 @@ final class UdpWireTests: XCTestCase {
         let r = Reassembler()
         var out: Reassembler.Delivered?
         for (i, p) in golden.dropFirst(2).enumerated() {
-            guard case .frag(let f)? = Packet.decode(p) else { return XCTFail() }
+            guard case .frag(let f)? = Packet.decode(p) else { return XCTFail("expected a fragment") }
             if let d = r.push(f, nowUs: Int64(i)) { out = d }
         }
         XCTAssertEqual(message, out?.bytes)
@@ -225,7 +225,8 @@ final class UdpWireTests: XCTestCase {
             XCTAssertEqual(0, Glibc.bind(server, p, len))
             #endif
             XCTAssertEqual(0, getsockname(server, p, &len))
-        } }
+        }
+        }
         let port = Int(UInt16(bigEndian: addr.sin_port))
         var tv = timeval(tv_sec: 0, tv_usec: 200_000)
         setsockopt(server, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
@@ -241,11 +242,17 @@ final class UdpWireTests: XCTestCase {
                 if stop.value { return }
                 var fl = socklen_t(MemoryLayout<sockaddr_storage>.size)
                 let n = buf.withUnsafeMutableBytes { b in withUnsafeMutablePointer(to: &from) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                    recvfrom(server, b.baseAddress, b.count, 0, $0, &fl) } } }
+                    recvfrom(server, b.baseAddress, b.count, 0, $0, &fl)
+                }
+                }
+                }
                 if n <= 0 || Double.random(in: 0..<1, using: &rng) < 0.3 { continue }
                 for out in host.handle(Array(buf[0..<n])) {
                     _ = out.withUnsafeBytes { o in withUnsafePointer(to: &from) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                        sendto(server, o.baseAddress, o.count, 0, $0, fl) } } }
+                        sendto(server, o.baseAddress, o.count, 0, $0, fl)
+                    }
+                    }
+                    }
                 }
             }
         }

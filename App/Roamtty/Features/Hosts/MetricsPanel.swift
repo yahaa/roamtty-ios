@@ -19,13 +19,20 @@ struct MetricsPanel: View {
             HStack(spacing: 10) {
                 gauge("CPU", value: metrics.cpuPercent, detail: metrics.cpus.map { model.text("\($0) 核", "\($0) cores") }, history: series.cpuHistory, id: "host-gauge-cpu")
                 gauge(model.text("内存", "Memory"), value: metrics.memPercent, detail: usage(metrics.memUsedBytes, metrics.memTotalBytes), history: series.memHistory, id: "host-gauge-memory")
-                gauge(model.text("磁盘", "Disk"), value: metrics.disks.first?.percent, detail: usage(metrics.disks.first?.usedBytes, metrics.disks.first?.totalBytes), history: nil, id: "host-gauge-disk")
+                gauge(model.text("磁盘", "Disk"), value: metrics.disks.first?.percent,
+                    detail: usage(metrics.disks.first?.usedBytes, metrics.disks.first?.totalBytes), history: nil, id: "host-gauge-disk")
             }
             Panel {
-                InfoRow(title: model.text("负载", "Load"), value: metrics.load.isEmpty ? "—" : metrics.load.map { String(format: "%.2f", $0) }.joined(separator: "  "), subtitle: model.text("1 / 5 / 15 分钟", "1 / 5 / 15 min")).panelDivider()
-                InfoRow(title: model.text("网络", "Network"), value: series.netRate.map { "↓ \(bytes($0.rxBytesPerSecond))/s   ↑ \(bytes($0.txBytesPerSecond))/s" } ?? "—").panelDivider().accessibilityIdentifier("host-network-rate")
+                InfoRow(title: model.text("负载", "Load"), value: metrics.load.isEmpty ? "—" : metrics.load.map {
+                    String(format: "%.2f", $0)
+                }.joined(separator: "  "), subtitle: model.text("1 / 5 / 15 分钟", "1 / 5 / 15 min")).panelDivider()
+                InfoRow(title: model.text("网络", "Network"), value: series.netRate.map {
+                    "↓ \(bytes($0.rxBytesPerSecond))/s   ↑ \(bytes($0.txBytesPerSecond))/s"
+                } ?? "—").panelDivider().accessibilityIdentifier("host-network-rate")
                 InfoRow(title: model.text("运行时间", "Uptime"), value: metrics.uptimeSeconds.map(uptime) ?? "—").panelDivider()
-                if let total = metrics.swapTotalBytes, total > 0 { InfoRow(title: model.text("交换分区", "Swap"), value: "\(bytes(Double(metrics.swapUsedBytes ?? 0))) / \(bytes(Double(total)))").panelDivider() }
+                if let total = metrics.swapTotalBytes, total > 0 {
+                    InfoRow(title: model.text("交换分区", "Swap"), value: "\(bytes(Double(metrics.swapUsedBytes ?? 0))) / \(bytes(Double(total)))").panelDivider()
+                }
                 if let tasks = metrics.tasks { InfoRow(title: model.text("任务", "Tasks"), value: tasks, subtitle: model.text("运行中 / 总数", "running / total")).panelDivider() }
                 if let users = metrics.users { InfoRow(title: model.text("登录会话", "Login sessions"), value: String(users)).panelDivider() }
                 ForEach(Array(metrics.disks.dropFirst().enumerated()), id: \.offset) { _, disk in
@@ -87,8 +94,7 @@ struct MetricsPanel: View {
             }.padding(4).frame(width: 72, height: 72)
             Text(title).font(.caption.weight(.medium))
             Text(detail ?? " ").font(.system(size: 11)).foregroundStyle(Palette.secondary).lineLimit(1).minimumScaleFactor(0.75)
-            if let history { sparkline(history, tone: levelColor(value)).padding(.top, 6) }
-            else { Color.clear.frame(height: 28) }
+            if let history { sparkline(history, tone: levelColor(value)).padding(.top, 6) } else { Color.clear.frame(height: 28) }
         }.padding(12).frame(maxWidth: .infinity).background(Palette.panel, in: RoundedRectangle(cornerRadius: 16))
             .accessibilityElement(children: .ignore).accessibilityLabel("\(title), \(percent(value)), \(detail ?? "")").accessibilityIdentifier(id)
     }

@@ -92,7 +92,8 @@ final class TransferProgressRelay {
     private func update(_ id: UUID, _ apply: (inout TransferJob) -> Void) { if let index = jobs.firstIndex(where: { $0.id == id }) { apply(&jobs[index]) } }
     /// Where a job's transfer reports its bytes and total.
     private func progressRelay(for id: UUID) -> TransferProgressRelay { TransferProgressRelay { bytes, total in self.update(id) { $0.bytes = bytes; $0.total = total } } }
-    func upload(_ url: URL, directory: String, host: Host, model: AppModel, insert: Bool = false, targetSessionID: String? = nil, name: String? = nil, targetRuntime: SessionRuntime? = nil, connectionTarget: RemoteConnectionTarget? = nil) {
+    func upload(_ url: URL, directory: String, host: Host, model: AppModel, insert: Bool = false, targetSessionID: String? = nil, name: String? = nil,
+                targetRuntime: SessionRuntime? = nil, connectionTarget: RemoteConnectionTarget? = nil) {
         let connectionTarget = connectionTarget ?? targetRuntime.map { RemoteConnectionTarget.session($0) }
             ?? model.connectionTarget(hostID: host.id, sessionID: targetSessionID)
         let remoteName = name ?? url.lastPathComponent
@@ -196,7 +197,9 @@ final class TransferProgressRelay {
                 if let bookmark = model.settings.downloadBookmark {
                     var stale = false
                     let url = try URL(resolvingBookmarkData: bookmark, options: [], relativeTo: nil, bookmarkDataIsStale: &stale)
-                    guard !stale, url.startAccessingSecurityScopedResource() else { throw RoamError.invalid(model.text("下载目录授权已过期，请在设置中重新选择", "Download folder access expired. Choose it again in Settings.")) }
+                    guard !stale, url.startAccessingSecurityScopedResource() else {
+                        throw RoamError.invalid(model.text("下载目录授权已过期，请在设置中重新选择", "Download folder access expired. Choose it again in Settings."))
+                    }
                     scoped = url; folder = url
                 } else {
                     folder = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("Downloads", isDirectory: true)
@@ -235,23 +238,27 @@ final class TransferProgressRelay {
         }
         return url.deletingLastPathComponent().appendingPathComponent(UUID().uuidString + "-" + url.lastPathComponent)
     }
-    nonisolated private static func uploadTree(url: URL, path: String, sftp: SFTPSession, count: Int, cancellation: TransferCancellation, progress: @escaping (Int64, Int64?) -> Void, completed: (Int64) -> Void) throws {
+    nonisolated private static func uploadTree(url: URL, path: String, sftp: SFTPSession, count: Int, cancellation: TransferCancellation,
+                                               progress: @escaping (Int64, Int64?) -> Void, completed: (Int64) -> Void) throws {
         guard !cancellation.isCancelled else { throw RoamError.cancelled }
         guard count < 64, isSafeRemoteEntryName(url.lastPathComponent) else { throw RoamError.invalid("Invalid or deeply nested upload path") }
         let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey])
         guard values.isSymbolicLink != true else { throw RoamError.invalid("Symbolic links are not uploaded recursively") }
         if values.isDirectory == true {
-            do { try sftp.createDirectory(path) }
-            catch {
+            do { try sftp.createDirectory(path) } catch {
                 // Existing upload folders may be reused, but a regular file or inaccessible path cannot.
                 guard !cancellation.isCancelled else { throw RoamError.cancelled }
                 _ = try sftp.listDirectory(path)
             }
             let children = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey]).sorted { $0.lastPathComponent < $1.lastPathComponent }
-            for child in children { try uploadTree(url: child, path: joinRemotePath(directory: path, name: child.lastPathComponent), sftp: sftp, count: count + 1, cancellation: cancellation, progress: progress, completed: completed) }
+            for child in children {
+                try uploadTree(url: child, path: joinRemotePath(directory: path, name: child.lastPathComponent), sftp: sftp, count: count + 1,
+                    cancellation: cancellation, progress: progress, completed: completed)
+            }
         } else { try sftp.upload(url, to: path, progress: progress); completed(Int64(values.fileSize ?? 0)) }
     }
-    nonisolated private static func downloadTree(entry: RemoteEntry, destination: URL, sftp: SFTPSession, depth: Int, cancellation: TransferCancellation, progress: @escaping (Int64, Int64?) -> Void, completed: (Int64) -> Void) throws {
+    nonisolated private static func downloadTree(entry: RemoteEntry, destination: URL, sftp: SFTPSession, depth: Int,
+                                                 cancellation: TransferCancellation, progress: @escaping (Int64, Int64?) -> Void, completed: (Int64) -> Void) throws {
         guard !cancellation.isCancelled else { throw RoamError.cancelled }
         guard depth < 64, isSafeRemoteEntryName(entry.name) else { throw RoamError.invalid("Invalid or deeply nested remote path") }
         if entry.isDirectory {
@@ -259,7 +266,10 @@ final class TransferProgressRelay {
             try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
             let listing = try sftp.listDirectory(entry.path)
             guard listing.unreadableNames == 0 else { throw RoamError.invalid("文件夹中有无法识别的文件名（非 UTF-8），无法完整下载 / The folder holds names that are not UTF-8, so it can't be downloaded whole") }
-            for child in listing.entries { try downloadTree(entry: child, destination: destination.appendingPathComponent(child.name), sftp: sftp, depth: depth + 1, cancellation: cancellation, progress: progress, completed: completed) }
+            for child in listing.entries {
+                try downloadTree(entry: child, destination: destination.appendingPathComponent(child.name), sftp: sftp, depth: depth + 1,
+                    cancellation: cancellation, progress: progress, completed: completed)
+            }
         } else { try sftp.download(entry.path, to: destination, progress: progress); completed(entry.size ?? 0) }
     }
 }

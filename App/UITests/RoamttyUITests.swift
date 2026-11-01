@@ -164,6 +164,7 @@ final class RoamttyUITests: RoamttyLiveUITestCase {
             waitForExpectations(timeout: 6)
         }
         shareDestination = "/tmp/roamtty-ios-ui-upload-" + UUID().uuidString
+        // swiftlint:disable:next line_length - one shell command line typed into the terminal
         try runCommand("test \"$PWD\" = /tmp && { printf 'ROAMTTY_UI_'; printf 'VERIFIED\\n'; }; mkdir -m 700 " + shareDestination + "; printf 'ROAMTTY_SFTP_PREVIEW\\n' > \"$HOME/roamtty-ui-preview.txt\"")
         expectation(for: NSPredicate(format: "value CONTAINS %@", "ROAMTTY_UI_VERIFIED"), evaluatedWith: surface)
         waitForExpectations(timeout: 20)

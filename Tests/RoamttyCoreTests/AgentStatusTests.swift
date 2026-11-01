@@ -321,7 +321,9 @@ final class AgentStatusTests: XCTestCase {
         XCTAssertEqual(fixture.option("@roamtty_reply"), "All green.")
         // Grok names it in camelCase; a subagent says what it does. Only a scheduled wakeup is no work in flight.
         try fixture.hook("prompt", #"{"prompt":"review"}"#, agent: "grok", grok: true)
-        try fixture.hook("stop", #"{"lastAssistantMessage":"spawned","backgroundTasks":[{"id":"a1","type":"subagent","status":"running","description":"Review the diff","agentType":"general"}],"sessionCrons":[]}"#, agent: "grok", grok: true)
+        try fixture.hook("stop",
+            #"{"lastAssistantMessage":"spawned","backgroundTasks":[{"id":"a1","type":"subagent","status":"running","description":"Review the diff","agentType":"general"}],"sessionCrons":[]}"#,
+            agent: "grok", grok: true)
         XCTAssertEqual(fixture.reported(), "working|Background|Review the diff")
         try fixture.hook("stop", #"{"lastAssistantMessage":"ok","backgroundTasks":[],"sessionCrons":[{"id":"c1","schedule":"*/5 * * * *"}]}"#, agent: "grok", grok: true)
         XCTAssertEqual(fixture.reported(), "idle||")
@@ -338,8 +340,11 @@ final class AgentStatusTests: XCTestCase {
         let id = "32c4597e-61a4-4ddd-ba0a-51f68f9d1148"
         // In the pane, or (pane = nil) under a process resuming the session, as Claude Code's background job runs.
         func hook(_ event: String, _ json: String, pane: String?, resumed: String = id) throws {
-            if pane != nil { try fixture.run([fixture.script.path, "claude", event], json: json, pane: pane) }
-            else { try fixture.run(["-c", "sh '\(fixture.script.path)' claude \(event); :", "--resume", "/p/\(resumed).jsonl", "--reply-on-resume"], json: json, pane: nil) }
+            if pane != nil {
+                try fixture.run([fixture.script.path, "claude", event], json: json, pane: pane)
+            } else {
+                try fixture.run(["-c", "sh '\(fixture.script.path)' claude \(event); :", "--resume", "/p/\(resumed).jsonl", "--reply-on-resume"], json: json, pane: nil)
+            }
         }
         try hook("tool", #"{"session_id":"\#(id)","tool_name":"Bash","tool_input":{"command":"make"}}"#, pane: "%1")
         XCTAssertEqual(fixture.option("@roamtty_session"), id)

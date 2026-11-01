@@ -14,7 +14,8 @@ final class SSHExecTests: XCTestCase {
         guard let path = environment["ROAMTTY_TEST_PASSWORD_FILE"] else { throw XCTSkip("Live SSH fixture not configured") }
         let password = try String(contentsOfFile: path, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
         let auth = AuthMethod(rawValue: environment["ROAMTTY_TEST_AUTH"] ?? "password") ?? .password
-        let host = RoamttyCore.Host(name: "Exec fixture", address: environment["ROAMTTY_TEST_HOST"] ?? "127.0.0.1", port: Int(environment["ROAMTTY_TEST_PORT"] ?? "22992")!, username: "itermux_test", auth: auth)
+        let host = RoamttyCore.Host(name: "Exec fixture", address: environment["ROAMTTY_TEST_HOST"] ?? "127.0.0.1",
+            port: Int(environment["ROAMTTY_TEST_PORT"] ?? "22992")!, username: "itermux_test", auth: auth)
         let pins = try AppStore(url: URL(fileURLWithPath: ":memory:"))
         let connection = SSHConnection(host: host, credentials: Credentials(password: Data(password.utf8)), pinStore: pins) { prompt in
             switch prompt {
@@ -192,8 +193,7 @@ final class SSHExecTests: XCTestCase {
         let gate = ExecSendBackpressure(until: .distantFuture, skipping: 3, window: 0.2) { token.cancel() }
         let restore = blockSends(client, using: gate)
         let started = Date()
-        do { try client.createDirectory(remote + "/created", cancellation: token) }
-        catch { XCTAssertEqual(error as? RoamError, .cancelled) }
+        do { try client.createDirectory(remote + "/created", cancellation: token) } catch { XCTAssertEqual(error as? RoamError, .cancelled) }
         restore()
         XCTAssertGreaterThan(gate.blockedSends, 0, "The SFTP request must meet EAGAIN")
         XCTAssertLessThan(Date().timeIntervalSince(started), 5)

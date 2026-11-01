@@ -23,7 +23,7 @@ struct CursorRowButtons: View {
     /// Keep the key's touch target above the system home gesture area.
     var bottomInset: CGFloat = 0
     /// Where the pet's arrow keys sit, in this view's coordinates: a cursor row within their span slides left of them.
-    var avoid: CGRect? = nil
+    var avoid: CGRect?
     /// iPhone keyboards have no dismiss key: while one is up, a key beside Esc/Enter puts it away.
     var keyboardVisible = false
     init(runtime: SessionRuntime, trailingInset: CGFloat = 0, bottomInset: CGFloat = 0, avoid: CGRect? = nil, keyboardVisible: Bool = false) {
@@ -58,18 +58,22 @@ struct CursorRowButtons: View {
 
 /// A slim key drawn inside a larger touch area: an Android drawable, an SF Symbol, or a short text label.
 struct CursorKeyButton: View {
-    var icon: String? = nil
-    var systemIcon: String? = nil
-    var text: String? = nil
+    var icon: String?
+    var systemIcon: String?
+    var text: String?
     let label: String
     let id: String
     let action: () -> Void
     var body: some View {
         Button(action: action) {
             Group {
-                if let icon { AppIcon(icon, size: 16) }
-                else if let systemIcon { Image(systemName: systemIcon).font(.system(size: 13, weight: .medium)) }
-                else { Text(text ?? "").font(.system(size: 10, weight: .medium, design: .monospaced)) }
+                if let icon {
+                    AppIcon(icon, size: 16)
+                } else if let systemIcon {
+                    Image(systemName: systemIcon).font(.system(size: 13, weight: .medium))
+                } else {
+                    Text(text ?? "").font(.system(size: 10, weight: .medium, design: .monospaced))
+                }
             }.foregroundStyle(Palette.accent).frame(width: 28, height: 20)
                 .background(Palette.raised.opacity(0.35), in: RoundedRectangle(cornerRadius: 6))
                 .overlay { RoundedRectangle(cornerRadius: 6).stroke(Palette.outline.opacity(0.35), lineWidth: 1) }

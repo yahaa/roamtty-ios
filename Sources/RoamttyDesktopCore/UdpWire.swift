@@ -71,6 +71,7 @@ public struct UdpCrypto: Sendable {
     public func seal(dir: Int, seq: UInt64, _ plain: [UInt8]) -> [UInt8] {
         var h = ByteWriter(capacity: UdpWire.HEADER); h.u8(dir); h.u64(seq)
         // A 12-byte nonce and a valid key cannot fail here.
+        // swiftlint:disable:next force_try
         let box = try! AES.GCM.seal(plain, using: key, nonce: try! AES.GCM.Nonce(data: Self.nonce(dir, seq)), authenticating: h.bytes)
         return h.bytes + Array(box.ciphertext) + Array(box.tag)
     }

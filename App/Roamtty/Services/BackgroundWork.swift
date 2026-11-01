@@ -5,7 +5,7 @@ import RoamttyTransport
 struct TrackedTask {
     let token: UUID
     let task: Task<Void, Never>
-    var cancellation: TransferCancellation? = nil
+    var cancellation: TransferCancellation?
     func cancel() { cancellation?.cancel(); task.cancel() }
 }
 

@@ -12,8 +12,7 @@ extension SSHConnection {
         let sftp = try openSFTP(cancelled: { epoch != self.transferEpoch() || cancellation?.isCancelled == true })
         defer { settle(timeout: 10) { libssh2_sftp_shutdown(sftp) } }
         try transferCheck(epoch, cancellation)
-        do { return try body(sftp, epoch) }
-        catch {
+        do { return try body(sftp, epoch) } catch {
             // A request that timed out still holds libssh2's shared send slot; nothing else could get through.
             if error as? RoamError == .timeout { disconnect() }
             throw error
@@ -34,7 +33,7 @@ extension SSHConnection {
         String(bytes: bytes.map { UInt8(bitPattern: $0) }, encoding: .utf8)
     }
     private func validatePath(_ path: String, allowEmpty: Bool = false) throws {
-        guard (allowEmpty || !path.isEmpty), path.utf8.count <= 16384, !path.contains("\0"), !path.contains("\n"), !path.contains("\r") else { throw RoamError.invalid("无效的远端路径 / Invalid remote path") }
+        guard allowEmpty || !path.isEmpty, path.utf8.count <= 16384, !path.contains("\0"), !path.contains("\n"), !path.contains("\r") else { throw RoamError.invalid("无效的远端路径 / Invalid remote path") }
     }
     private func transferCheck(_ epoch: Int, _ cancellation: TransferCancellation? = nil) throws {
         guard epoch == transferEpoch(), !isStopped, cancellation?.isCancelled != true else { throw RoamError.cancelled }
@@ -140,8 +139,7 @@ extension SSHConnection {
                 progress(count, total)
             }
         } catch {
-            do { try FileManager.default.removeItem(at: url) }
-            catch { throw RoamError.transport("下载失败，无法删除本地未完成文件 / Could not remove partial download") }
+            do { try FileManager.default.removeItem(at: url) } catch { throw RoamError.transport("下载失败，无法删除本地未完成文件 / Could not remove partial download") }
             throw error
         }
     }
@@ -156,7 +154,9 @@ extension SSHConnection {
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map { Int64($0) }
         try session { sftp, epoch in
             let temp = joinRemotePath(directory: parentRemotePath(path), name: ".roamtty-" + UUID().uuidString + ".part")
-            let handle = try requestHandle(epoch, cancellation) { libssh2_sftp_open_ex(sftp, temp, UInt32(temp.utf8.count), UInt(LIBSSH2_FXF_WRITE | LIBSSH2_FXF_CREAT | LIBSSH2_FXF_EXCL), 0o600, LIBSSH2_SFTP_OPENFILE) }
+            let handle = try requestHandle(epoch, cancellation) {
+                libssh2_sftp_open_ex(sftp, temp, UInt32(temp.utf8.count), UInt(LIBSSH2_FXF_WRITE | LIBSSH2_FXF_CREAT | LIBSSH2_FXF_EXCL), 0o600, LIBSSH2_SFTP_OPENFILE)
+            }
             var closed = false
             do {
                 var count: Int64 = 0; progress(0, size)
@@ -276,8 +276,7 @@ public final class HeldSFTPSession: @unchecked Sendable {
     public func listDirectory(_ path: String) throws -> RemoteDirectory {
         lock.lock(); defer { lock.unlock() }
         guard !closed else { throw RoamError.cancelled }
-        do { return try session.listDirectory(path) }
-        catch {
+        do { return try session.listDirectory(path) } catch {
             // As in `withSFTP`: a request that timed out still holds libssh2's shared send slot.
             if error as? RoamError == .timeout { connection.disconnect() }
             throw error

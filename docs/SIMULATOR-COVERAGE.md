@@ -1,5 +1,33 @@
 # Simulator acceptance coverage
 
+## 2026-11-01 (later): the remaining items
+
+Same simulator and fixtures. Changes: `tmux -u` on attach, `LM_SKIP_METADATA_EXTRACTION`, the desktop gesture tests' own opt-in and runner (`scripts/test-desktop-gestures.sh`).
+
+| Evidence | Result |
+| --- | --- |
+| Full UI run, `TestResults/Simulator-20261101-104356.xcresult` | **86 total: 67 passed, 15 skipped, 4 failed.** The 8 live-desktop tests now skip instead of failing against the SSH container. |
+| The 4 failures | `HomeLandscapeUITests.testCardsShareHeightAndLandscapeBarSlides` and `TerminalSettingsUITests.testPinnedToolsReserveWidthAndFunctionShortcutsReachRemote` passed when rerun. The two TerminalGesture keyboard tests kept failing, also with `RemoteCommands.swift` from the previous round (so not `tmux -u`). The cause was simulator state left by hardware key events (XCUITest `typeKey`, used by the old ⌃⌘F test): the software keyboard stopped coming back. After `xcrun simctl erase`, TerminalGesture passed **9/9**. |
+| Live desktop gestures, Ubuntu VM | `testTrackpadModeGestures`, `testTouchModeGestures`, `testSwipeBackFromOutsideThePicture` and `testLookAtHost` passed. The trackpad test now flicks back up when the page under the cursor is already at its end. |
+| Live desktop gestures, the Mac | `testShowDesktopButtonEveryTap`, `testShowDesktopFromFullScreenTappedTwice` (Chrome in full screen first), `testToggleHostFullScreen`, `testTapHostPoints` and `testLookAtHost` passed. `testUnlockHost` was not run: the Mac was unlocked, and the test would type the password into the front app. |
+| Unit tests (`swift test`) | **440 total: 426 passed, 14 skipped, 0 failed.** |
+| Lint and build | `scripts/lint.sh` 0 warnings (Linux and Mac). A clean Debug xcodebuild prints no warnings and no AppIntents note. |
+
+If keyboard tests fail on a simulator that had hardware key events, erase it (`xcrun simctl erase <udid>`); `scripts/test-simulator.sh` sets it up again.
+
+## 2026-11-01: deep review refactor (`refactor/deep-review`)
+
+Simulator: Roamtty Validation (iPhone 17, iOS 26.4), the Docker SSH fixture on the Mac, recovery and plugin fixtures on the dev box.
+
+| Evidence | Result |
+| --- | --- |
+| Full UI run, `TestResults/Simulator-20261101-025207.xcresult` | **86 total: 63 passed, 7 skipped, 16 failed.** All 16 were environment or pre-existing. 8 DesktopGestureUITests need a live desktop host. The 5 recovery/plugin tests got the container's password, which no longer matched the real test account. `testPinchZoomsThePicture` and `testTapMovesTheCursorInsideAMultiLineInput` also fail on `main`. |
+| Fixes | The pinch test now spreads two fingers at once: `XCUIElement.pinch` rests first, which the page takes for a two-finger hold, as on Android. The container now sets `/etc/default/locale`, so tmux draws UTF-8 (`你好` was shown as `____`). `waitForOutput` now reports what the terminal showed. |
+| Reruns on the same app build | NetworkRecovery 3/3, PluginInstallation 2/2, TerminalGesture 9/9 and DesktopLaunch 10/10 passed, plus NativeFileWorkflow `testImportedFontAndChosenDownloadFolderSurviveRelaunch`. |
+| Live desktop gestures on the Ubuntu VM | `testTouchModeGestures` passed. `testTrackpadModeGestures` sends the wheel and inertia as expected, but nothing under the cursor scrolled on the host; it fails the same way on `main`. The Mac-host tests were not run against the user's Mac. |
+| Unit tests (`swift test`, clean build) | **440 total: 426 passed, 14 skipped (live services), 0 failed**, no warnings. |
+| Lint and build | `scripts/lint.sh` passes with 0 warnings. Clean xcodebuild warnings: only Xcode's "Metadata extraction skipped. No AppIntents.framework" note. |
+
 ## 2026-10-15: Android parity to `5fc87b3`
 
 Source: this branch's final working tree (home sessions/hosts tabs, agent status, close/force delete/restart, pet arrow keys, terminal URLs, SSH greeting probe).

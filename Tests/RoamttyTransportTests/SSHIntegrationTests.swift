@@ -9,8 +9,13 @@ final class SSHIntegrationTests: XCTestCase {
         let password = String(decoding: secret, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         let host = Host(name: "Fixture", address: "127.0.0.1", port: Int(ProcessInfo.processInfo.environment["ROAMTTY_TEST_PORT"] ?? "22992")!, username: "itermux_test", auth: auth)
         let store = try AppStore(url: URL(fileURLWithPath: ":memory:"))
-        let connection = SSHConnection(host: host, credentials: Credentials(password: Data(password.utf8), privateKey: key, passphrase: key == nil ? nil : "itermux-test-passphrase"), pinStore: store) { prompt in
-            switch prompt { case .verifyHost: return ["trust"]; case .keyboard(_, let labels, _): return labels.map { _ in password } }
+        let connection = SSHConnection(host: host,
+            credentials: Credentials(password: Data(password.utf8), privateKey: key, passphrase: key == nil ? nil : "itermux-test-passphrase"),
+            pinStore: store) { prompt in
+            switch prompt {
+            case .verifyHost: return ["trust"]
+            case .keyboard(_, let labels, _): return labels.map { _ in password }
+            }
         }
         try connection.connect()
         return connection
@@ -132,8 +137,7 @@ final class SSHIntegrationTests: XCTestCase {
         let token = TransferCancellation()
         let done = expectation(description: "Only the requested recursive deletion is cancelled")
         DispatchQueue.global().async {
-            do { try client.remove(remote, recursive: true, cancellation: token); XCTFail("Delete completed without observing cancellation") }
-            catch { XCTAssertEqual(error as? RoamError, .cancelled) }
+            do { try client.remove(remote, recursive: true, cancellation: token); XCTFail("Delete completed without observing cancellation") } catch { XCTAssertEqual(error as? RoamError, .cancelled) }
             done.fulfill()
         }
         let deadline = Date().addingTimeInterval(8)

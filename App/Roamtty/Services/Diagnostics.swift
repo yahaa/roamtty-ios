@@ -14,7 +14,7 @@ final class Diagnostics: NSObject, MXMetricManagerSubscriber {
     /// One formatter for every line and report name: making one costs more than the line it stamps.
     private static let timestamps = ISO8601DateFormatter()
 
-    private override init() {
+    override private init() {
         let base = (try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)) ?? FileManager.default.temporaryDirectory
         folder = base.appendingPathComponent("Diagnostics", isDirectory: true)
         super.init()

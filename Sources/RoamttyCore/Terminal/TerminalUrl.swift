@@ -139,12 +139,10 @@ public enum TerminalUrl {
         }
         while end > start {
             let last = text[end - 1]
-            if ".,;:!?".contains(last) { end -= 1 }
-            else if let bracket = closing.firstIndex(of: last), balance[bracket] < 0 { end -= 1; balance[bracket] += 1 }
+            if ".,;:!?".contains(last) { end -= 1 } else if let bracket = closing.firstIndex(of: last), balance[bracket] < 0 { end -= 1; balance[bracket] += 1 }
             // Apostrophes are legal URL characters. Strip only an enclosing quote paired with one immediately before
             // the scheme; punctuation inside that pair belongs to the URL.
-            else if last == "'" && start > 0 && text[start - 1] == "'" { return end - 1 }
-            else { break }
+            else if last == "'" && start > 0 && text[start - 1] == "'" { return end - 1 } else { break }
         }
         return end
     }

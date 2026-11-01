@@ -167,7 +167,7 @@ final class UdpPluginIntegrationTests: XCTestCase {
         let candidates: [(String, [String])] = [
             ("/usr/bin/xterm", ["-geometry", "100x30+0+0", "-e", "cat"]),
             ("/usr/bin/xfce4-terminal", ["--disable-server", "--geometry=100x30+0+0", "-x", "cat"]),
-            ("/usr/bin/x-terminal-emulator", ["--disable-server", "--geometry=100x30+0+0", "-x", "cat"]),
+            ("/usr/bin/x-terminal-emulator", ["--disable-server", "--geometry=100x30+0+0", "-x", "cat"])
         ]
         guard let (path, args) = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.0) }) else { return nil }
         let proc = Process()
@@ -179,13 +179,12 @@ final class UdpPluginIntegrationTests: XCTestCase {
         return proc
     }
 
-
     private func busyTypingTarget(_ f: Fixture) throws -> Process? {
         let script = "while :; do head -c 4000 /dev/urandom | base64; done"
         let candidates: [(String, [String])] = [
             ("/usr/bin/xterm", ["-geometry", "160x50+0+0", "-e", "sh", "-c", script]),
             ("/usr/bin/xfce4-terminal", ["--disable-server", "--geometry=160x50+0+0", "-x", "sh", "-c", script]),
-            ("/usr/bin/x-terminal-emulator", ["--disable-server", "--geometry=160x50+0+0", "-x", "sh", "-c", script]),
+            ("/usr/bin/x-terminal-emulator", ["--disable-server", "--geometry=160x50+0+0", "-x", "sh", "-c", script])
         ]
         guard let (path, args) = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.0) }) else { return nil }
         let proc = Process()

@@ -40,8 +40,7 @@ import RoamttyDesktopCore
             }
         }
         save() // A new run must not leave an old successful report visible while it is running.
-        do { result.merge(try await run(folder: folder)) { _, new in new } }
-        catch { result["passed"] = false; result["error"] = String(describing: error) }
+        do { result.merge(try await run(folder: folder)) { _, new in new } } catch { result["passed"] = false; result["error"] = String(describing: error) }
         result["status"] = "finished"
         result["finishedAt"] = ISO8601DateFormatter().string(from: Date())
         save()
@@ -80,7 +79,7 @@ import RoamttyDesktopCore
         let deadline = Date().addingTimeInterval(60)
         while decoder.decodedFrames < 10 && Date() < deadline {
             if case .failed = session.phase { break }
-            try await Task.sleep(nanoseconds: 100_000_000)
+            try await Task.sleep(for: .milliseconds(100))
         }
         guard decoder.decodedFrames >= 10 else {
             return ["passed": false, "phase": String(describing: session.phase), "log": session.log,
@@ -90,7 +89,7 @@ import RoamttyDesktopCore
         var footprints: [UInt64] = []
         let framesBefore = decoder.decodedFrames
         for _ in 0..<30 {
-            try await Task.sleep(nanoseconds: 500_000_000)
+            try await Task.sleep(for: .milliseconds(500))
             footprints.append(Diagnostics.footprintMiB() ?? 0)
         }
         let streamingFrames = decoder.decodedFrames - framesBefore
@@ -104,20 +103,20 @@ import RoamttyDesktopCore
         } else { actuallyDisplayed = image != nil }
 
         session.pause()
-        try await Task.sleep(nanoseconds: 300_000_000)
+        try await Task.sleep(for: .milliseconds(300))
         let pausedAt = decoder.decodedFrames
         let loginsBeforeRecovery = logins.count
         logins.interruptLatest()
         let recoveryDeadline = Date().addingTimeInterval(15)
         while logins.count <= loginsBeforeRecovery && Date() < recoveryDeadline {
-            try await Task.sleep(nanoseconds: 100_000_000)
+            try await Task.sleep(for: .milliseconds(100))
         }
-        try await Task.sleep(nanoseconds: 2_000_000_000)
+        try await Task.sleep(for: .seconds(2))
         let pausedAfterRecovery = decoder.decodedFrames
         session.resume()
         let resumeDeadline = Date().addingTimeInterval(15)
         while decoder.decodedFrames < pausedAfterRecovery + 10 && Date() < resumeDeadline {
-            try await Task.sleep(nanoseconds: 100_000_000)
+            try await Task.sleep(for: .milliseconds(100))
         }
         let resumed = decoder.decodedFrames >= pausedAfterRecovery + 10
         return ["passed": actuallyDisplayed && image != nil && streamingFrames > 10

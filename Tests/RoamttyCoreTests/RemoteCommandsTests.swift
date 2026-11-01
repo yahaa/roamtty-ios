@@ -5,7 +5,8 @@ import XCTest
 final class RemoteCommandsTests: XCTestCase {
     func testAgentLaunchQuotesDirectoryAndMatchesAndroidModes() {
         XCTAssertEqual(AgentLaunch(agent: .codex, directory: "/work/a'b", mode: .readOnly).commandLine, "cd -- '/work/a'\\''b' && ~/.roamtty/codex --sandbox read-only")
-        XCTAssertEqual(AgentLaunch(agent: .claude, directory: "~/work dir/", mode: .yolo).commandLine, "cd -- ~/'work dir' && claude --dangerously-skip-permissions --settings ~/.roamtty/claude-hooks.json")
+        XCTAssertEqual(AgentLaunch(agent: .claude, directory: "~/work dir/", mode: .yolo).commandLine,
+            "cd -- ~/'work dir' && claude --dangerously-skip-permissions --settings ~/.roamtty/claude-hooks.json")
         XCTAssertEqual(AgentLaunch(agent: .grok, directory: "~").commandLine, "~/.roamtty/grok")
         XCTAssertEqual(AgentLaunch(agent: .codex, directory: "/work/demo/").title, "Codex · demo")
         XCTAssertEqual(AgentLaunch(agent: .claude, directory: "/").title, "Claude · /")
@@ -61,6 +62,13 @@ final class RemoteCommandsTests: XCTestCase {
         XCTAssertEqual(result.1, value)
     }
 
+    func testShellRunsTheWholeScriptAsOneSHCommand() throws {
+        XCTAssertEqual(RemoteCommands.shell("echo 'a'"), "/bin/sh -c 'echo '\\''a'\\'''")
+        let result = try run(RemoteCommands.shell("x='it''s'; printf '%s|' \"$x\" $((1 + 2))"))
+        XCTAssertEqual(result.0, 0)
+        XCTAssertEqual(result.1, "its|3|")
+    }
+
     func testTmuxAttachCancelsCopyModeAndKillsOnlyExactName() throws {
         try withCommands(["tmux": """
         case "$1" in
@@ -72,7 +80,7 @@ final class RemoteCommandsTests: XCTestCase {
             let attach = try run(RemoteCommands.tmuxAttach("roamtty-ab;rm"), environment: environment)
             XCTAssertEqual(attach.0, 0)
             XCTAssertTrue(attach.1.contains("send-keys|-t|roamtty-abrm|-X|cancel|"))
-            XCTAssertTrue(attach.1.contains("new-session|-A|-D|-s|roamtty-abrm|/bin/sh|-c|"))
+            XCTAssertTrue(attach.1.contains("-u|new-session|-A|-D|-s|roamtty-abrm|/bin/sh|-c|"), "UTF-8 even without a locale")
             XCTAssertTrue(attach.1.contains("set-option|-t|roamtty-abrm|mouse|on|"))
             let kill = try run(RemoteCommands.killTmux("roamtty"), environment: environment)
             XCTAssertEqual(kill.0, 0)
@@ -91,13 +99,14 @@ final class RemoteCommandsTests: XCTestCase {
         """]) { environment in
             let attach = try run(RemoteCommands.tmuxAttach("work;rm", existing: true), environment: environment)
             XCTAssertEqual(attach.0, 0)
-            XCTAssertEqual(attach.1, "attach-session|-t|=workrm|;|set-option|-t|workrm|mouse|on|\n")
+            XCTAssertEqual(attach.1, "-u|attach-session|-t|=workrm|;|set-option|-t|workrm|mouse|on|\n")
             let list = try run(RemoteCommands.tmuxSessions, environment: environment)
             XCTAssertEqual(list.0, 0)
             let sessions = TmuxSessionInfo.parse(list.1)
             XCTAssertEqual(sessions.map(\.name), ["my session", "work"])
             XCTAssertEqual(sessions[1], TmuxSessionInfo(name: "work", windows: 2, attached: 1, activity: Date(timeIntervalSince1970: 1_700_000_000), directory: "/home/me/a|b",
-                                                        command: "claude", agent: AgentStatus(state: .working, agent: "claude", tool: "Bash", detail: "npm test", task: "fix the build", directory: "/home/me/a|b")))
+                                                        command: "claude", agent: AgentStatus(state: .working, agent: "claude", tool: "Bash", detail: "npm test",
+                                                                                              task: "fix the build", directory: "/home/me/a|b")))
             XCTAssertEqual(sessions.map(\.attachable), [false, true])
             XCTAssertEqual(sessions.map(\.idleShell), [true, false])
             XCTAssertNil(sessions[0].agent)

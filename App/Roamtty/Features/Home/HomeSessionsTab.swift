@@ -12,7 +12,11 @@ struct HomeSessionsTab: View {
         // Sorted and searched once per update; every line below reads these.
         let sessions = model.sessionsByActivity, matching = model.searchedSessions(sessions, search)
         VStack(spacing: 0) {
-            if !compact { HomeListHeader(label: model.text("会话 · \(sessions.count)", "Sessions · \(sessions.count)"), addLabel: model.text("新建会话", "New session"), id: "add-session") { model.sheet = .newSession } }
+            if !compact {
+                HomeListHeader(label: model.text("会话 · \(sessions.count)", "Sessions · \(sessions.count)"), addLabel: model.text("新建会话", "New session"), id: "add-session") {
+                    model.sheet = .newSession
+                }
+            }
             if model.hosts.isEmpty && sessions.isEmpty {
                 // No host is needed first: the new-session sheet fills one in on the way.
                 HomeEmptyState(logo: true, title: model.text("从第一个会话开始", "Start your first session"),
@@ -36,7 +40,7 @@ struct HomeSessionsTab: View {
             model.beginSessionListVisit()
             while !Task.isCancelled {
                 if model.path.isEmpty { model.reconnectFromList() }
-                do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
+                do { try await Task.sleep(for: .seconds(2)) } catch { return }
             }
         }
     }
