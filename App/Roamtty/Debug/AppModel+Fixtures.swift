@@ -24,6 +24,8 @@ extension AppModel {
         let environment = ProcessInfo.processInfo.environment
         if let language = environment["ROAMTTY_DESKTOP_FIXTURE_LANGUAGE"] { settings.language = language }
         if let stats = environment["ROAMTTY_DESKTOP_STATS_FIXTURE"] { settings.desktopShowStats = stats == "1" }
+        // Every launch starts with the figures at the top left, wherever a drag left them last time.
+        settings.desktopStatsX = 0; settings.desktopStatsY = 0
         let host = Host(id: "desktop-controls-fixture", name: "MacBook", address: "127.0.0.1", port: 9, username: "fixture")
         let session = DesktopSession(config: .init(hostName: host.name, address: host.address, clientWidth: 1280, clientHeight: 720, clientDpi: 160),
                                      manifest: try PluginManifest.bundled(),

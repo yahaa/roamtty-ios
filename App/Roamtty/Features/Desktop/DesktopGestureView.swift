@@ -37,11 +37,28 @@ final class DesktopGestureView: UIView {
         weak var view: DesktopGestureView?
         init(_ view: DesktopGestureView) { self.view = view }
         @objc func tick() { view?.tick() }
+        @objc func hold() { view?.holdFired() }
     }
     /// Each finger's id for `gestures`, for as long as it touches.
     private var touchIDs: [ObjectIdentifier: Int] = [:]
     private var nextTouchID = 0
     private var lastTouchEnded: Int64 = 0
+
+    /// A touch that starts on the network figures waits: a still hold moves them, anything else is replayed to
+    /// the picture as it came (`OverlayTouch`), so the figures never take a gesture from the desktop.
+    private let overlay = OverlayTouch(slop: 10)
+    /// Who has the touches since the first finger came down, until the last lifts.
+    private var routing: OverlayTouch.Owner = .none
+    /// What a waiting touch did so far, replayed to `gestures` if it turns out to be the picture's.
+    private enum Held {
+        case began(Int, Float, Float, Int64)
+        case moved([(id: Int, x: Float, y: Float)], Int64)
+        case ended(Int, Float, Float, Int64)
+    }
+    private var held: [Held] = []
+    private var holdTimer: Timer?
+    private var boxTouch: ObjectIdentifier?
+    private var boxPoint: CGPoint = .zero
 
     private let cursorLayer = CALayer()
     private var cursorShape: CursorImage?
@@ -68,7 +85,7 @@ final class DesktopGestureView: UIView {
         accessibilityIdentifier = "desktop-gestures"
     }
     required init?(coder: NSCoder) { fatalError("init(coder:)") }
-    deinit { tickTimer?.invalidate() }
+    deinit { tickTimer?.invalidate(); holdTimer?.invalidate() }
 
     /// Three-finger swipes are the host's, not the system's undo and redo.
     override var editingInteractionConfiguration: UIEditingInteractionConfiguration { .none }
@@ -85,6 +102,7 @@ final class DesktopGestureView: UIView {
 
     func stopTicking() {
         touchIDs.removeAll()
+        endRouting()
         apply(gestures.cancel())
         tickTimer?.invalidate(); tickTimer = nil
     }
@@ -130,10 +148,23 @@ final class DesktopGestureView: UIView {
         if touchIDs.isEmpty, Self.nowMs() - lastTouchEnded > 500 { controller?.probeGestureStarted() }
         #endif
         for t in touches.sorted(by: { $0.timestamp < $1.timestamp }) {
+            let first = touchIDs.isEmpty
             let id = nextTouchID; nextTouchID += 1
             touchIDs[ObjectIdentifier(t)] = id
             let p = t.location(in: self)
-            apply(gestures.began(id, Float(p.x), Float(p.y), time: Self.ms(t)))
+            if first {
+                routing = overlay.down(onBox: controller?.statsBox.contains(p) == true, Float(p.x), Float(p.y), time: Self.ms(t))
+                if routing == .pending {
+                    boxTouch = ObjectIdentifier(t); boxPoint = p
+                    held = [.began(id, Float(p.x), Float(p.y), Self.ms(t))]
+                    armHold()
+                    continue
+                }
+            } else if routing == .pending {
+                overlay.otherFinger()
+                toPicture()
+            }
+            if routing == .picture { apply(gestures.began(id, Float(p.x), Float(p.y), time: Self.ms(t))) }
         }
     }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -143,19 +174,99 @@ final class DesktopGestureView: UIView {
             return (id, Float(p.x), Float(p.y))
         }
         guard !moved.isEmpty else { return }
-        apply(gestures.moved(moved, time: touches.map(Self.ms).max() ?? Self.nowMs()))
+        let time = touches.map(Self.ms).max() ?? Self.nowMs()
+        let finger = touches.first { ObjectIdentifier($0) == boxTouch }.map { $0.location(in: self) }
+        switch routing {
+        case .picture:
+            apply(gestures.moved(moved, time: time))
+        case .pending:
+            held.append(.moved(moved, time))
+            guard let finger else { return }
+            boxPoint = finger
+            switch overlay.moved(Float(finger.x), Float(finger.y), time: time) {
+            case .picture: toPicture()
+            case .box: pickUp(); controller?.statsBox.drag(to: finger)
+            default: break
+            }
+        case .box:
+            if let finger { controller?.statsBox.drag(to: finger) }
+        case .none:
+            break
+        }
     }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         for t in touches {
             guard let id = touchIDs.removeValue(forKey: ObjectIdentifier(t)) else { continue }
             let p = t.location(in: self)
-            apply(gestures.ended(id, Float(p.x), Float(p.y), time: Self.ms(t)))
+            switch routing {
+            case .picture:
+                apply(gestures.ended(id, Float(p.x), Float(p.y), time: Self.ms(t)))
+            case .pending:
+                // Only the first finger can be down while a touch waits.
+                held.append(.ended(id, Float(p.x), Float(p.y), Self.ms(t)))
+                if overlay.up(time: Self.ms(t)) == .box { pickUp(); controller?.statsBox.endDrag() } else { toPicture() }
+            case .box:
+                if ObjectIdentifier(t) == boxTouch { controller?.statsBox.endDrag(); boxTouch = nil }
+            case .none:
+                break
+            }
             lastTouchEnded = Self.ms(t)
         }
+        if touchIDs.isEmpty { endRouting() }
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         touchIDs.removeAll()
-        apply(gestures.cancel())
+        if routing == .picture { apply(gestures.cancel()) }
+        endRouting()
+    }
+
+    // MARK: The figures' long press
+
+    private func armHold() {
+        holdTimer?.invalidate(); holdTimer = nil
+        guard let at = overlay.holdAt else { return }
+        let timer = Timer(timeInterval: max(0, Double(at - Self.nowMs()) / 1000), target: TickTarget(self),
+                          selector: #selector(TickTarget.hold), userInfo: nil, repeats: false)
+        RunLoop.main.add(timer, forMode: .common)
+        holdTimer = timer
+    }
+
+    fileprivate func holdFired() {
+        if routing == .pending, overlay.tick(Self.nowMs()) == .box { pickUp() }
+    }
+
+    /// The waiting touch is the picture's: what it did so far goes to `gestures` first, in order.
+    private func toPicture() {
+        routing = .picture
+        holdTimer?.invalidate(); holdTimer = nil
+        let replay = held
+        held = []
+        for h in replay {
+            switch h {
+            case let .began(id, x, y, t): apply(gestures.began(id, x, y, time: t))
+            case let .moved(m, t): apply(gestures.moved(m, time: t))
+            case let .ended(id, x, y, t): apply(gestures.ended(id, x, y, time: t))
+            }
+        }
+    }
+
+    /// A still hold: the figures follow the finger; nothing of this touch reaches the host.
+    private func pickUp() {
+        guard routing != .box else { return }
+        routing = .box
+        holdTimer?.invalidate(); holdTimer = nil
+        held = []
+        controller?.statsBox.startDrag(at: boxPoint)
+        impact.impactOccurred()
+    }
+
+    private func endRouting() {
+        if routing == .box { controller?.statsBox.endDrag() }
+        routing = .none
+        overlay.reset()
+        held = []
+        boxTouch = nil
+        holdTimer?.invalidate(); holdTimer = nil
     }
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {

@@ -141,6 +141,52 @@ final class DesktopLaunchUITests: XCTestCase {
         capture(app, "Pinch zoomed")
     }
 
+    /// The figures: a tap on them still reaches the desktop, a still long press moves them (and nothing of it
+    /// reaches the desktop), their ✕ hides them, and turned back on they come back where they were left.
+    func testDesktopNetworkStatsCloseAndDragKeepGestures() throws {
+        let app = XCUIApplication()
+        defer { XCUIDevice.shared.orientation = .portrait; app.terminate() }
+        for landscape in [false, true] {
+            app.launchEnvironment["ROAMTTY_DESKTOP_INPUT_PROBE"] = "1"
+            launchStatusFixture(app, phase: "stats", showStats: true)
+            rotate(app, landscape: landscape)
+            let stats = app.otherElements["desktop-stats"]
+            XCTAssertTrue(app.staticTexts["UDP 15 ms"].waitForExistence(timeout: 10))
+            let picture = app.otherElements["desktop-video-surface"].frame
+            let home = stats.frame
+            let probe = app.staticTexts["desktop-input-probe"]
+            func probeText() -> String { probe.exists ? probe.label : "" }
+
+            // A tap on the figures is the desktop's.
+            stats.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.6)).tap()
+            let clicked = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in probeText().contains("b1d") }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [clicked], timeout: 5), .completed, "A tap on the figures clicks the host: \(probeText())")
+            XCTAssertEqual(stats.frame, home, "A tap does not move the figures")
+
+            // A still long press picks them up and drags them; the desktop sees none of it.
+            stats.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                .press(forDuration: 0.8, thenDragTo: app.coordinate(withNormalizedOffset: .zero)
+                    .withOffset(CGVector(dx: picture.minX + picture.width * 0.75, dy: picture.minY + picture.height * 0.75)))
+            Thread.sleep(forTimeInterval: 0.5)
+            let moved = stats.frame
+            XCTAssertGreaterThan(moved.minX, home.minX + picture.width * 0.1, "Dragged right: \(home) -> \(moved), probe \(probeText())")
+            XCTAssertGreaterThan(moved.minY, home.minY + picture.height * 0.1, "Dragged down: \(home) -> \(moved)")
+            XCTAssertTrue(picture.insetBy(dx: -1, dy: -1).contains(moved), "Kept inside the picture: \(moved) in \(picture)")
+            XCTAssertNotNil(probeText().range(of: #"^#\d+ $"#, options: .regularExpression), "The drag sends nothing to the host: \(probeText())")
+            capture(app, "Stats dragged \(landscape ? "landscape" : "portrait")")
+
+            // ✕ hides them and says where they come back from.
+            app.buttons["desktop-stats-close"].tap()
+            XCTAssertTrue(stats.waitForNonExistence(timeout: 3))
+            XCTAssertTrue(app.otherElements["desktop-stats-hint"].exists || app.staticTexts["网络状态已隐藏，可在「操作」中重新打开"].exists)
+            capture(app, "Stats closed \(landscape ? "landscape" : "portrait")")
+            toggleNetworkStats(app)
+            XCTAssertTrue(stats.waitForExistence(timeout: 5))
+            XCTAssertEqual(stats.frame.minX, moved.minX, accuracy: 2, "Back where it was left")
+            XCTAssertEqual(stats.frame.minY, moved.minY, accuracy: 2, "Back where it was left")
+        }
+    }
+
     private func toggleNetworkStats(_ app: XCUIApplication) {
         app.buttons["操作"].tap()
         let scroll = app.scrollViews["desktop-operations-scroll"]
