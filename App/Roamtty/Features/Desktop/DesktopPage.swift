@@ -17,6 +17,9 @@ struct DesktopPage: View {
     @State private var keyboardPage: DesktopKeyboardPage = .ime
     @State private var virtualMouse = false
     @State private var showStats = false
+    /// Closing the figures with their ✕ says once where to bring them back.
+    @State private var statsHint = false
+    @ObservedObject private var statsBox: DesktopStatsBox
     @State private var pointerMode: PointerMode = .touch
     @State private var imeFocused = false
     /// Landscape: the Dynamic Island (or notch) is on the leading edge, beside the picture.
@@ -32,6 +35,11 @@ struct DesktopPage: View {
     private let ink = Color(red: 242/255, green: 242/255, blue: 247/255)
     private let inkDim = Color(red: 154/255, green: 154/255, blue: 161/255)
     private let accent = Color(red: 1, green: 159/255, blue: 10/255)
+
+    init(controller: DesktopController) {
+        self.controller = controller
+        _statsBox = ObservedObject(wrappedValue: controller.statsBox)
+    }
 
     private var english: Bool { model.english }
     private var page: DesktopPageModel { controller.page }
@@ -134,6 +142,12 @@ struct DesktopPage: View {
             controller.resume()
             showStats = model.settings.desktopShowStats
             page.showStats = showStats
+            statsBox.place(model.settings.desktopStatsX, model.settings.desktopStatsY)
+            statsBox.shown = showStats
+            let appModel = model
+            statsBox.onMoved = { [weak appModel] x, y in
+                appModel?.settings.desktopStatsX = Double(x); appModel?.settings.desktopStatsY = Double(y); appModel?.saveSettings()
+            }
             pointerMode = page.pointerMode
             virtualMouse = page.virtualMouse
             keyboardPage = page.keyboardPage
@@ -190,14 +204,24 @@ struct DesktopPage: View {
             ZStack {
                 DesktopVideoSurface(display: controller.display, content: contentFrame(in: geo.size))
                 DesktopGestureOverlay(controller: controller, size: geo.size)
-                if landscape { statsOverlay.padding(.leading, bleed) } else { portraitStatsOverlay }
+                statsOverlay(landscape: landscape).padding(.leading, landscape ? bleed : 0)
                 DesktopStatusOverlay(host: controller.host.name, phase: controller.phase,
                                      hasPicture: controller.videoSize.0 > 0, windowsHost: controller.windowsHost,
                                      log: controller.log.last ?? "", failure: controller.session.failure, english: english) {
                     if let host = model.host(controller.host.id) { model.openDesktop(host) }
                 } onClose: { model.closeDesktop(controller.host.id) }
                 if virtualMouse { virtualMouseOverlay }
+                if statsHint {
+                    Text(model.text("网络状态已隐藏，可在「操作」中重新打开", "Network stats hidden; turn them back on in Ops"))
+                        .font(.system(size: 13)).foregroundStyle(ink)
+                        .padding(.horizontal, 14).padding(.vertical, 6).background(panelColor, in: Capsule())
+                        .padding(10).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .allowsHitTesting(false)
+                        .accessibilityIdentifier("desktop-stats-hint")
+                        .task { try? await Task.sleep(for: .milliseconds(2500)); statsHint = false }
+                }
             }
+            .coordinateSpace(name: Self.pictureSpace)
             .clipped()
         }
     }
@@ -302,9 +326,20 @@ struct DesktopPage: View {
                             virtualMouse = $0
                             page.virtualMouse = $0
                         }))
-                        toggleRow(model.text("显示网络状态", "Show network stats"), model.text("画面左上角显示延迟、帧率和码率", "Latency, frame rate and bitrate at top left"), value: Binding(get: { showStats }, set: {
-                            showStats = $0; controller.setShowStats($0); model.settings.desktopShowStats = $0; model.saveSettings()
-                        }))
+                        VStack(alignment: .leading, spacing: 2) {
+                            toggleRow(model.text("显示网络状态", "Show network stats"),
+                                      model.text("画面上显示延迟、帧率和码率，长按可拖动", "Latency, frame rate and bitrate; long press to move"),
+                                      value: Binding(get: { showStats }, set: { setShowStats($0) }))
+                            if statsBox.moved {
+                                Button(model.text("恢复默认位置（左上角）", "Back to the top left")) {
+                                    statsBox.reset()
+                                    model.settings.desktopStatsX = 0; model.settings.desktopStatsY = 0
+                                    setShowStats(true)
+                                }
+                                .font(.system(size: 13)).foregroundStyle(accent).padding(.vertical, 6)
+                                .accessibilityIdentifier("desktop-stats-reset")
+                            }
+                        }
                         section(model.text("帧率", "Frame rate")) {
                             HStack(spacing: 8) {
                                 ForEach(DesktopPreferences.fpsOptions.filter { $0 <= max(60, UIScreen.main.maximumFramesPerSecond) }, id: \.self) { fps in
@@ -510,59 +545,91 @@ struct DesktopPage: View {
 
     // MARK: Overlays
 
-    /// Preserve the portrait presentation from before the separate statistics strip.
-    private var portraitStatsOverlay: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            let poor: Bool = { if case .connected(let p, _) = controller.phase { return p }; return false }()
-            let recovering: Bool = { if case .recovering = controller.phase { return true }; return false }()
-            if showStats {
-                ForEach(Array(DesktopStatsText.lines(stats: controller.stats, poor: poor, recovering: recovering,
-                                                     transport: .unknown, english: english).enumerated()), id: \.offset) { _, line in
-                    Text(line.text).font(.system(size: 11, design: .monospaced)).foregroundStyle(toneColor(line.tone))
-                }
-            } else if let warn = DesktopStatsText.warning(poor: poor, recovering: recovering, english: english) {
-                Text(warn.text).font(.system(size: 12, weight: .medium)).foregroundStyle(toneColor(warn.tone))
-                    .padding(6).background(Color.black.opacity(0.45), in: Capsule())
-            }
-            Spacer()
-        }
-        .padding(.top, 12).padding(.leading, 12)
-        .allowsHitTesting(false)
+    private static let pictureSpace = "desktop-picture"
+
+    private func setShowStats(_ on: Bool) {
+        showStats = on; statsBox.shown = on; controller.setShowStats(on); model.settings.desktopShowStats = on; model.saveSettings()
     }
 
-    private var statsOverlay: some View {
+    /// The figures over the picture, top left until a long press moves them (Android NetworkStats). Only their
+    /// ✕ takes a touch: anything else on them reaches the picture under them (`DesktopGestureView`, `OverlayTouch`).
+    /// Portrait keeps its plain lines, landscape Android's compact translucent panel.
+    private func statsOverlay(landscape: Bool) -> some View {
         let poor: Bool = { if case .connected(let p, _) = controller.phase { return p }; return false }()
         let recovering: Bool = { if case .recovering = controller.phase { return true }; return false }()
         return Group {
             if controller.videoSize.0 > 0 {
                 if showStats {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(DesktopStatsText.lines(stats: controller.stats, poor: poor, recovering: recovering,
-                                                             transport: .unknown, english: english).enumerated()), id: \.offset) { _, line in
-                            Text(line.text).font(.system(size: 11, design: .monospaced))
-                                .foregroundStyle(toneColor(line.tone, android: true)).lineLimit(1)
-                                .frame(height: 14, alignment: .leading)
+                    DesktopStatsPlacement(fx: statsBox.fx, fy: statsBox.fy, margin: landscape ? 8 : 12, box: statsBox) {
+                        statsPanel(landscape: landscape, poor: poor, recovering: recovering)
+                    }
+                } else if let warn = DesktopStatsText.warning(poor: poor, recovering: recovering, english: english) {
+                    Group {
+                        if landscape {
+                            HStack(spacing: 5) {
+                                Circle().fill(toneColor(warn.tone, android: true)).frame(width: 6, height: 6)
+                                Text(warn.text).font(.system(size: 11)).foregroundStyle(ink)
+                            }
+                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(Color.black.opacity(0.6), in: Capsule())
+                        } else {
+                            Text(warn.text).font(.system(size: 12, weight: .medium)).foregroundStyle(toneColor(warn.tone))
+                                .padding(6).background(Color.black.opacity(0.45), in: Capsule())
                         }
                     }
-                    .padding(.horizontal, 7).padding(.vertical, 4)
-                    .background(Color.black.opacity(140/255), in: RoundedRectangle(cornerRadius: 6))
-                    .accessibilityElement(children: .contain)
-                    .accessibilityIdentifier("desktop-stats")
-                } else if let warn = DesktopStatsText.warning(poor: poor, recovering: recovering, english: english) {
-                    HStack(spacing: 5) {
-                        Circle().fill(toneColor(warn.tone, android: true)).frame(width: 6, height: 6)
-                        Text(warn.text).font(.system(size: 11)).foregroundStyle(ink)
-                    }
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(Color.black.opacity(0.6), in: Capsule())
                     .accessibilityIdentifier("desktop-network-warning")
+                    .padding(landscape ? 8 : 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .allowsHitTesting(false)
                 }
             }
         }
-        // Android NetworkStats: 8-point outer inset, compact translucent panel at TopStart.
-        .padding(8)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .allowsHitTesting(false)
+    }
+
+    private func statsPanel(landscape: Bool, poor: Bool, recovering: Bool) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 6)
+        let lines = DesktopStatsText.lines(stats: controller.stats, poor: poor, recovering: recovering, transport: .unknown, english: english)
+        let dragging = statsBox.dragging
+        return ZStack(alignment: .topTrailing) {
+            VStack(alignment: .leading, spacing: landscape ? 0 : 2) {
+                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                    if landscape {
+                        Text(line.text).font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(toneColor(line.tone, android: true)).lineLimit(1)
+                            .frame(height: 14, alignment: .leading)
+                    } else {
+                        Text(line.text).font(.system(size: 11, design: .monospaced)).foregroundStyle(toneColor(line.tone)).lineLimit(1)
+                    }
+                }
+            }
+            .padding(.leading, landscape ? 7 : 0).padding(.trailing, landscape ? 26 : 22).padding(.vertical, landscape ? 4 : 0)
+            .allowsHitTesting(false)
+            Button {
+                setShowStats(false)
+                statsHint = true
+            } label: {
+                Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)).foregroundStyle(inkDim)
+                    .frame(width: 26, height: 26).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .offset(x: landscape ? 0 : 6, y: landscape ? 0 : -6)
+            .accessibilityLabel(model.text("关闭", "Close"))
+            .accessibilityIdentifier("desktop-stats-close")
+        }
+        .background {
+            if landscape || dragging {
+                shape.fill(Color.black.opacity(dragging ? 0.7 : 140 / 255.0)).padding(landscape ? 0 : -4).allowsHitTesting(false)
+            }
+        }
+        .overlay { if dragging { shape.stroke(Color.white.opacity(0.6), lineWidth: 1.5).padding(landscape ? 0 : -4).allowsHitTesting(false) } }
+        .scaleEffect(dragging ? 1.04 : 1)
+        .animation(.easeOut(duration: 0.12), value: dragging)
+        .background(GeometryReader { g in
+            Color.clear.preference(key: DesktopStatsFrameKey.self, value: g.frame(in: .named(Self.pictureSpace))).allowsHitTesting(false)
+        })
+        .onPreferenceChange(DesktopStatsFrameKey.self) { statsBox.frame = $0 }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("desktop-stats")
     }
 
     /// The gesture view's viewport while it matches this picture, else the unzoomed fit.

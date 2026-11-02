@@ -173,6 +173,9 @@ public struct AppSettings: Codable, Equatable {
     public var desktopKeepAliveMinutes = 10
     /// Show the network stats overlay (also toggled in 操作).
     public var desktopShowStats = false
+    /// Where the network figures sit, as fractions of the room the picture leaves them: 0, 0 is the top left.
+    public var desktopStatsX = 0.0
+    public var desktopStatsY = 0.0
     /// Per-host desktop prefs, keyed by host id (mode/quality/fps/lock).
     public var desktopHosts: [String: DesktopHostSettings] = [:]
     /// Debug: replace the pinned plugin base URL.
@@ -184,7 +187,7 @@ public struct AppSettings: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case theme, language, font, fontSize, showHiddenFiles, toolboxPinned, downloadBookmark
         case fileSort, fileSortDescending, codeWrap, codeFontSize
-        case desktopKeepAliveMinutes, desktopShowStats, desktopHosts, desktopPluginBaseUrl, agentNotifications
+        case desktopKeepAliveMinutes, desktopShowStats, desktopStatsX, desktopStatsY, desktopHosts, desktopPluginBaseUrl, agentNotifications
     }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -203,6 +206,8 @@ public struct AppSettings: Codable, Equatable {
         let keep = (try? values.decodeIfPresent(Int.self, forKey: .desktopKeepAliveMinutes)) ?? 10
         desktopKeepAliveMinutes = [5, 10, 30].contains(keep) ? keep : 10
         desktopShowStats = (try? values.decodeIfPresent(Bool.self, forKey: .desktopShowStats)) ?? false
+        desktopStatsX = min(1, max(0, (try? values.decodeIfPresent(Double.self, forKey: .desktopStatsX)) ?? 0))
+        desktopStatsY = min(1, max(0, (try? values.decodeIfPresent(Double.self, forKey: .desktopStatsY)) ?? 0))
         desktopHosts = (try? values.decodeIfPresent([String: DesktopHostSettings].self, forKey: .desktopHosts)) ?? [:]
         desktopPluginBaseUrl = (try? values.decodeIfPresent(String.self, forKey: .desktopPluginBaseUrl)) ?? ""
         agentNotifications = AgentNotifications(rawValue: (try? values.decodeIfPresent(String.self, forKey: .agentNotifications)) ?? "") ?? .all
@@ -223,6 +228,8 @@ public struct AppSettings: Codable, Equatable {
         try values.encode(codeFontSize, forKey: .codeFontSize)
         try values.encode(desktopKeepAliveMinutes, forKey: .desktopKeepAliveMinutes)
         try values.encode(desktopShowStats, forKey: .desktopShowStats)
+        try values.encode(desktopStatsX, forKey: .desktopStatsX)
+        try values.encode(desktopStatsY, forKey: .desktopStatsY)
         try values.encode(desktopHosts, forKey: .desktopHosts)
         try values.encode(desktopPluginBaseUrl, forKey: .desktopPluginBaseUrl)
         try values.encode(agentNotifications, forKey: .agentNotifications)

@@ -38,6 +38,8 @@ import RoamttyDesktopCore
     let session: DesktopSession
     let decoder: DesktopVideoDecoder
     let page: DesktopPageModel
+    /// Where the network figures sit and their drag, shared by the overlay and the touch view.
+    let statsBox = DesktopStatsBox()
     let display: VideoToolboxDisplay
     let audio: DesktopAudioPlayer
     /// Nil until the host said; false when it has no sound to send.
