@@ -6,9 +6,10 @@ final class TerminalLinksUITests: RoamttyLiveUITestCase {
     private static let markerRow = 4.0
     private static let down = "\\n\\n\\n\\n"
     /// Taps the cell at `column` on the marker's row; `columns` and `rows` are the terminal's size.
-    private func tapTopRow(_ surface: XCUIElement, column: Double, columns: Double, rows: Double) {
+    private func tapTopRow(_ surface: XCUIElement, column: Double, columns: Double, rows: Double, hold: TimeInterval = 0) {
         let cell = CGVector(dx: surface.frame.width / columns, dy: surface.frame.height / rows)
-        surface.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: (column + 0.5) * cell.dx, dy: (Self.markerRow + 0.5) * cell.dy)).tap()
+        let point = surface.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: (column + 0.5) * cell.dx, dy: (Self.markerRow + 0.5) * cell.dy))
+        if hold > 0 { point.press(forDuration: hold) } else { point.tap() }
     }
     /// The terminal's `rows`x`columns`, as the marker line printed them.
     private func size(_ surface: XCUIElement, marker: String) -> (rows: Double, columns: Double)? {
@@ -38,7 +39,9 @@ final class TerminalLinksUITests: RoamttyLiveUITestCase {
         // A path that names no file is an ordinary tap: nothing opens.
         try runCommand("clear && sleep 2 && printf '\(Self.down)missing-\(id).ts:3 GONESIZE_%s\\n' \"$(stty size | tr ' ' x)\"")
         waitForOutput("GONESIZE_", surface: surface)
-        tapTopRow(surface, column: 3, columns: measured.columns, rows: measured.rows)
+        // A short press marks the path in the accent colour, underlined, as Android does.
+        tapTopRow(surface, column: 3, columns: measured.columns, rows: measured.rows, hold: 0.25)
+        capture("Pressed path is marked")
         XCTAssertFalse(preview.waitForExistence(timeout: 4))
         _ = try runCommand("rm -f /tmp/\(file)")
         closeTerminal()

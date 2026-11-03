@@ -51,7 +51,14 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
         terminalView.panGestureRecognizer.require(toFail: scroll)
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinchFont(_:)))
         terminalView.addGestureRecognizer(pinch)
-        ownRecognizers = [single, double, triple, touchObserver, swipe, scroll, pinch]
+        // The link under a finger is captured at touch down: output may move or replace its row before the tap.
+        let press = TerminalTouchTracker(began: { [weak self] point in
+            guard let self else { return }
+            self.linkPress.press(self.terminalView.selectionActive ? nil : self.link(at: point)?.spans ?? self.path(at: point)?.spans)
+        }, moved: { [weak self] in self?.linkPress.clear() }, ended: { [weak self] in self?.linkPress.lift() })
+        press.delegate = self
+        terminalView.addGestureRecognizer(press)
+        ownRecognizers = [single, double, triple, touchObserver, swipe, scroll, pinch, press]
     }
 
     // MARK: UIGestureRecognizerDelegate
@@ -74,6 +81,8 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
         // A recognizer on another view, such as iOS's leftover text recognizer, never holds up its taps.
         if gestureRecognizer is TerminalTapRecognizer && otherGestureRecognizer.view !== terminalView { return true }
+        // The press tracker only watches; it never holds up another gesture.
+        if gestureRecognizer is TerminalTouchTracker || otherGestureRecognizer is TerminalTouchTracker { return true }
         let isPan = gestureRecognizer === horizontalPan || gestureRecognizer === verticalPan
         return isPan && otherGestureRecognizer is UIPinchGestureRecognizer
     }
@@ -199,8 +208,9 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
     @objc private func cursorTap(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended else { return }
         let point = recognizer.location(in: terminalView)
-        if let link = link(at: point) { open(link); return }
-        if let path = path(at: point) { openPath(path, tappedAt: point); return }
+        if let link = link(at: point) { linkPress.confirm(); open(link.url); return }
+        if let path = path(at: point) { linkPress.confirm(); openPath(path, tappedAt: point); return }
+        linkPress.clear()
         plainTap(at: point)
     }
     /// What a tap on anything but a link does: places the cursor, and shows or hides the keyboard.
@@ -259,20 +269,22 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
         _ = send(String(repeating: key, count: abs(count)))
     }
     @objc private func completionTap(_ recognizer: UITapGestureRecognizer) {
+        linkPress.clear()
         guard recognizer.state == .ended, phase == .connected else { return }
         clearModifiers()
         if send("\t") { wakeCursor(); petArrowTouches += 1 }
     }
     @objc private func pasteTap(_ recognizer: UITapGestureRecognizer) {
+        linkPress.clear()
         guard recognizer.state == .ended, phase == .connected else { return }
         clearModifiers(); paste()
     }
     /// The complete HTTP(S) URL under a tap, including soft and TUI hard wraps and scrolled history.
-    private func link(at point: CGPoint) -> String? {
+    private func link(at point: CGPoint) -> TerminalWebLink? {
         let cell = cellSize
         let x = point.x - terminalView.contentOffset.x, y = point.y - terminalView.contentOffset.y
         guard cell.width > 0, cell.height > 0, x >= 0, y >= 0 else { return nil }
-        return TerminalUrl.at(SwiftTermTextGrid(terminal: terminalView.getTerminal()), column: Int(x / cell.width), row: Int(y / cell.height))
+        return TerminalUrl.link(SwiftTermTextGrid(terminal: terminalView.getTerminal()), column: Int(x / cell.width), row: Int(y / cell.height))
     }
     /// A file path under a tap, as compilers, grep and coding agents print it. Paths on the live cursor's line are the
     /// command being typed: a tap there moves the cursor as before.
@@ -349,7 +361,7 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
     // MARK: Pinch
 
     @objc private func pinchFont(_ recognizer: UIPinchGestureRecognizer) {
-        if recognizer.state == .began { inputGestureHadPinch = true; scrollGeneration = nil; stopScrollInertia(); swipeGeneration = nil; swipeHold?.cancel(); swipeHold = nil }
+        if recognizer.state == .began { linkPress.clear(); inputGestureHadPinch = true; scrollGeneration = nil; stopScrollInertia(); swipeGeneration = nil; swipeHold?.cancel(); swipeHold = nil }
         if recognizer.state == .ended { onFontScaled?(Double(terminalView.font.pointSize.rounded())); return }
         guard recognizer.state == .changed else { return }
         let size = min(28, max(8, terminalView.font.pointSize * recognizer.scale))

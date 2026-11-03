@@ -117,6 +117,8 @@ import RoamttyTransport
     weak var verticalPan: UIPanGestureRecognizer?
     /// The recognizers this runtime put on the terminal view, taken off again by `discard`.
     var ownRecognizers: [UIGestureRecognizer] = []
+    /// Marks the link under a finger, as Android does.
+    lazy var linkPress = TerminalLinkPress(terminalView: terminalView)
     var inputGestureHadPinch = false
     var swipeHold: Task<Void, Never>?
     var swipeGeneration: UUID?
@@ -402,6 +404,7 @@ import RoamttyTransport
     /// until `updateUiClosed`, so without this every reconnect kept the old terminal alive: its buffers and a
     /// screen-sized backing store, until iOS ended the app for its memory.
     func discard() {
+        linkPress.clear()
         close()
         terminalView.updateUiClosed()
         terminalView.terminalDelegate = nil

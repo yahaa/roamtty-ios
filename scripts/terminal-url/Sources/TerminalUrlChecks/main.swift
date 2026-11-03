@@ -319,5 +319,35 @@ expectPath(path(terminal(40, 4, "src/a.ts\r\nsrc/b.ts\r\n"), 2, 1), "src/b.ts", 
 // wideTextBeforeAPathShiftsItsCells
 expectPath(path(terminal(40, 4, "修改了 src/a.ts 文件"), 9, 0), "src/a.ts", "wide text before")
 
+// Spans: the cells a press marks (Android's TerminalLink.spans as row, start, end triples).
+func flat(_ spans: [TerminalLinkSpan]?) -> [Int] { (spans ?? []).flatMap { [$0.row, $0.start, $0.end] } }
+func expectSpans(_ actual: [TerminalLinkSpan]?, _ expected: [Int], _ name: String, line: Int = #line) {
+    checks += 1
+    if flat(actual) != expected { failures += 1; print("FAIL line \(line) \(name): expected \(expected), got \(flat(actual))") }
+}
+do {
+    let t = terminal(80, 4, "src/Post.tsx:42:7 - error TS2322: Type")
+    for col in [0, 8, 16] { expectSpans(path(t, col, 0)?.spans, [0, 0, 17], "compiler spans \(col)") }
+    let g = terminal(80, 4, "src/a.ts:42:const value = 1\r\nREADME.md:Usage notes\r\nlib/b.kt:7:3:fun x()")
+    expectSpans(path(g, 3, 0)?.spans, [0, 0, 11], "grep spans"); expectSpans(path(g, 2, 1)?.spans, [1, 0, 9], "grep plain spans")
+    expectSpans(path(g, 2, 2)?.spans, [2, 0, 12], "grep column spans")
+    expectSpans(path(terminal(80, 4, "    at run (/home/v/app/index.js:10:5)"), 20, 0)?.spans, [0, 12, 37], "trace spans")
+    expectSpans(path(terminal(80, 4, "edit README.md, Makefile"), 6, 0)?.spans, [0, 5, 14], "bare name spans")
+    expectSpans(path(terminal(10, 4, "x app/src/main/Long.kt:9 y"), 3, 1)?.spans, [0, 2, 10, 1, 0, 10, 2, 0, 4], "soft wrap spans")
+    let hard = terminal(30, 6, "  app/src/main/kotlin/io/iterm\r\n  ux/app/ui/MobileTerminalCli\r\n  ent.kt:51:5 done\r\nnext")
+    for row in 0..<3 { expectSpans(path(hard, 4, row)?.spans, [0, 2, 30, 1, 2, 29, 2, 2, 13], "hard wrap spans \(row)") }
+    expectSpans(path(terminal(40, 4, "  Edited the files and then\r\n  docs/design/dev-bridge-145-v2.html\r\n"), 5, 1)?.spans, [1, 2, 36], "word wrap spans")
+    expectSpans(path(terminal(40, 4, "修改了 src/a.ts 文件"), 9, 0)?.spans, [0, 7, 15], "wide text spans")
+    func link(_ t: Terminal, _ c: Int, _ r: Int) -> TerminalWebLink? { TerminalUrl.link(SwiftTermTextGrid(terminal: t), column: c, row: r) }
+    expectSpans(link(terminal(100, 4, "see https://one.test/a. end"), 6, 0)?.spans, [0, 4, 22], "url spans")
+    let pr = terminal(40, 5, "  PR: \u{1b}[4m#127\u{1b}[0m (\u{1b}[4mhttps://github.com/yahaa/\u{1b}[0m\r\n  \u{1b}[4mroamtty/pull/127\u{1b}[0m)\r\n  APK: ready")
+    expectSpans(link(pr, 2, 1)?.spans, [0, 12, 37, 1, 2, 18], "parenthesized spans")
+    let agent = terminal(46, 8, "  PR: \u{1b}[4;33mhttps://github.com/yahaa/roamtty/pull/27\u{1b}[0m\r\n  \u{1b}[4;33m5\u{1b}[0m\r\n" +
+        "  安装包：Roamtty-tap-path-20261103-release-de\r\n  bugsigned.apk\r\n")
+    expectSpans(link(agent, 2, 1)?.spans, [0, 6, 46, 1, 2, 3], "hard wrapped url spans")
+    expectSpans(link(terminal(12, 6, "go https://example.test/long/path?q=hello%20world#end"), 5, 1)?.spans,
+                [0, 3, 12, 1, 0, 12, 2, 0, 12, 3, 0, 12, 4, 0, 5], "soft wrapped url spans")
+}
+
 print("\(checks - failures)/\(checks) terminal URL checks passed")
 exit(failures == 0 ? 0 : 1)

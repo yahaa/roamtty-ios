@@ -14,8 +14,10 @@ public struct TerminalPathLink: Equatable, Sendable {
     /// The path as read, then, for a path joined across a TUI's hard line break, the tapped row's piece alone: the
     /// join is a guess from the layout, so the piece is tried when the joined path names no file.
     public let candidates: [TerminalPathCandidate]
+    /// The cells the path (with its location) covers, so a press can mark exactly those.
+    public let spans: [TerminalLinkSpan]
     /// The grid rows the path's characters sit on.
-    public let rows: Set<Int>
+    public var rows: Set<Int> { Set(spans.map(\.row)) }
     public var path: String { candidates[0].path }
     public var line: Int { candidates[0].line }
     public func covers(row: Int) -> Bool { rows.contains(row) }
@@ -40,11 +42,11 @@ public enum TerminalPath {
         while end < text.count && isPathCharacter(text[end]) { end += 1 }
         // The logical-line reader is bounded: a token cut off by its limit is not a whole path.
         if end == text.count && reader.wraps(line.lastRow) { return nil }
-        let alone = parse(Array(text[start..<end]), tapped: offset - start, rows: rowsOf(line, start..<end))
+        let alone = parse(Array(text[start..<end]), tapped: offset - start, cells: line.cells(start..<end))
 
         // TUIs such as coding agents break a long path with a newline and indentation, which carries no soft-wrap
         // flag. Join the pieces the layout says belong together, like a hard-wrapped URL.
-        var joined = Array(text[start..<end]), joinedRows = rowsOf(line, start..<end)
+        var joined = Array(text[start..<end]), joinedCells = line.cells(start..<end)
         var tapped = offset - start
         var rows = line.lastRow - line.firstRow + 1
         var first = line, pieceStart = start
@@ -57,7 +59,7 @@ public enum TerminalPath {
             while pieceStart > 0 && isPathCharacter(previous.text[pieceStart - 1]) { pieceStart -= 1 }
             if pieceStart == pieceEnd { break }
             joined.insert(contentsOf: previous.text[pieceStart..<pieceEnd], at: 0)
-            joinedRows.insert(contentsOf: rowsOf(previous, pieceStart..<pieceEnd), at: 0)
+            joinedCells.insert(contentsOf: previous.cells(pieceStart..<pieceEnd), at: 0)
             tapped += pieceEnd - pieceStart
             first = previous; rows += 1
         }
@@ -71,17 +73,17 @@ public enum TerminalPath {
             while pieceEnd < next.text.count && isPathCharacter(next.text[pieceEnd]) { pieceEnd += 1 }
             if pieceEnd == pieceStart { break }
             joined += next.text[pieceStart..<pieceEnd]
-            joinedRows += rowsOf(next, pieceStart..<pieceEnd)
+            joinedCells += next.cells(pieceStart..<pieceEnd)
             last = next; rows += 1
         }
         if joined.count == end - start { return alone }
-        guard let whole = parse(joined, tapped: tapped, rows: joinedRows) else { return alone }
+        guard let whole = parse(joined, tapped: tapped, cells: joinedCells) else { return alone }
         guard let alone, alone.candidates != whole.candidates else { return whole }
-        return TerminalPathLink(candidates: whole.candidates + alone.candidates, rows: whole.rows)
+        return TerminalPathLink(candidates: whole.candidates + alone.candidates, spans: whole.spans)
     }
 
     /// A path, its line and its rows from a run of path characters, if the tapped character belongs to it.
-    static func parse(_ run: [Character], tapped: Int, rows: [Int]) -> TerminalPathLink? {
+    static func parse(_ run: [Character], tapped: Int, cells: [TerminalLinkSpan.Cell]) -> TerminalPathLink? {
         var start = 0, end = run.count
         // Sentence punctuation and an enclosing quote are not part of the path.
         while end > start && ".,;'".contains(run[end - 1]) { end -= 1 }
@@ -99,7 +101,7 @@ public enum TerminalPath {
         }
         let path = String(run[start..<pathEnd])
         guard looksLikePath(path) else { return nil }
-        return TerminalPathLink(candidates: [TerminalPathCandidate(path: path, line: lineNumber)], rows: Set(rows[start..<end]))
+        return TerminalPathLink(candidates: [TerminalPathCandidate(path: path, line: lineNumber)], spans: TerminalLinkSpan.merge(Array(cells[start..<end])))
     }
 
     /// `:line` or `:line:column` at `colon`, followed by another colon or the end, as compilers, linters, grep and
@@ -131,15 +133,6 @@ public enum TerminalPath {
         // A path broken inside itself fills the row up to the TUI's own margin; a word wrap that moved a whole word
         // down usually leaves more room, and joining it would glue on that word.
         return free <= maxRightMargin && free <= reader.cellWidth(y + 1, range)
-    }
-
-    /// The grid row of each character in `range` of a logical line.
-    private static func rowsOf(_ line: TerminalUrl.LogicalLine, _ range: Range<Int>) -> [Int] {
-        var cells = line.widths[0..<range.lowerBound].reduce(0, +)
-        return range.map { index in
-            defer { cells += line.widths[index] }
-            return line.firstRow + min(cells / max(1, line.columns), line.lastRow - line.firstRow)
-        }
     }
 
     private static func indentEnd(_ text: [Character]) -> Int {
