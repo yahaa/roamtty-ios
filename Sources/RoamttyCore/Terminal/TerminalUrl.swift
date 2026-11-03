@@ -315,7 +315,7 @@ public enum TerminalUrl {
         // MARK: Hard-wrapped bare URLs
 
         /// A row's first whitespace-free token (after its indent when `fromIndent`) and its character range.
-        private func rowToken(_ y: Int, fromIndent: Bool) -> (token: [Character], range: Range<Int>) {
+        func rowToken(_ y: Int, fromIndent: Bool) -> (token: [Character], range: Range<Int>) {
             let text = self.row(y).text
             var start = 0
             if fromIndent { while start < text.count && text[start] == " " { start += 1 } }
@@ -324,9 +324,9 @@ public enum TerminalUrl {
             return (Array(text[start..<end]), start..<end)
         }
 
-        private func cellWidth(_ y: Int, _ range: Range<Int>) -> Int { range.reduce(0) { $0 + row(y).widths[$1] } }
+        func cellWidth(_ y: Int, _ range: Range<Int>) -> Int { range.reduce(0) { $0 + row(y).widths[$1] } }
 
-        private func freeCells(_ y: Int) -> Int {
+        func freeCells(_ y: Int) -> Int {
             let line = row(y)
             return columns - line.widths[0..<line.contentLength].reduce(0, +)
         }
@@ -385,9 +385,15 @@ public enum TerminalUrl {
                 let offset = topLine.findStartOfColumn(column)
                 if offset >= topStart && offset < topLine.contentLength { tapped = offset - topStart }
             }
+            // A link broken inside itself fills each row up to the TUI's edge. A continuation row that stops short of
+            // where the first row ended is the link's end, whatever long word follows it.
+            let topFree = freeCells(top)
             var y = top
-            while y + 1 < grid.endRow && y - top < TerminalUrl.maxLinkRows && continues(y) {
-                let (next, range) = rowToken(y + 1, fromIndent: !wraps(y))
+            while y + 1 < grid.endRow && y - top < TerminalUrl.maxLinkRows && continues(y) && (y == top || freeCells(y) <= topFree + 1) {
+                var (next, range) = rowToken(y + 1, fromIndent: !wraps(y))
+                // Text glued after the link on its last row, such as "（abc）", is not part of it.
+                let cut = next.firstIndex { !TerminalUrl.isUrlCharacter($0) }
+                if let cut { next = Array(next[..<cut]); range = range.lowerBound..<(range.lowerBound + cut) }
                 if !wraps(y) { hardWrapped = true }
                 if y + 1 == row {
                     let offset = self.row(row).findStartOfColumn(column)
@@ -395,7 +401,7 @@ public enum TerminalUrl {
                 }
                 url += next
                 if url.count > TerminalUrl.maxLinkLength { return tapped >= 0 ? Match(url: nil) : nil }
-                if range.upperBound < self.row(y + 1).contentLength { break }
+                if cut != nil || range.upperBound < self.row(y + 1).contentLength { break }
                 y += 1
             }
             // Plain terminal soft wraps are read by the ordinary matcher.

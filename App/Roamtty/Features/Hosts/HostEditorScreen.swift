@@ -199,6 +199,10 @@ struct HostEditorScreen: View {
         do {
             guard let value = Int(port) else { throw RoamError.invalid(model.text("端口必须为 1–65535", "Port must be between 1 and 65535")) }
             host.port = value
+            // A newly typed address must be one; hosts saved before this check still load, so they can be repaired here.
+            guard isValidHostAddress(host.address.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+                throw RoamError.invalid(model.text("请输入主机地址，不含协议、路径或空格", "Enter a host address without a scheme, path or spaces"))
+            }
             // A blank name falls back to the address, so a host filled in for a new session needs no name.
             if host.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { host.name = host.address.trimmingCharacters(in: .whitespacesAndNewlines) }
             try model.saveHost(host, password: password, key: privateKey, passphrase: passphrase)

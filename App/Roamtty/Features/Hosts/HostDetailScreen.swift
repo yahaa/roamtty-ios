@@ -48,6 +48,8 @@ struct HostDetailScreen: View {
                     connectionRows(host)
                     if let metrics = model.metrics[hostID] { systemRows(metrics) }
                 }
+                // Last on the page: the ports list can run long.
+                HostPortsSection(host: host)
             }.padding(16).frame(maxWidth: 720)
         }.frame(maxWidth: .infinity).pageBackground().navigationTitle(host.name).navigationBarTitleDisplayMode(.inline)
             .toolbar {

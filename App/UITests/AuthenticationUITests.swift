@@ -35,6 +35,15 @@ final class AuthenticationUITests: RoamttyLiveUITestCase {
         XCTAssertTrue(password.waitForExistence(timeout: 5))
         let wrongPassword = fixture.password == "roamtty-ui-wrong-password" ? "roamtty-ui-also-wrong" : "roamtty-ui-wrong-password"
         password.tap(); password.typeText(wrongPassword)
+        // The password is hidden until asked for, then shown as typed, and hidden again (roamtty #277).
+        let visibility = app.buttons["auth-field-0-visibility"]
+        XCTAssertTrue(visibility.exists); XCTAssertEqual(visibility.label, "显示密码")
+        visibility.tap()
+        let shown = app.textFields["auth-field-0"]
+        XCTAssertTrue(shown.waitForExistence(timeout: 3)); XCTAssertEqual(shown.value as? String, wrongPassword)
+        XCTAssertEqual(visibility.label, "隐藏密码")
+        visibility.tap()
+        XCTAssertTrue(password.waitForExistence(timeout: 3))
         app.buttons["auth-confirm"].tap()
         acceptFirstTrust()
         let status = app.staticTexts["host-monitor-status"]

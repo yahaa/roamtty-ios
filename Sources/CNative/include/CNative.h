@@ -13,6 +13,17 @@ int roam_tcp_connect(const char *host, int port, int timeout_ms);
 int roam_socket_poll(int socket, int read_ready, int write_ready, int timeout_ms);
 void roam_socket_shutdown(int socket);
 void roam_socket_close(int socket);
+// A TCP listener on 127.0.0.1: on `preferred` when that is free (1024-65535), else on any port. Returns the descriptor
+// and writes the port it got, or returns -1.
+int roam_listen_loopback(int preferred, int *port);
+// Waits at most `timeout_ms` for a connection on a listener: the client's descriptor, -2 after the timeout, -1 on error.
+int roam_socket_accept(int listener, int timeout_ms);
+// Blocking reads and writes on a connected socket, never raising SIGPIPE. recv returns 0 at the end, -1 on error;
+// send_all returns 0 once every byte went, -1 on error.
+long roam_socket_recv(int socket, void *buffer, size_t length);
+int roam_socket_send_all(int socket, const void *buffer, size_t length);
+// Ends what this side sends; the peer still sends what it has.
+void roam_socket_shutdown_write(int socket);
 // Numeric address of a connected socket's peer, written into `host`. Returns zero on success.
 int roam_socket_peer(int socket, char *host, int length);
 // A libssh2 session's own allocator. libssh2 1.11.1 drops the MAC keys of every key exchange under AES-GCM

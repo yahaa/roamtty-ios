@@ -144,4 +144,15 @@ final class StoreTests: XCTestCase {
         let back = try JSONDecoder().decode(AppSettings.self, from: data)
         XCTAssertEqual(back, on)
     }
+
+    /// Android's M-01: a first launch follows the phone's language; a saved choice is kept.
+    func testFirstLaunchFollowsThePhonesLanguage() throws {
+        XCTAssertEqual(AppSettings.defaultLanguage(preferred: ["zh-Hans-CN", "en-US"]), "zh-Hans")
+        XCTAssertEqual(AppSettings.defaultLanguage(preferred: ["zh-Hant-TW"]), "zh-Hans")
+        XCTAssertEqual(AppSettings.defaultLanguage(preferred: ["en-GB", "zh-Hans"]), "en")
+        XCTAssertEqual(AppSettings.defaultLanguage(preferred: ["fr-FR"]), "en")
+        XCTAssertEqual(AppSettings.defaultLanguage(preferred: []), "en")
+        let saved = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"language":"zh-Hans"}"#.utf8))
+        XCTAssertEqual(saved.language, "zh-Hans")
+    }
 }

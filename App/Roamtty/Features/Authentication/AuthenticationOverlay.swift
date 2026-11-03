@@ -24,6 +24,8 @@ private struct AuthenticationCard: View {
     @EnvironmentObject var model: AppModel
     let request: AuthenticationRequest
     @State private var values: [String] = []
+    /// Secret fields shown as plain text, by index.
+    @State private var revealed: Set<Int> = []
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Label(request.title, systemImage: request.fingerprint == nil ? "lock" : "checkmark.shield").font(.title3.weight(.semibold)).accessibilityIdentifier("auth-title")
@@ -37,13 +39,25 @@ private struct AuthenticationCard: View {
             }
             ForEach(Array(request.labels.enumerated()), id: \.offset) { index, label in
                 if index < values.count {
-                    Group {
-                        if request.echo.indices.contains(index) && request.echo[index] {
-                            TextField(label, text: $values[index]).textInputAutocapitalization(.never).autocorrectionDisabled()
-                        } else {
-                            SecureField(label, text: $values[index])
+                    let echoed = request.echo.indices.contains(index) && request.echo[index]
+                    HStack(spacing: 8) {
+                        Group {
+                            if echoed || revealed.contains(index) {
+                                TextField(label, text: $values[index]).textInputAutocapitalization(.never).autocorrectionDisabled()
+                            } else {
+                                SecureField(label, text: $values[index])
+                            }
+                        }.accessibilityLabel(label).accessibilityIdentifier("auth-field-\(index)")
+                        // A secret is hidden until asked for, and only for this prompt.
+                        if !echoed {
+                            let shown = revealed.contains(index)
+                            Button { if shown { revealed.remove(index) } else { revealed.insert(index) } } label: {
+                                Image(systemName: shown ? "eye.slash" : "eye").foregroundStyle(Palette.secondary).frame(width: 32, height: 32).contentShape(Rectangle())
+                            }.buttonStyle(.plain).accessibilityLabel(shown ? model.text("隐藏密码", "Hide password") : model.text("显示密码", "Show password"))
+                                .accessibilityIdentifier("auth-field-\(index)-visibility")
                         }
-                    }.padding(12).background(Palette.panel, in: RoundedRectangle(cornerRadius: 10)).accessibilityLabel(label).accessibilityIdentifier("auth-field-\(index)")
+                    }.padding(.leading, 12).padding(.trailing, 6).padding(.vertical, 6).frame(minHeight: 44)
+                        .background(Palette.panel, in: RoundedRectangle(cornerRadius: 10))
                 }
             }
             HStack {

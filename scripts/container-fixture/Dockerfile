@@ -2,7 +2,7 @@
 # The password is never baked in; serve-container-fixture.sh mounts it at /run/fixture/password.
 FROM debian:bookworm-slim
 RUN apt-get update \
- && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server tmux mosh python3 locales ca-certificates \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server tmux mosh python3 iproute2 locales ca-certificates \
  && sed -i 's/^# *en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen && locale-gen \
  && echo 'LANG=en_US.UTF-8' > /etc/default/locale \
  && rm -rf /var/lib/apt/lists/* \

@@ -20,6 +20,12 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
     private var errors: [UInt8] = []
     private var finished = false
     private var closeRequested = false
+    /// `finishWriting` asked for an end of input, which goes once everything written before it has.
+    private var eofRequested = false
+    private var eofSent = false
+    /// The far end's output ended. A forwarded connection's reader stops there, without waiting for the channel's close.
+    private var outputEnded = false
+    private let endsAtEOF: Bool
     private var status: Int?
     private let wake = WorkerWake()
     private static let maxErrors = 16 * 1024
@@ -27,8 +33,8 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
     /// libssh2 writes at most 32700 bytes a call, so a larger slice would only be copied.
     private static let writeChunk = 32768
 
-    init(connection: SSHConnection, channel: OpaquePointer) {
-        self.connection = connection; self.channel = channel
+    init(connection: SSHConnection, channel: OpaquePointer, endsAtEOF: Bool = false) {
+        self.connection = connection; self.channel = channel; self.endsAtEOF = endsAtEOF
         let t = Thread { [self] in pump() }
         t.name = "roamtty.ssh.stream"
         t.start()
@@ -36,7 +42,7 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
 
     public func read(maxBytes: Int) -> [UInt8] {
         cond.lock(); defer { cond.unlock() }
-        while incomingCount == 0 && !finished && !closeRequested { cond.wait() }
+        while incomingCount == 0 && !finished && !closeRequested && !(endsAtEOF && outputEnded) { cond.wait() }
         if incomingCount == 0 { return [] }
         let n = min(maxBytes, incomingCount)
         let out = Array(incoming[incomingStart..<(incomingStart + n)])
@@ -58,6 +64,12 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
     public var errorOutput: String { cond.lock(); defer { cond.unlock() }; return String(decoding: errors, as: UTF8.self) }
     public var isClosed: Bool { cond.lock(); defer { cond.unlock() }; return finished }
     public var exitStatus: Int? { cond.lock(); defer { cond.unlock() }; return status }
+
+    /// Sends an end of input once everything written so far has gone; the far end's output still comes.
+    public func finishWriting() {
+        cond.lock(); eofRequested = true; cond.unlock()
+        wake?.signal()
+    }
 
     public func close() {
         cond.lock(); closeRequested = true; cond.broadcast(); cond.unlock()
@@ -95,6 +107,7 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
                 let stop = closeRequested || connection.isStopped
                 // A chunk that starts where the last write stopped: an EAGAIN retry hands libssh2 the same bytes.
                 let pending = Array(outgoing[outgoingStart..<min(outgoing.count, outgoingStart + Self.writeChunk)])
+                let sendEOF = pending.isEmpty && eofRequested && !eofSent
                 cond.unlock()
                 if stop { return }
                 var progressed = false
@@ -106,6 +119,9 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
                         cond.lock(); outgoingStart += sent; Self.compact(&outgoing, start: &outgoingStart); cond.unlock()
                         progressed = true
                     } else if sent < 0 && sent != LIBSSH2_ERROR_EAGAIN { throw connection.error(Int32(sent)) }
+                } else if sendEOF {
+                    let result = connection.locked { libssh2_channel_send_eof(channel) }
+                    if result == 0 { cond.lock(); eofSent = true; cond.unlock(); progressed = true } else if result != LIBSSH2_ERROR_EAGAIN { throw connection.error(result) }
                 }
                 for stream in 0...1 {
                     while true {
@@ -136,6 +152,7 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
                     }
                 }
                 if connection.locked({ libssh2_channel_eof(channel) }) != 0 {
+                    cond.lock(); outputEnded = true; cond.broadcast(); cond.unlock()
                     // The exit status comes with the channel's close; bounded, like exec.
                     _ = try? connection.retry(timeout: 5, cancelled: { self.closeWanted }) { libssh2_channel_wait_closed(channel) }
                     exit = Int(connection.locked { libssh2_channel_get_exit_status(channel) })

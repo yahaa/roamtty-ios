@@ -407,6 +407,12 @@ public final class SSHConnection: @unchecked Sendable {
             do { try start(channel); return channel } catch { closeChannel(channel); throw error }
         }
     }
+    /// A direct-tcpip channel: the server connects to `host`:`port` and carries that connection.
+    func openDirectChannel(host: String, port: Int) throws -> OpaquePointer {
+        try withChannelCreation {
+            try pointer { libssh2_channel_direct_tcpip_ex(session, host, Int32(port), "127.0.0.1", 22) }
+        }
+    }
     func openSFTP(cancelled: () -> Bool = { false }) throws -> OpaquePointer {
         try withChannelCreation(cancelled: cancelled) {
             // A second init cannot start while the first remains in EAGAIN.

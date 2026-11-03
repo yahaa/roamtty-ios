@@ -58,6 +58,10 @@ import RoamttyTransport
     var recentCommands: [String] = []
     /// Pinch-to-zoom reports the settled font size so it persists like Android's.
     var onFontScaled: ((Double) -> Void)?
+    /// A tapped path that names a file on the host, with its 1-based line or 0; nil leaves paths as plain text.
+    var onOpenPath: ((_ path: String, _ line: Int) -> Void)?
+    /// A tapped page on the server's own loopback (`http://localhost:5173/`), shown in the app through a tunnel.
+    var onOpenLoopback: ((LoopbackUrl) -> Void)?
     var onFailure: ((Error) -> Void)?
     let terminalView: TerminalView
 
@@ -403,6 +407,6 @@ import RoamttyTransport
         terminalView.terminalDelegate = nil
         for recognizer in ownRecognizers { terminalView.removeGestureRecognizer(recognizer) }
         ownRecognizers = []
-        onFailure = nil; onFontScaled = nil; reopenSideConnection = nil
+        onFailure = nil; onFontScaled = nil; onOpenPath = nil; onOpenLoopback = nil; reopenSideConnection = nil
     }
 }
