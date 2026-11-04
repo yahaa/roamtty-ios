@@ -36,12 +36,16 @@ struct PortPreviewScreen: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     let request: PortPreviewRequest
-    private enum Status { case checking, ready, notListening, offline, failed }
+    private enum Status { case checking, ready, notListening, offline, prohibited, failed }
     @State private var tunnel: PortTunnel?
     @State private var login = PortPreviewLogin()
     @State private var status = Status.checking
-    /// Bumped by retry and refresh: check the port again, then reload the page (or load it, if it never was).
+    /// Bumped by retry and refresh: log in again if need be and check the port, then reload the page (`reloads`).
     @State private var attempt = 0
+    /// Bumped once the login and the port are back: only then does the page reload, so it never asks a dropped login.
+    @State private var reloads = 0
+    /// The one login under way: a check and a failed page that both find the login gone wait on the same one.
+    @State private var reconnecting: Task<Void, Never>?
     /// Bumped when the page failed to load: check whether the server went away, without loading again.
     @State private var failures = 0
     @State private var page = WebPageState()
@@ -53,7 +57,7 @@ struct PortPreviewScreen: View {
             ZStack {
                 // Made only once the port answers, so an empty page does not flash first.
                 if let tunnel, status == .ready || loaded {
-                    PortWebView(start: URL(string: request.url.through(tunnel.localPort)), page: $page, reload: attempt) { failures += 1 }
+                    PortWebView(start: URL(string: request.url.through(tunnel.localPort)), page: $page, reload: reloads) { failures += 1 }
                         .onAppear { loaded = true }.accessibilityIdentifier("port-preview-web")
                 }
                 if status != .ready { problem.frame(maxWidth: .infinity, maxHeight: .infinity).background(Palette.background) }
@@ -64,8 +68,10 @@ struct PortPreviewScreen: View {
         .task(id: attempt) { await check() }
         .task(id: failures) {
             guard failures > 0 else { return }
-            let found = await listening()
-            if found != .ready { status = found }
+            let (found, reconnected) = await listening()
+            // The page failed on a login that has since come back: load it again. Failing with the login up and the
+            // port answering is the page's own failure, which it shows; reloading that would only repeat it.
+            if found == .ready { if reconnected { reloads += 1 } } else { status = found }
         }
         .onDisappear {
             // Closing ends SSH channels, which may wait on the network.
@@ -76,7 +82,7 @@ struct PortPreviewScreen: View {
 
     private var address: String {
         guard let tunnel, let current = page.url else { return request.url.display }
-        return LoopbackUrl.fromTunnel(current, localPort: tunnel.localPort, port: request.url.port)?.display ?? current
+        return LoopbackUrl.fromTunnel(current, localPort: tunnel.localPort, port: request.url.port, host: request.url.host)?.display ?? current
     }
 
     private var bar: some View {
@@ -112,11 +118,17 @@ struct PortPreviewScreen: View {
         switch status {
         case .notListening: return model.text("\(request.hostName) 上 :\(request.url.port) 没有在监听", "Nothing is listening on :\(request.url.port) on \(request.hostName)")
         case .failed: return model.text("无法在手机上打开预览", "Cannot open the preview on this phone")
+        case .prohibited: return model.text("\(request.hostName) 不允许端口转发", "\(request.hostName) does not allow port forwarding")
         default: return model.text("SSH 连接未就绪", "SSH connection is not ready")
         }
     }
     private var problemDetail: String {
-        status == .notListening ? model.text("启动服务后点重试。", "Start the server, then tap Retry.") : model.text("连接恢复后点重试。", "Tap Retry once the connection is back.")
+        switch status {
+        case .notListening: return model.text("启动服务后点重试。", "Start the server, then tap Retry.")
+        case .prohibited: return model.text("服务器的 sshd 关闭了 TCP 转发（AllowTcpForwarding），开启后点重试。",
+                                            "The server's sshd turns TCP forwarding off (AllowTcpForwarding). Turn it on, then tap Retry.")
+        default: return model.text("连接恢复后点重试。", "Tap Retry once the connection is back.")
+        }
     }
 
     private func back() {
@@ -131,21 +143,38 @@ struct PortPreviewScreen: View {
                 tunnel = try PortTunnel(target: request.url.target, port: request.url.port) { host, port in try login.openSocket(host: host, port: port) }
             } catch { status = .failed; return }
         }
-        status = await listening()
+        let found = await listening().status
+        guard !Task.isCancelled else { return }
+        status = found
+        // A retry or refresh of a page already shown reloads it now the login and port are back; a page shown for
+        // the first time loads itself.
+        if found == .ready && loaded { reloads += 1 }
     }
 
-    /// Logs in again when the login went, then asks the server whether the port answers.
-    private func listening() async -> Status {
-        if login.current?.isConnected != true {
-            login.current = try? await request.connect()
+    /// Logs in again when the login went (`reconnected`), then asks the server whether the port answers.
+    private func listening() async -> (status: Status, reconnected: Bool) {
+        let reconnected = await reconnect()
+        guard let tunnel else { return (.failed, reconnected) }
+        do {
+            let answers = try await performInBackground { try tunnel.listening() }
+            return (answers ? .ready : .notListening, reconnected)
+        } catch PortTunnelError.prohibited {
+            return (.prohibited, reconnected)
+        } catch {
+            return (.offline, reconnected)
         }
-        guard let tunnel else { return .failed }
-        let answer = try? await performInBackground { try tunnel.listening() }
-        switch answer {
-        case true?: return .ready
-        case false?: return .notListening
-        case nil: return .offline
-        }
+    }
+
+    /// Whether the login had gone; if so, it is back once this returns, unless logging in failed.
+    private func reconnect() async -> Bool {
+        if login.current?.isConnected == true { return false }
+        if let reconnecting { await reconnecting.value; return true }
+        let login = self.login, connect = request.connect
+        let task = Task { @MainActor in login.current = try? await connect() }
+        reconnecting = task
+        await task.value
+        reconnecting = nil
+        return true
     }
 }
 

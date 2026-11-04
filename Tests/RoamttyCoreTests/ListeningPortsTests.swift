@@ -71,6 +71,22 @@ final class ListeningPortsTests: XCTestCase {
         XCTAssertNil(LoopbackUrl.fromTunnel("https://example.com/", localPort: 41000, port: 5173))
     }
 
+    /// The tunnel listens on 127.0.0.1 alone: other loopback addresses are asked for there, and shown as the server's.
+    func testOtherLoopbackAddressesGoThroughTheTunnelsOwn() throws {
+        let url = try XCTUnwrap(LoopbackUrl.parse("http://127.0.0.2:3000/app"))
+        XCTAssertEqual(url.target, "127.0.0.2")
+        XCTAssertEqual(url.through(41000), "http://127.0.0.1:41000/app")
+        XCTAssertEqual(LoopbackUrl.fromTunnel("http://127.0.0.1:41000/app/x", localPort: 41000, port: 3000, host: url.host),
+                       LoopbackUrl(host: "127.0.0.2", port: 3000, rest: "/app/x"))
+        XCTAssertEqual(LoopbackUrl.fromTunnel("http://localhost:41000/", localPort: 41000, port: 3000, host: url.host),
+                       LoopbackUrl(host: "localhost", port: 3000, rest: "/"))
+        XCTAssertEqual(LoopbackUrl.fromTunnel("http://localhost:41000/", localPort: 41000, port: 3000, host: "[::1]"),
+                       LoopbackUrl(host: "[::1]", port: 3000, rest: "/"))
+        let resolver = ListeningPort(port: 53, address: "127.0.0.53", pid: nil, command: "", directory: "")
+        XCTAssertEqual(resolver.url.through(41000), "http://127.0.0.1:41000/")
+        XCTAssertEqual(resolver.url.target, "127.0.0.53")
+    }
+
     /// The script on this machine's own shell lists a port this test listens on, with this process as its owner.
     func testScriptFindsAListenerHere() throws {
         // Below the ephemeral range, which the list leaves out.

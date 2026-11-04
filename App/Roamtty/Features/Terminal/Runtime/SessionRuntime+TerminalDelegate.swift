@@ -22,7 +22,7 @@ extension SessionRuntime: @preconcurrency TerminalViewDelegate {
         if send(bytes) { userTyped(bytes) }
         if controlArmed { controlArmed = false; terminalView.controlModifier = false }
     }
-    func scrolled(source: TerminalView, position: Double) { queueCursorRefresh() }
+    func scrolled(source: TerminalView, position: Double) { queueCursorRefresh(); linkPress.contentChanged() }
     func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
         guard let url = URL(string: link), ["https", "http", "mailto"].contains(url.scheme?.lowercased() ?? "") else { return }
         UIApplication.shared.open(url)
@@ -30,5 +30,5 @@ extension SessionRuntime: @preconcurrency TerminalViewDelegate {
     func bell(source: TerminalView) { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
     func clipboardCopy(source: TerminalView, content: Data) { /* OSC 52 is intentionally ignored. Native selection copying remains available. */ }
     func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {}
-    func rangeChanged(source: TerminalView, startY: Int, endY: Int) { queueCursorRefresh() }
+    func rangeChanged(source: TerminalView, startY: Int, endY: Int) { queueCursorRefresh(); linkPress.contentChanged() }
 }

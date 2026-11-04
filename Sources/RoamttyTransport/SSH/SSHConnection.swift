@@ -407,11 +407,31 @@ public final class SSHConnection: @unchecked Sendable {
             do { try start(channel); return channel } catch { closeChannel(channel); throw error }
         }
     }
-    /// A direct-tcpip channel: the server connects to `host`:`port` and carries that connection.
+    /// A direct-tcpip channel: the server connects to `host`:`port` and carries that connection. Throws
+    /// `PortTunnelError.prohibited` when the server refuses to forward at all (`AllowTcpForwarding no`).
     func openDirectChannel(host: String, port: Int) throws -> OpaquePointer {
-        try withChannelCreation {
-            try pointer { libssh2_channel_direct_tcpip_ex(session, host, Int32(port), "127.0.0.1", 22) }
+        var prohibited = false
+        do {
+            return try withChannelCreation {
+                try pointer {
+                    let channel = libssh2_channel_direct_tcpip_ex(session, host, Int32(port), "127.0.0.1", 22)
+                    // Read under the library lock with the failure itself: the reason is only in libssh2's own text.
+                    prohibited = channel == nil && Self.lastErrorIsProhibited(session)
+                    return channel
+                }
+            }
+        } catch {
+            if prohibited { throw PortTunnelError.prohibited }
+            throw error
         }
+    }
+    /// libssh2 reports every refused channel as `LIBSSH2_ERROR_CHANNEL_FAILURE`; the reason it gives in its own,
+    /// fixed message tells "administratively prohibited" from "connect failed".
+    private static func lastErrorIsProhibited(_ session: OpaquePointer?) -> Bool {
+        guard let session else { return false }
+        var message: UnsafeMutablePointer<CChar>?
+        guard libssh2_session_last_error(session, &message, nil, 0) == LIBSSH2_ERROR_CHANNEL_FAILURE, let message else { return false }
+        return strstr(message, "prohibited") != nil
     }
     func openSFTP(cancelled: () -> Bool = { false }) throws -> OpaquePointer {
         try withChannelCreation(cancelled: cancelled) {

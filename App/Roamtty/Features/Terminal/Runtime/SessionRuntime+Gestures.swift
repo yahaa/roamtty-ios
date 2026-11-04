@@ -325,7 +325,9 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
             }
         }
     }
-    static let pathLookupTimeout: Double = 8
+    /// Android waits 8 s. A tap on a path that names no file only places the cursor once this is up, so a slow host
+    /// would leave the tap without an answer that long; a first lookup that opens SFTP takes about a second.
+    static let pathLookupTimeout: Double = 3
     private func lookUpTerminalFile(_ candidates: [TerminalPathCandidate]) async -> TerminalPathCandidate? {
         guard let ssh = await sideConnection() else { return nil }
         let cancellation = lifetimeCancellation

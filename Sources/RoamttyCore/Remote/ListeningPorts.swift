@@ -19,8 +19,12 @@ public struct LoopbackUrl: Equatable, Hashable, Sendable, Identifiable {
         return host
     }
 
+    /// Where the phone's tunnel answers: it listens on 127.0.0.1 alone, so another loopback address the server
+    /// uses (`127.0.0.2`, `127.0.0.53`) is asked for there; names and IPv6 go by `localhost`.
+    public var tunnelHost: String { host.hasPrefix("127.") ? "127.0.0.1" : "localhost" }
+
     /// The same page through a tunnel on the phone's `localPort`.
-    public func through(_ localPort: Int) -> String { "http://\(host.hasPrefix("127.") ? host : "localhost"):\(localPort)\(rest)" }
+    public func through(_ localPort: Int) -> String { "http://\(tunnelHost):\(localPort)\(rest)" }
 
     /// What the address bar shows: the server's address, as the terminal printed it, without the scheme.
     public var display: String { "\(host):\(port)\(rest == "/" ? "" : rest)" }
@@ -52,10 +56,12 @@ public struct LoopbackUrl: Equatable, Hashable, Sendable, Identifiable {
         return LoopbackUrl(host: host, port: port, rest: rest)
     }
 
-    /// `url` as loaded through a tunnel on `localPort`, back in terms of the server's `port`; nil for other pages.
-    public static func fromTunnel(_ url: String, localPort: Int, port: Int) -> LoopbackUrl? {
+    /// `url` as loaded through a tunnel on `localPort`, back in terms of the server's address: its `host` (as
+    /// `through` named it on the phone) and `port`; nil for other pages.
+    public static func fromTunnel(_ url: String, localPort: Int, port: Int, host: String? = nil) -> LoopbackUrl? {
         guard let page = parse(url), page.port == localPort else { return nil }
-        return LoopbackUrl(host: page.host, port: port, rest: page.rest)
+        let server = host.flatMap { LoopbackUrl(host: $0, port: port, rest: "/").tunnelHost == page.host ? $0 : nil }
+        return LoopbackUrl(host: server ?? page.host, port: port, rest: page.rest)
     }
 }
 

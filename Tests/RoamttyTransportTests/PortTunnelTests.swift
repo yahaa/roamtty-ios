@@ -151,6 +151,9 @@ final class PortTunnelTests: XCTestCase {
         XCTAssertThrowsError(try client.openSocket(host: "localhost", port: 1)) { XCTAssertEqual($0 as? PortTunnelError, .refused) }
         // A refused channel leaves the login usable.
         XCTAssertEqual(try client.exec("printf ok").text, "ok")
+        // A target the server will not forward to at all is told apart from a port nothing listens on.
+        XCTAssertThrowsError(try client.openSocket(host: "127.0.0.2", port: 22)) { XCTAssertEqual($0 as? PortTunnelError, .prohibited) }
+        XCTAssertEqual(try client.exec("printf ok").text, "ok")
         // A page served on the host's loopback, through a tunnel on this machine.
         let port = 18000 + Int.random(in: 0..<2000)
         let server = "cd /tmp && exec python3 -m http.server \(port) --bind 127.0.0.1"

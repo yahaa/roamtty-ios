@@ -87,7 +87,8 @@ public struct Host: Codable, Identifiable, Equatable, Sendable {
 
 /// Android's `requireValidHostAddress` (roamtty #277): an address typed into the host editor is a hostname, an IPv4
 /// address or an IPv6 literal (bracketed or not, with an optional zone), by its syntax alone: saving a host never needs
-/// DNS, a network or a server. Hosts saved before this check still load, so they can be repaired.
+/// DNS, a network or a server. Hosts saved before this check still load, so they can be repaired. Unlike Android it takes
+/// underscores inside a name label (`build_box`).
 public func isValidHostAddress(_ address: String) -> Bool {
     if address.isEmpty || address.utf16.count > 253 { return false }
     if address.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.union(.controlCharacters).contains($0) }) { return false }
@@ -97,7 +98,8 @@ public func isValidHostAddress(_ address: String) -> Bool {
     guard !name.isEmpty else { return false }
     return name.split(separator: ".", omittingEmptySubsequences: false).allSatisfy { label in
         guard (1...63).contains(label.count), let first = label.first, let last = label.last, first.isLetter || first.isNumber, last.isLetter || last.isNumber else { return false }
-        return label.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" }
+        // Underscores are not in RFC 1123 hostnames, yet internal DNS, container and VM names use them.
+        return label.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
     }
 }
 

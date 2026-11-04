@@ -118,7 +118,9 @@ struct TerminalScreen: View {
                     return ssh
                 }
             }
-            runtime.onOpenPath = { path, line in _ = runtime.terminalView.resignFirstResponder(); tappedFile = TappedTerminalFile(path: path, line: line) }
+            runtime.onOpenPath = { [weak runtime] path, line in
+                _ = runtime?.terminalView.resignFirstResponder(); tappedFile = TappedTerminalFile(path: path, line: line)
+            }
         }
         .onDisappear { toolbox.closeRing(); runtime.pendingPaste = nil; _ = runtime.terminalView.resignFirstResponder() }
         .onChange(of: runtime.workspaceTouches) { _ in if dockAvailable { toolbox.workspaceTouch(at: now) } }

@@ -8,6 +8,8 @@ public enum PortTunnelError: Error, Equatable {
     case unavailable
     /// The server could not connect, as when nothing listens on the port.
     case refused
+    /// The server does not forward connections for this login (`AllowTcpForwarding no`): nothing to retry.
+    case prohibited
 }
 
 extension SSHConnection {
@@ -18,6 +20,8 @@ extension SSHConnection {
         guard isConnected else { throw PortTunnelError.unavailable }
         do {
             return SSHExecStream(connection: self, channel: try openDirectChannel(host: host, port: port), endsAtEOF: true)
+        } catch PortTunnelError.prohibited {
+            throw PortTunnelError.prohibited
         } catch {
             throw isConnected ? PortTunnelError.refused : PortTunnelError.unavailable
         }
@@ -66,7 +70,8 @@ public final class PortTunnel: @unchecked Sendable {
     deinit { close() }
 
     /// Whether something on the server accepts connections on the port. Throws `PortTunnelError.unavailable` when
-    /// the login is not up, so a caller can tell "nothing listens" from "cannot ask". Blocks.
+    /// the login is not up and `.prohibited` when the server forwards nothing, so a caller can tell "nothing
+    /// listens" from "cannot ask". Blocks.
     public func listening() throws -> Bool {
         do { try open(target, port).close(); return true } catch PortTunnelError.refused { return false }
     }

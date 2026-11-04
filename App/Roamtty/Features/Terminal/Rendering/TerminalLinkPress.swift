@@ -62,6 +62,20 @@ import RoamttyCore
         clear(after: Self.shownAfterTap)
     }
 
+    /// The terminal's content changed or scrolled: a mark over characters no longer there would show stale text, so it
+    /// goes once any marked cell reads differently.
+    func contentChanged() {
+        guard !marked.isEmpty, let view = terminalView else { return }
+        let grid = SwiftTermTextGrid(terminal: view.getTerminal())
+        var rows: [Int: [TerminalTextCell]] = [:]
+        let stale = marked.contains { glyph in
+            let cells = rows[glyph.row] ?? grid.cells(glyph.row)
+            rows[glyph.row] = cells
+            return !cells.indices.contains(glyph.column) || cells[glyph.column].text != glyph.text
+        }
+        if stale { clear() }
+    }
+
     func clear() {
         pending?.cancel(); pending = nil
         clearing?.cancel(); clearing = nil
