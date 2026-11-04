@@ -2,7 +2,7 @@ import XCTest
 
 final class ContinueSessionUITests: RoamttyLiveUITestCase {
     /// 新建会话 › 继续会话 lists the tmux sessions on the one host; picking one and 打开会话 attaches it, and opening it
-    /// again opens the card it already has instead of a second one. The host page's 继续 opens the same sheet.
+    /// again opens the card it already has instead of a second one. The host page has no 继续.
     func testContinueSessionAttachesARunningTmuxSession() throws {
         let name = "roamtty-ui-continue-" + UUID().uuidString.prefix(8).lowercased()
         let surface = try openTerminal()
@@ -44,26 +44,21 @@ final class ContinueSessionUITests: RoamttyLiveUITestCase {
         leaveTerminal()
         XCTAssertEqual(Set(homeSessionCards().allElementsBoundByIndex.map(\.identifier)), after, "An open session is not attached twice")
 
-        // The host page's 继续 opens the same sheet; 打开终端 has no tmux tab any more.
+        // The host page has no 继续 (it lives in 新建会话), and 打开终端 has no tmux tab.
         try openHost()
-        for id in ["host-detail-agent", "host-detail-terminal", "host-detail-continue", "host-detail-files"] {
+        for id in ["host-detail-agent", "host-detail-terminal", "host-detail-files"] {
             XCTAssertTrue(app.buttons[id].isHittable, "\(id) is on screen")
         }
-        capture("The host page's actions with 继续")
+        XCTAssertFalse(app.buttons["host-detail-continue"].exists, "No 继续 on the host page")
+        capture("The host page's actions")
         app.buttons["host-detail-terminal"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["launch-folders"].firstMatch.waitForExistence(timeout: 15))
         XCTAssertFalse(app.segmentedControls["launch-source"].exists, "Folders only")
         app.buttons["launch-cancel"].tap()
-        app.buttons["host-detail-continue"].tap()
-        let hostRow = app.buttons["continue-tmux-\(name)"]
-        XCTAssertTrue(hostRow.waitForExistence(timeout: 20))
-        XCTAssertTrue(hostRow.staticTexts.matching(NSPredicate(format: "label == '已打开' OR label == 'Open'")).firstMatch.exists)
-        hostRow.tap()
-        let hostAttach = app.buttons["continue-attach"]
-        expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: hostAttach)
-        waitForExpectations(timeout: 10)
-        capture("The host page's 继续")
-        hostAttach.tap()
+
+        openContinueSheet()
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        row.tap(); app.buttons["continue-attach"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["terminal-surface"].firstMatch.waitForExistence(timeout: 20))
         waitForConnected(timeout: 25)
         closeTerminal()
