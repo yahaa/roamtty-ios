@@ -11,6 +11,8 @@ struct FilePreviewScreen: View {
     let host: Host
     let entry: RemoteEntry
     let connectionTarget: RemoteConnectionTarget
+    /// A line to show and mark (1-based), as a tapped `path:line` in the terminal names it; 0 for none.
+    var line: Int = 0
     @State private var content: RemoteFileContent?
     @State private var document: CodeDocument?
     @State private var blocks: [MdBlock] = []
@@ -75,6 +77,8 @@ struct FilePreviewScreen: View {
         }.onChange(of: query) { _ in updateMatches() }
         .task(id: reloadID) {
             content = nil; document = nil; blocks = []; image = nil; imageDimensions = nil; failure = nil; matches = []; match = 0
+            // A line to show is a line of the source, so Markdown opens as source there.
+            if line > 0 && reloadID == 0 { rendered = false }
             let cancellation = TransferCancellation()
             await withTaskCancellationHandler(operation: {
                 do {
@@ -213,7 +217,7 @@ struct FilePreviewScreen: View {
                 }
             } else {
                 CodeTextView(document: document, fontName: model.settings.font, fontSize: previewFontSize, wrap: model.settings.codeWrap,
-                    query: query, match: match, matches: matches, identifier: fullscreen ? "file-code-fullscreen" : "file-code-preview").id(reloadID)
+                    query: query, match: match, matches: matches, identifier: fullscreen ? "file-code-fullscreen" : "file-code-preview", markedLine: line).id(reloadID)
             }
         }
     }
@@ -248,6 +252,8 @@ struct CodeTextView: UIViewRepresentable {
     let match: Int
     let matches: [CodeMatch]
     let identifier: String
+    /// A source line to scroll to and mark, or 0.
+    var markedLine: Int = 0
     @Environment(\.colorScheme) private var scheme
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView(); view.isEditable = false; view.isSelectable = true; view.backgroundColor = .clear
@@ -267,12 +273,15 @@ struct CodeTextView: UIViewRepresentable {
             let output = NSMutableAttributedString()
             let digits = String(document.lineCount).count
             var rowOffsets: [Int] = []
+            var marked: NSRange?
             for line in document.lines {
                 let number = String(repeating: " ", count: max(0, digits - String(line.number).count)) + "\(line.number)  "
+                let lineStart = output.length
                 output.append(NSAttributedString(string: number, attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel]))
                 let offset = output.length
                 rowOffsets.append(offset)
                 output.append(NSAttributedString(string: line.text + "\n", attributes: [.font: font, .foregroundColor: UIColor.label]))
+                if markedLine > 0 && line.number == markedLine && marked == nil { marked = NSRange(location: lineStart, length: output.length - lineStart) }
                 for index in stride(from: 0, to: line.spans.count - 2, by: 3) {
                     let start = line.spans[index], end = line.spans[index + 1]
                     guard start >= 0, end <= line.text.utf16.count, end > start else { continue }
@@ -280,7 +289,10 @@ struct CodeTextView: UIViewRepresentable {
                 }
             }
             coordinator.rowOffsets = rowOffsets
+            coordinator.marked = marked
+            if let marked { output.addAttribute(.backgroundColor, value: Self.markColor, range: marked) }
             view.attributedText = output
+            if let marked { Self.scroll(view, toMark: marked, lineHeight: font.lineHeight, attempts: 10) }
             view.textContainer.widthTracksTextView = wrap
             view.textContainer.size = CGSize(width: wrap ? max(1, view.bounds.width - 20) : max(1000, CGFloat(document.maxColumns + digits + 4) * font.pointSize * 0.65),
                 height: .greatestFiniteMagnitude)
@@ -290,6 +302,7 @@ struct CodeTextView: UIViewRepresentable {
             let storage = view.textStorage
             storage.beginEditing()
             for range in coordinator.matches where NSMaxRange(range) <= storage.length { storage.removeAttribute(.backgroundColor, range: range) }
+            if let marked = coordinator.marked, NSMaxRange(marked) <= storage.length { storage.addAttribute(.backgroundColor, value: Self.markColor, range: marked) }
             coordinator.matches = []
             for found in matches where coordinator.rowOffsets.indices.contains(found.row) {
                 let range = NSRange(location: coordinator.rowOffsets[found.row] + found.start, length: found.end - found.start)
@@ -305,7 +318,26 @@ struct CodeTextView: UIViewRepresentable {
         }
     }
     func makeCoordinator() -> Coordinator { Coordinator() }
+    private static let markColor = UIColor.tintColor.withAlphaComponent(0.16)
+    /// Puts the marked line a few lines below the top, once the view has its size.
+    private static func scroll(_ view: UITextView, toMark range: NSRange, lineHeight: CGFloat, attempts: Int) {
+        DispatchQueue.main.async {
+            guard view.bounds.height > 0 else {
+                if attempts > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { scroll(view, toMark: range, lineHeight: lineHeight, attempts: attempts - 1) } }
+                return
+            }
+            guard let start = view.position(from: view.beginningOfDocument, offset: range.location),
+                  let end = view.position(from: start, offset: max(1, range.length - 1)),
+                  let text = view.textRange(from: start, to: end) else { return }
+            let rect = view.firstRect(for: text)
+            guard rect.minY.isFinite else { return }
+            let bottom = max(0, view.contentSize.height + view.adjustedContentInset.bottom - view.bounds.height)
+            let y = min(bottom, max(-view.adjustedContentInset.top, rect.minY - 3 * lineHeight))
+            view.setContentOffset(CGPoint(x: -view.adjustedContentInset.left, y: y), animated: false)
+        }
+    }
     final class Coordinator {
+        var marked: NSRange?
         var key = ""; var document: [CodeLine] = []; var rowOffsets: [Int] = []
         var sourceMatches: [CodeMatch] = []; var matches: [NSRange] = []; var lastMatch = -1; var lastQuery = ""
     }

@@ -109,8 +109,15 @@ struct HostCard: View {
                 RadialGradient(colors: [Palette.foreground.opacity(0.05), .clear], center: .center, startRadius: 0, endRadius: 300)
                 VStack(spacing: 0) {
                     AppIcon("ic_desktop_off", size: 44).foregroundStyle(Palette.secondary.opacity(0.55)).frame(height: 44)
-                    Text(model.text("没有图形桌面", "No graphical desktop")).font(.system(size: 16)).foregroundStyle(Palette.secondary).padding(.top, 6)
-                    Text(model.text("这台主机只能用终端", "This host only has a terminal")).font(.system(size: 13)).foregroundStyle(Palette.secondary.opacity(0.7))
+                    // A host never probed is not a host without a desktop: it is checked once a login reaches it.
+                    let probe = DesktopProbe.decode(host.desktop)
+                    Text(probe == nil ? model.text("桌面尚未检测", "Desktop not checked yet") : probe == .no ? model.text("没有图形桌面", "No graphical desktop")
+                         : probe == .yes ? model.text("暂不支持这台主机的桌面", "This desktop is not supported yet") : model.text("桌面暂不可用", "Desktop unavailable"))
+                        .font(.system(size: 16)).foregroundStyle(Palette.secondary).padding(.top, 6)
+                    if probe == nil || probe == .no {
+                        Text(probe == nil ? model.text("连接主机后自动检测桌面", "Connect to check the desktop automatically") : model.text("这台主机只能用终端", "This host only has a terminal"))
+                            .font(.system(size: 13)).foregroundStyle(Palette.secondary.opacity(0.7))
+                    }
                 }.frame(width: size.width, height: max(0, size.height - stripHeight)).padding(.bottom, stripHeight)
                 Palette.foreground.opacity(0.035).frame(height: stripHeight)
                 Palette.foreground.opacity(0.07).frame(height: 1).padding(.bottom, stripHeight)

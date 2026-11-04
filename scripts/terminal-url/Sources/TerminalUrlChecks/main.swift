@@ -228,5 +228,126 @@ do {
 expect(terminalLinkTarget("https://example.test/中文?q=a%20b")?.absoluteString, "https://example.test/%E4%B8%AD%E6%96%87?q=a%20b", "link target")
 expect(terminalLinkTarget("javascript:alert(1)")?.absoluteString, nil, "link target scheme")
 
+// agentWrappedUrlEndsAtItsShortLastRowWhateverLongLineFollows (roamtty #275)
+do {
+    let t = terminal(46, 8, "  PR: \u{1b}[4;33mhttps://github.com/yahaa/roamtty/pull/27\u{1b}[0m\r\n  \u{1b}[4;33m5\u{1b}[0m\r\n" +
+        "  安装包：Roamtty-tap-path-20261103-release-de\r\n  bugsigned.apk\r\n")
+    expect(at(t, 20, 0), "https://github.com/yahaa/roamtty/pull/275", "short last row 0")
+    expect(at(t, 2, 1), "https://github.com/yahaa/roamtty/pull/275", "short last row 1")
+    expect(at(t, 10, 2), nil, "short last row: the next line")
+}
+// agentWrappedUrlStopsAtFullWidthTextGluedToItsTail
+do {
+    let t = terminal(46, 8, "  新版本已可安装：http://100.64.0.2:18780/#and\r\n  roid（77c9886）\r\n")
+    expect(at(t, 30, 0), "http://100.64.0.2:18780/#android", "glued tail 0")
+    expect(at(t, 3, 1), "http://100.64.0.2:18780/#android", "glued tail 1")
+    expect(at(t, 8, 1), nil, "glued tail text")
+}
+
+// Android's TerminalPathTest: file paths, with their line, under a tap.
+func path(_ t: Terminal, _ column: Int, _ row: Int) -> TerminalPathLink? { TerminalPath.at(SwiftTermTextGrid(terminal: t), column: column, row: row) }
+func expectPath(_ link: TerminalPathLink?, _ expected: String?, line expectedLine: Int = 0, rows: Set<Int>? = nil, fallback: String? = nil,
+                _ name: String, line: Int = #line) {
+    checks += 1
+    guard let expected else {
+        if link != nil { failures += 1; print("FAIL line \(line) \(name): expected nil, got \(link!.path)") }
+        return
+    }
+    guard let link else { failures += 1; print("FAIL line \(line) \(name): expected \(expected), got nil"); return }
+    var problems: [String] = []
+    if link.path != expected { problems.append("path \(link.path)") }
+    if link.line != expectedLine { problems.append("line \(link.line)") }
+    if let rows, link.rows != rows { problems.append("rows \(link.rows.sorted())") }
+    let actualFallback = link.candidates.count > 1 ? link.candidates[1].path : nil
+    if actualFallback != fallback { problems.append("fallback \(actualFallback ?? "nil")") }
+    if !problems.isEmpty { failures += 1; print("FAIL line \(line) \(name): " + problems.joined(separator: ", ")) }
+}
+// compilerErrorOpensAtItsLine
+do {
+    let t = terminal(80, 4, "src/Post.tsx:42:7 - error TS2322: Type")
+    for col in 0..<17 { expectPath(path(t, col, 0), "src/Post.tsx", line: 42, rows: [0], "compiler col \(col)") }
+    expectPath(path(t, 17, 0), nil, "after location"); expectPath(path(t, 20, 0), nil, "message")
+}
+// grepSourceTextAfterTheLocationIsNotPartOfThePath
+do {
+    let t = terminal(80, 4, "src/a.ts:42:const value = 1\r\nREADME.md:Usage notes\r\nlib/b.kt:7:3:fun x()")
+    expectPath(path(t, 3, 0), "src/a.ts", line: 42, "grep"); expectPath(path(t, 10, 0), "src/a.ts", line: 42, "grep line")
+    expectPath(path(t, 13, 0), nil, "the source text is not the path")
+    expectPath(path(t, 2, 1), "README.md", "grep without line"); expectPath(path(t, 11, 1), nil, "grep text")
+    expectPath(path(t, 2, 2), "lib/b.kt", line: 7, "grep with column")
+}
+// stackTracesAndQuotesKeepOnlyThePath
+do {
+    let t = terminal(80, 4, "    at run (/home/v/app/index.js:10:5)\r\n  File \"/srv/a.py\", line 3")
+    expectPath(path(t, 20, 0), "/home/v/app/index.js", line: 10, "stack trace")
+    expectPath(path(t, 10, 1), "/srv/a.py", "python")
+}
+// bareNamesNeedAnExtension
+do {
+    let t = terminal(80, 4, "edit README.md, Makefile and v2.0 or 1.2.3 then ./run done.")
+    expectPath(path(t, 6, 0), "README.md", "bare name")
+    expectPath(path(t, 17, 0), nil, "Makefile"); expectPath(path(t, 30, 0), nil, "v2.0"); expectPath(path(t, 37, 0), nil, "1.2.3")
+    expectPath(path(t, 50, 0), "./run", "./run"); expectPath(path(t, 0, 0), nil, "edit")
+}
+// urlsAndFoldersAreNotFiles
+do {
+    let t = terminal(80, 4, "see http://x.test/a.js and ~/code/ and 12:30")
+    expectPath(path(t, 10, 0), nil, "url"); expectPath(path(t, 30, 0), nil, "folder"); expectPath(path(t, 41, 0), nil, "time")
+}
+// softWrappedPathMarksEveryRow
+do {
+    let t = terminal(10, 4, "x app/src/main/Long.kt:9 y")
+    let link = path(t, 3, 1)
+    expectPath(link, "app/src/main/Long.kt", line: 9, rows: [0, 1, 2], "soft wrap")
+    expectTrue(link?.covers(row: 2) == true && link?.covers(row: 3) == false, "soft wrap covers")
+}
+// pathATuiBrokeAcrossRowsIsJoinedWithThePieceAsFallback
+do {
+    let t = terminal(30, 6, "  app/src/main/kotlin/io/iterm\r\n  ux/app/ui/MobileTerminalCli\r\n  ent.kt:51:5 done\r\nnext")
+    let pieces = ["app/src/main/kotlin/io/iterm", "ux/app/ui/MobileTerminalCli", "ent.kt"]
+    for row in 0..<3 {
+        expectPath(path(t, 4, row), "app/src/main/kotlin/io/itermux/app/ui/MobileTerminalClient.kt", line: 51, rows: [0, 1, 2],
+                   fallback: pieces[row], "hard wrap row \(row)")
+    }
+    expectPath(path(t, 15, 2), nil, "hard wrap: done")
+}
+// wordWrappedPathIsNotGluedToTheWordBeforeIt
+expectPath(path(terminal(40, 4, "  Edited the files and then\r\n  docs/design/dev-bridge-145-v2.html\r\n"), 5, 1),
+           "docs/design/dev-bridge-145-v2.html", rows: [1], "word wrap")
+// separateShortLinesAreNotJoined
+expectPath(path(terminal(40, 4, "src/a.ts\r\nsrc/b.ts\r\n"), 2, 1), "src/b.ts", rows: [1], "short lines")
+// wideTextBeforeAPathShiftsItsCells
+expectPath(path(terminal(40, 4, "修改了 src/a.ts 文件"), 9, 0), "src/a.ts", "wide text before")
+
+// Spans: the cells a press marks (Android's TerminalLink.spans as row, start, end triples).
+func flat(_ spans: [TerminalLinkSpan]?) -> [Int] { (spans ?? []).flatMap { [$0.row, $0.start, $0.end] } }
+func expectSpans(_ actual: [TerminalLinkSpan]?, _ expected: [Int], _ name: String, line: Int = #line) {
+    checks += 1
+    if flat(actual) != expected { failures += 1; print("FAIL line \(line) \(name): expected \(expected), got \(flat(actual))") }
+}
+do {
+    let t = terminal(80, 4, "src/Post.tsx:42:7 - error TS2322: Type")
+    for col in [0, 8, 16] { expectSpans(path(t, col, 0)?.spans, [0, 0, 17], "compiler spans \(col)") }
+    let g = terminal(80, 4, "src/a.ts:42:const value = 1\r\nREADME.md:Usage notes\r\nlib/b.kt:7:3:fun x()")
+    expectSpans(path(g, 3, 0)?.spans, [0, 0, 11], "grep spans"); expectSpans(path(g, 2, 1)?.spans, [1, 0, 9], "grep plain spans")
+    expectSpans(path(g, 2, 2)?.spans, [2, 0, 12], "grep column spans")
+    expectSpans(path(terminal(80, 4, "    at run (/home/v/app/index.js:10:5)"), 20, 0)?.spans, [0, 12, 37], "trace spans")
+    expectSpans(path(terminal(80, 4, "edit README.md, Makefile"), 6, 0)?.spans, [0, 5, 14], "bare name spans")
+    expectSpans(path(terminal(10, 4, "x app/src/main/Long.kt:9 y"), 3, 1)?.spans, [0, 2, 10, 1, 0, 10, 2, 0, 4], "soft wrap spans")
+    let hard = terminal(30, 6, "  app/src/main/kotlin/io/iterm\r\n  ux/app/ui/MobileTerminalCli\r\n  ent.kt:51:5 done\r\nnext")
+    for row in 0..<3 { expectSpans(path(hard, 4, row)?.spans, [0, 2, 30, 1, 2, 29, 2, 2, 13], "hard wrap spans \(row)") }
+    expectSpans(path(terminal(40, 4, "  Edited the files and then\r\n  docs/design/dev-bridge-145-v2.html\r\n"), 5, 1)?.spans, [1, 2, 36], "word wrap spans")
+    expectSpans(path(terminal(40, 4, "修改了 src/a.ts 文件"), 9, 0)?.spans, [0, 7, 15], "wide text spans")
+    func link(_ t: Terminal, _ c: Int, _ r: Int) -> TerminalWebLink? { TerminalUrl.link(SwiftTermTextGrid(terminal: t), column: c, row: r) }
+    expectSpans(link(terminal(100, 4, "see https://one.test/a. end"), 6, 0)?.spans, [0, 4, 22], "url spans")
+    let pr = terminal(40, 5, "  PR: \u{1b}[4m#127\u{1b}[0m (\u{1b}[4mhttps://github.com/yahaa/\u{1b}[0m\r\n  \u{1b}[4mroamtty/pull/127\u{1b}[0m)\r\n  APK: ready")
+    expectSpans(link(pr, 2, 1)?.spans, [0, 12, 37, 1, 2, 18], "parenthesized spans")
+    let agent = terminal(46, 8, "  PR: \u{1b}[4;33mhttps://github.com/yahaa/roamtty/pull/27\u{1b}[0m\r\n  \u{1b}[4;33m5\u{1b}[0m\r\n" +
+        "  安装包：Roamtty-tap-path-20261103-release-de\r\n  bugsigned.apk\r\n")
+    expectSpans(link(agent, 2, 1)?.spans, [0, 6, 46, 1, 2, 3], "hard wrapped url spans")
+    expectSpans(link(terminal(12, 6, "go https://example.test/long/path?q=hello%20world#end"), 5, 1)?.spans,
+                [0, 3, 12, 1, 0, 12, 2, 0, 12, 3, 0, 12, 4, 0, 5], "soft wrapped url spans")
+}
+
 print("\(checks - failures)/\(checks) terminal URL checks passed")
 exit(failures == 0 ? 0 : 1)

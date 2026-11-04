@@ -240,7 +240,17 @@ final class TerminalGestureUITests: RoamttyLiveUITestCase {
         waitForOutput("BRACKETED_BYTES=" + expected.map { String(format: "%02x", $0) }.joined(), surface: surface)
         try runCommand("kill -HUP $$")
         let reconnect = app.buttons["terminal-reconnect"]
-        XCTAssertTrue(reconnect.waitForExistence(timeout: 20)); reconnect.tap()
+        XCTAssertTrue(reconnect.waitForExistence(timeout: 20))
+        // The notice says what happened; the raw error waits behind 查看详情 (roamtty #277).
+        XCTAssertTrue(app.staticTexts["terminal-connection-summary"].exists)
+        let details = app.buttons["terminal-connection-details"]
+        if details.exists {
+            XCTAssertFalse(app.staticTexts["terminal-notice"].exists)
+            details.tap()
+            XCTAssertTrue(app.staticTexts["terminal-notice"].waitForExistence(timeout: 3))
+        }
+        capture("Connection notice with its details")
+        reconnect.tap()
         XCTAssertTrue(phase("已连接").waitForExistence(timeout: 20))
         let resumed = try runCommand("printf 'RECONNECT_'; printf 'VERIFIED\\n'")
         waitForOutput("RECONNECT_VERIFIED", surface: resumed)

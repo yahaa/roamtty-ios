@@ -49,6 +49,19 @@ public func validWorkingDirectory(_ output: String?) -> String? {
     return isValidRemoteDirectory(path) ? path : nil
 }
 
+/// Where a path printed in the terminal points: absolute as it is, "~/" from the SFTP home (a relative SFTP path), and
+/// anything else from the shell's `directory`. Nil when a relative path has no directory to start from.
+public func resolveTerminalPath(directory: String?, path: String) -> String? {
+    if path.hasPrefix("/") { return path }
+    if path.hasPrefix("~/") {
+        let rest = String(path.dropFirst(2).drop { $0 == "/" })
+        return rest.isEmpty ? nil : rest
+    }
+    if path.hasPrefix("~") { return nil } // Another user's home: "~bob/x" needs a lookup SFTP cannot do.
+    guard let directory, isValidRemoteDirectory(directory) else { return nil }
+    return joinRemotePath(directory: directory, name: path.hasPrefix("./") ? String(path.dropFirst(2)) : path)
+}
+
 public func isSafeRemoteEntryName(_ name: String) -> Bool {
     !name.isEmpty && name != "." && name != ".." && !name.contains("/") && !name.contains("\\") && !name.containsPathControl
 }

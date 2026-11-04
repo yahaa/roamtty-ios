@@ -85,6 +85,15 @@ extension SSHConnection {
         }
         return RemoteDirectory(path: real, entries: entries.sorted(by: remoteEntryPrecedes), unreadableNames: unreadable)
     }
+    /// Whether `path` (followed through links) is a folder; throws when it does not exist or cannot be read.
+    public func isDirectory(_ path: String, cancellation: TransferCancellation? = nil) throws -> Bool {
+        try validatePath(path)
+        return try withSFTP(cancellation: cancellation) { sftp, epoch in
+            try transferCheck(epoch, cancellation)
+            let attrs = try sftpStat(sftp, path)
+            return attrs.permissions & UInt(LIBSSH2_SFTP_S_IFMT) == UInt(LIBSSH2_SFTP_S_IFDIR)
+        }
+    }
     public func readFile(_ path: String, maxBytes: Int = 2_097_152, cancellation: TransferCancellation? = nil) throws -> RemoteFileContent {
         try validatePath(path)
         guard maxBytes > 0, maxBytes <= 32 * 1024 * 1024 else { throw RoamError.invalid("Invalid preview size") }

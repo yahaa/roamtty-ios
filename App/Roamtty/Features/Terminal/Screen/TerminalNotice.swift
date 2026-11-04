@@ -85,10 +85,27 @@ struct TerminalConnectionNotice: View {
     let onReverify: () -> Void
     /// iOS has no Back button and the terminal no navigation bar: the notice leads back to where it was opened from.
     var onLeave: (() -> Void)?
+    /// The raw error is for whoever reports it; the card leads with what it means.
+    @State private var detailsShown = false
+    private var summary: String {
+        switch phase {
+        case .authFailed: return model.text("服务器拒绝了用户名、密码或密钥。请检查后重新连接。", "The server rejected the username, password or key. Check them, then reconnect.")
+        case .hostKeyChanged: return model.text("服务器的指纹与上次不同。核验无误后再连接。", "The server's fingerprint differs from last time. Verify it before connecting.")
+        case .tmuxMissing: return model.text("这台主机还没有安装 tmux，可以改用普通 SSH。", "tmux is not installed on this host; plain SSH works without it.")
+        case .disconnected: return model.text("连接已断开。重新连接即可继续这个会话。", "The connection was closed. Reconnect to continue this session.")
+        default: return model.text("无法连接到主机。请检查网络、地址和端口后重试。", "Couldn't reach the host. Check the network, address and port, then try again.")
+        }
+    }
     var body: some View {
         TerminalNoticeCard(title: model.phaseText(phase), id: "terminal-connection-notice") {
+            Text(summary).font(.subheadline).accessibilityIdentifier("terminal-connection-summary")
             if let message, !message.isEmpty {
-                Text(message).font(.subheadline).textSelection(.enabled).accessibilityIdentifier("terminal-notice")
+                Button(detailsShown ? model.text("收起详情", "Hide details") : model.text("查看详情", "Show details")) { detailsShown.toggle() }
+                    .font(.subheadline).foregroundStyle(Palette.accent).accessibilityIdentifier("terminal-connection-details")
+                if detailsShown {
+                    Text(message).font(.system(.footnote, design: .monospaced)).foregroundStyle(Palette.secondary).textSelection(.enabled)
+                        .accessibilityIdentifier("terminal-notice")
+                }
             }
         } actions: {
             if let onLeave { Button(model.text("返回", "Back"), action: onLeave).buttonStyle(TextActionStyle()).accessibilityIdentifier("terminal-leave") }

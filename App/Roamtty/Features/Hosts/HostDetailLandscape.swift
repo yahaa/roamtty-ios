@@ -23,7 +23,13 @@ extension HostDetailScreen {
                         VStack(spacing: 24) {
                             section(.overview) { overview(host) }
                             section(.processes) { processes }
-                            section(.info) { information(host) }
+                            section(.info) {
+                                VStack(spacing: 24) {
+                                    information(host)
+                                    // Last on the page: the ports list can run long.
+                                    HostPortsSection(host: host)
+                                }
+                            }
                         }.padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 16)
                     }.coordinateSpace(name: Self.scrollSpace).accessibilityIdentifier("host-detail-scroll")
                         .onPreferenceChange(HostSectionFrames.self) { frames in follow(frames, height: viewport.size.height) }

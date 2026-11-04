@@ -21,16 +21,47 @@ public protocol TerminalTextGrid {
     func wraps(_ row: Int) -> Bool
 }
 
+/// The cells of one grid row a link covers: `start` up to `end` (exclusive), as columns.
+public struct TerminalLinkSpan: Equatable, Sendable {
+    public let row: Int
+    public let start: Int
+    public let end: Int
+    public init(row: Int, start: Int, end: Int) { self.row = row; self.start = start; self.end = end }
+
+    /// One character's cells, in reading order, merged into a span per run on a row.
+    struct Cell { let row: Int; let column: Int; let width: Int }
+    static func merge(_ cells: [Cell]) -> [TerminalLinkSpan] {
+        var spans: [TerminalLinkSpan] = []
+        for cell in cells {
+            if let last = spans.last, last.row == cell.row, last.end == cell.column {
+                spans[spans.count - 1] = TerminalLinkSpan(row: last.row, start: last.start, end: cell.column + cell.width)
+            } else {
+                spans.append(TerminalLinkSpan(row: cell.row, start: cell.column, end: cell.column + cell.width))
+            }
+        }
+        return spans
+    }
+}
+
+/// A tapped web link and the cells it covers, so a press can mark exactly those.
+public struct TerminalWebLink: Equatable, Sendable {
+    public let url: String
+    public let spans: [TerminalLinkSpan]
+}
+
 /// Finds web URLs at terminal cell positions.
 public enum TerminalUrl {
     static let maxLinkRows = 128
     static let maxLinkLength = 8192
 
-    public static func at(_ grid: TerminalTextGrid, column: Int, row: Int) -> String? {
+    public static func at(_ grid: TerminalTextGrid, column: Int, row: Int) -> String? { link(grid, column: column, row: row)?.url }
+
+    /// The URL under a cell with the cells it covers.
+    public static func link(_ grid: TerminalTextGrid, column: Int, row: Int) -> TerminalWebLink? {
         guard column >= 0, column < grid.columns, row >= grid.firstRow, row < grid.endRow else { return nil }
         let reader = Reader(grid)
-        if let rendered = reader.parenthesizedLink(column: column, row: row) { return rendered.url }
-        if let hardWrapped = reader.hardWrappedUrl(column: column, row: row) { return hardWrapped.url }
+        if let rendered = reader.parenthesizedLink(column: column, row: row) { return rendered.link }
+        if let hardWrapped = reader.hardWrappedUrl(column: column, row: row) { return hardWrapped.link }
         let line = reader.logicalLine(row)
         let offset = line.offset(atCell: line.cell(column: column, row: row))
         var next = 0
@@ -43,7 +74,7 @@ public enum TerminalUrl {
             if candidateEnd == line.text.count && grid.wraps(line.lastRow) { return nil }
             let end = trimEnd(line.text, start: start, end: candidateEnd)
             if offset >= end || reader.endsAtAmbiguousWrap(line, end: candidateEnd) { return nil }
-            return validatedUrl(String(line.text[start..<end]))
+            return validatedUrl(String(line.text[start..<end])).map { TerminalWebLink(url: $0, spans: TerminalLinkSpan.merge(line.cells(start..<end))) }
         }
         return nil
     }
@@ -158,7 +189,11 @@ public enum TerminalUrl {
     }
 
     /// A matched but incomplete rendered link must not fall back to opening its first fragment.
-    struct Match { let url: String? }
+    struct Match {
+        let url: String?
+        var cells: [TerminalLinkSpan.Cell] = []
+        var link: TerminalWebLink? { url.map { TerminalWebLink(url: $0, spans: TerminalLinkSpan.merge(cells)) } }
+    }
 
     /// A row's characters with the cells each starts at, as Termux keeps them: a wide character takes one entry for
     /// its two cells, a blank cell reads as a space.
@@ -197,6 +232,15 @@ public enum TerminalUrl {
         let lastRow: Int
         let columns: Int
         func cell(column: Int, row: Int) -> Int { (row - firstRow) * columns + column }
+        /// The grid cell of each character in `range`.
+        func cells(_ range: Range<Int>) -> [TerminalLinkSpan.Cell] {
+            var cell = widths[0..<range.lowerBound].reduce(0, +)
+            return range.map { index in
+                defer { cell += widths[index] }
+                let row = min(cell / max(1, columns), lastRow - firstRow)
+                return TerminalLinkSpan.Cell(row: firstRow + row, column: cell - row * columns, width: widths[index])
+            }
+        }
         func offset(atCell cell: Int) -> Int {
             var width = 0
             for index in text.indices {
@@ -276,6 +320,7 @@ public enum TerminalUrl {
 
         private func readParenthesizedLink(startColumn: Int, startRow: Int, tappedColumn: Int, tappedRow: Int) -> Match? {
             var url: [Character] = []
+            var cells: [TerminalLinkSpan.Cell] = []
             var tapped = false
             var completeUrl: String?
             var y = startRow
@@ -302,6 +347,7 @@ public enum TerminalUrl {
                     }
                     if !linkStyle { break rows }
                     url.append(character)
+                    cells.append(TerminalLinkSpan.Cell(row: y, column: cell, width: width))
                     if url.count <= 8 && !TerminalUrl.webPrefix(url) { return nil }
                     if y == tappedRow && tappedColumn >= cell && tappedColumn < cell + width { tapped = true }
                     if url.count > TerminalUrl.maxLinkLength { break rows }
@@ -309,13 +355,13 @@ public enum TerminalUrl {
                 }
                 y += 1
             }
-            return tapped ? Match(url: completeUrl) : nil
+            return tapped ? Match(url: completeUrl, cells: cells) : nil
         }
 
         // MARK: Hard-wrapped bare URLs
 
         /// A row's first whitespace-free token (after its indent when `fromIndent`) and its character range.
-        private func rowToken(_ y: Int, fromIndent: Bool) -> (token: [Character], range: Range<Int>) {
+        func rowToken(_ y: Int, fromIndent: Bool) -> (token: [Character], range: Range<Int>) {
             let text = self.row(y).text
             var start = 0
             if fromIndent { while start < text.count && text[start] == " " { start += 1 } }
@@ -324,9 +370,9 @@ public enum TerminalUrl {
             return (Array(text[start..<end]), start..<end)
         }
 
-        private func cellWidth(_ y: Int, _ range: Range<Int>) -> Int { range.reduce(0) { $0 + row(y).widths[$1] } }
+        func cellWidth(_ y: Int, _ range: Range<Int>) -> Int { range.reduce(0) { $0 + row(y).widths[$1] } }
 
-        private func freeCells(_ y: Int) -> Int {
+        func freeCells(_ y: Int) -> Int {
             let line = row(y)
             return columns - line.widths[0..<line.contentLength].reduce(0, +)
         }
@@ -378,6 +424,7 @@ public enum TerminalUrl {
             let topLine = self.row(top)
             let topStart = topLine.contentLength - first.count
             var url = first
+            var cells = (topStart..<topLine.contentLength).map { TerminalLinkSpan.Cell(row: top, column: topLine.startColumns[$0], width: topLine.widths[$0]) }
             // Index of the tapped character in the joined URL, or -1.
             var tapped = -1
             var hardWrapped = false
@@ -385,17 +432,25 @@ public enum TerminalUrl {
                 let offset = topLine.findStartOfColumn(column)
                 if offset >= topStart && offset < topLine.contentLength { tapped = offset - topStart }
             }
+            // A link broken inside itself fills each row up to the TUI's edge. A continuation row that stops short of
+            // where the first row ended is the link's end, whatever long word follows it.
+            let topFree = freeCells(top)
             var y = top
-            while y + 1 < grid.endRow && y - top < TerminalUrl.maxLinkRows && continues(y) {
-                let (next, range) = rowToken(y + 1, fromIndent: !wraps(y))
+            while y + 1 < grid.endRow && y - top < TerminalUrl.maxLinkRows && continues(y) && (y == top || freeCells(y) <= topFree + 1) {
+                var (next, range) = rowToken(y + 1, fromIndent: !wraps(y))
+                // Text glued after the link on its last row, such as "（abc）", is not part of it.
+                let cut = next.firstIndex { !TerminalUrl.isUrlCharacter($0) }
+                if let cut { next = Array(next[..<cut]); range = range.lowerBound..<(range.lowerBound + cut) }
                 if !wraps(y) { hardWrapped = true }
                 if y + 1 == row {
                     let offset = self.row(row).findStartOfColumn(column)
                     if range.contains(offset) { tapped = url.count + offset - range.lowerBound }
                 }
                 url += next
+                let nextLine = self.row(y + 1)
+                cells += range.map { TerminalLinkSpan.Cell(row: y + 1, column: nextLine.startColumns[$0], width: nextLine.widths[$0]) }
                 if url.count > TerminalUrl.maxLinkLength { return tapped >= 0 ? Match(url: nil) : nil }
-                if range.upperBound < self.row(y + 1).contentLength { break }
+                if cut != nil || range.upperBound < self.row(y + 1).contentLength { break }
                 y += 1
             }
             // Plain terminal soft wraps are read by the ordinary matcher.
@@ -403,7 +458,7 @@ public enum TerminalUrl {
             let end = TerminalUrl.trimEnd(url, start: 0, end: url.count)
             if tapped >= end { return nil } // Trailing punctuation such as a closing parenthesis.
             guard let valid = TerminalUrl.validatedUrl(String(url[0..<end])) else { return nil }
-            return Match(url: valid)
+            return Match(url: valid, cells: Array(cells.prefix(end)))
         }
     }
 }

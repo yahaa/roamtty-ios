@@ -51,7 +51,14 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
         terminalView.panGestureRecognizer.require(toFail: scroll)
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinchFont(_:)))
         terminalView.addGestureRecognizer(pinch)
-        ownRecognizers = [single, double, triple, touchObserver, swipe, scroll, pinch]
+        // The link under a finger is captured at touch down: output may move or replace its row before the tap.
+        let press = TerminalTouchTracker(began: { [weak self] point in
+            guard let self else { return }
+            self.linkPress.press(self.terminalView.selectionActive ? nil : self.link(at: point)?.spans ?? self.path(at: point)?.spans)
+        }, moved: { [weak self] in self?.linkPress.clear() }, ended: { [weak self] in self?.linkPress.lift() })
+        press.delegate = self
+        terminalView.addGestureRecognizer(press)
+        ownRecognizers = [single, double, triple, touchObserver, swipe, scroll, pinch, press]
     }
 
     // MARK: UIGestureRecognizerDelegate
@@ -74,6 +81,8 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
         // A recognizer on another view, such as iOS's leftover text recognizer, never holds up its taps.
         if gestureRecognizer is TerminalTapRecognizer && otherGestureRecognizer.view !== terminalView { return true }
+        // The press tracker only watches; it never holds up another gesture.
+        if gestureRecognizer is TerminalTouchTracker || otherGestureRecognizer is TerminalTouchTracker { return true }
         let isPan = gestureRecognizer === horizontalPan || gestureRecognizer === verticalPan
         return isPan && otherGestureRecognizer is UIPinchGestureRecognizer
     }
@@ -198,7 +207,14 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
 
     @objc private func cursorTap(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended else { return }
-        if let link = link(at: recognizer.location(in: terminalView)) { open(link); return }
+        let point = recognizer.location(in: terminalView)
+        if let link = link(at: point) { linkPress.confirm(); open(link.url); return }
+        if let path = path(at: point) { linkPress.confirm(); openPath(path, tappedAt: point); return }
+        linkPress.clear()
+        plainTap(at: point)
+    }
+    /// What a tap on anything but a link does: places the cursor, and shows or hides the keyboard.
+    private func plainTap(at point: CGPoint) {
         pendingCursorTap = nil
         guard phase == .connected else { return }
         (SwiftTermMenu() as SwiftTermEditMenu).hide()
@@ -208,11 +224,11 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
         if (terminalView as? AccessibleTerminalView)?.hostHidCursor == true && !terminalView.isFirstResponder {
             keyboardHide?.cancel(); _ = terminalView.becomeFirstResponder(); return
         }
-        let movedCursor = moveCursor(toTap: recognizer.location(in: terminalView))
+        let movedCursor = moveCursor(toTap: point)
         guard let row = cursorRowBounds else { return }
         // The user now decides about the keyboard: an earlier Enter's delayed hide must not undo it.
         keyboardHide?.cancel()
-        let y = recognizer.location(in: terminalView).y - terminalView.contentOffset.y
+        let y = point.y - terminalView.contentOffset.y
         // A tap into the input box, however far from the cursor, is typing there.
         if movedCursor || TerminalCursorControls.tapHitsCursor(y: y, rowTop: row.minY, rowHeight: row.height, viewportHeight: terminalView.bounds.height) { _ = terminalView.becomeFirstResponder() }
         // iPhone keyboards have no dismiss key and there is no Back button: a reading tap elsewhere puts it away.
@@ -253,23 +269,91 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
         _ = send(String(repeating: key, count: abs(count)))
     }
     @objc private func completionTap(_ recognizer: UITapGestureRecognizer) {
+        linkPress.clear()
         guard recognizer.state == .ended, phase == .connected else { return }
         clearModifiers()
         if send("\t") { wakeCursor(); petArrowTouches += 1 }
     }
     @objc private func pasteTap(_ recognizer: UITapGestureRecognizer) {
+        linkPress.clear()
         guard recognizer.state == .ended, phase == .connected else { return }
         clearModifiers(); paste()
     }
     /// The complete HTTP(S) URL under a tap, including soft and TUI hard wraps and scrolled history.
-    private func link(at point: CGPoint) -> String? {
+    private func link(at point: CGPoint) -> TerminalWebLink? {
         let cell = cellSize
         let x = point.x - terminalView.contentOffset.x, y = point.y - terminalView.contentOffset.y
         guard cell.width > 0, cell.height > 0, x >= 0, y >= 0 else { return nil }
-        return TerminalUrl.at(SwiftTermTextGrid(terminal: terminalView.getTerminal()), column: Int(x / cell.width), row: Int(y / cell.height))
+        return TerminalUrl.link(SwiftTermTextGrid(terminal: terminalView.getTerminal()), column: Int(x / cell.width), row: Int(y / cell.height))
+    }
+    /// A file path under a tap, as compilers, grep and coding agents print it. Paths on the live cursor's line are the
+    /// command being typed: a tap there moves the cursor as before.
+    private func path(at point: CGPoint) -> TerminalPathLink? {
+        let cell = cellSize
+        let x = point.x - terminalView.contentOffset.x, y = point.y - terminalView.contentOffset.y
+        guard phase == .connected, onOpenPath != nil, cell.width > 0, cell.height > 0, x >= 0, y >= 0 else { return nil }
+        let terminal = terminalView.getTerminal()
+        guard let path = TerminalPath.at(SwiftTermTextGrid(terminal: terminal), column: Int(x / cell.width), row: Int(y / cell.height)) else { return nil }
+        if writableViewport, (terminalView as? AccessibleTerminalView)?.hostHidCursor != true, path.covers(row: terminal.getCursorLocation().y) { return nil }
+        return path
+    }
+    /// Opens the first of a tapped path's candidates that names a file, at its line; when none does, the tap does what
+    /// a tap elsewhere does.
+    private func openPath(_ path: TerminalPathLink, tappedAt point: CGPoint) {
+        let token = generation
+        Task { [weak self] in
+            guard let self else { return }
+            let file = await self.terminalFile(path.candidates)
+            guard self.generation == token, self.phase == .connected else { return }
+            if let file, let open = self.onOpenPath { open(file.path, file.line) } else { self.plainTap(at: point) }
+        }
+    }
+    /// The first candidate that names a file on the host (not a folder), resolved from the shell's folder when it is
+    /// relative; nil when none does or the host takes longer than `pathLookupTimeout` to say.
+    func terminalFile(_ candidates: [TerminalPathCandidate]) async -> TerminalPathCandidate? {
+        // A task group would wait for a lookup stuck on the network; whichever answers first is taken instead.
+        final class Answer { var given = false }
+        let answer = Answer()
+        return await withCheckedContinuation { continuation in
+            Task { @MainActor in
+                let file = await self.lookUpTerminalFile(candidates)
+                if !answer.given { answer.given = true; continuation.resume(returning: file) }
+            }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(Self.pathLookupTimeout))
+                if !answer.given { answer.given = true; continuation.resume(returning: nil) }
+            }
+        }
+    }
+    /// Android waits 8 s. A tap on a path that names no file only places the cursor once this is up, so a slow host
+    /// would leave the tap without an answer that long; a first lookup that opens SFTP takes about a second.
+    static let pathLookupTimeout: Double = 3
+    private func lookUpTerminalFile(_ candidates: [TerminalPathCandidate]) async -> TerminalPathCandidate? {
+        guard let ssh = await sideConnection() else { return nil }
+        let cancellation = lifetimeCancellation
+        var directory: String?, home: String?
+        for candidate in candidates {
+            // Absolute and home paths need no round trip for the shell's folder.
+            var resolved = resolveTerminalPath(directory: nil, path: candidate.path)
+            // A home path is shown by its full path, so a Markdown file's relative images resolve from its folder.
+            if let relative = resolved, candidate.path.hasPrefix("~/") {
+                if home == nil { home = validWorkingDirectory((try? await ssh.run("printf '%s' \"$HOME\"", timeout: 5, cancellation: cancellation))?.text) ?? "" }
+                if let home, !home.isEmpty { resolved = joinRemotePath(directory: home, name: relative) }
+            }
+            if resolved == nil {
+                if directory == nil { directory = await workingDirectory() }
+                resolved = resolveTerminalPath(directory: directory, path: candidate.path)
+            }
+            guard let resolved, !Task.isCancelled else { continue }
+            if (try? await performInBackground({ try ssh.isDirectory(resolved, cancellation: cancellation) })) == false {
+                return TerminalPathCandidate(path: resolved, line: candidate.line)
+            }
+        }
+        return nil
     }
     /// iOS hands GitHub and other universal links to their app when it is installed, else to the browser.
     private func open(_ link: String) {
+        if let loopback = LoopbackUrl.parse(link), let open = onOpenLoopback { open(loopback); return }
         guard let url = terminalLinkTarget(link) else { return }
         UIApplication.shared.open(url) { [weak self] opened in
             if !opened { self?.message = "无法打开链接：\(link) / Cannot open link: \(link)" }
@@ -279,7 +363,7 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
     // MARK: Pinch
 
     @objc private func pinchFont(_ recognizer: UIPinchGestureRecognizer) {
-        if recognizer.state == .began { inputGestureHadPinch = true; scrollGeneration = nil; stopScrollInertia(); swipeGeneration = nil; swipeHold?.cancel(); swipeHold = nil }
+        if recognizer.state == .began { linkPress.clear(); inputGestureHadPinch = true; scrollGeneration = nil; stopScrollInertia(); swipeGeneration = nil; swipeHold?.cancel(); swipeHold = nil }
         if recognizer.state == .ended { onFontScaled?(Double(terminalView.font.pointSize.rounded())); return }
         guard recognizer.state == .changed else { return }
         let size = min(28, max(8, terminalView.font.pointSize * recognizer.scale))

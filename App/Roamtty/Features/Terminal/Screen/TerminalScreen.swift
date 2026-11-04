@@ -3,6 +3,7 @@ import RoamttyDesktopCore
 import UIKit
 import PhotosUI
 import RoamttyCore
+import RoamttyTransport
 
 /// Android `TerminalPane`: the terminal fills the page with no bars. Controls live in the toolbox ghost, its
 /// shortcut ring and the dock it opens; notices float on the upper golden section over the preserved grid.
@@ -15,6 +16,10 @@ struct TerminalScreen: View {
     @State private var keyboardVisible = false
     @State private var commandSheet = false
     @State private var fileAction: TerminalFileAction?
+    /// A file a tapped path names, shown in the preview at its line.
+    @State private var tappedFile: TappedTerminalFile?
+    /// A page on the server's loopback that a tapped link names.
+    @State private var portPreview: PortPreviewRequest?
     @State private var launchAfterFiles: AppSheet?
     @State private var photoPicker = false
     @State private var photos: [PhotosPickerItem] = []
@@ -105,6 +110,17 @@ struct TerminalScreen: View {
         .onAppear {
             toolbox.setPinned(model.settings.toolboxPinned, at: now)
             runtime.onFontScaled = { size in model.settings.fontSize = size; model.saveSettings() }
+            runtime.onOpenLoopback = { [weak runtime] url in
+                guard let runtime else { return }
+                _ = runtime.terminalView.resignFirstResponder()
+                portPreview = PortPreviewRequest(url: url, hostName: runtime.host.name) { [weak runtime] in
+                    guard let ssh = await runtime?.sideConnection() else { throw PortTunnelError.unavailable }
+                    return ssh
+                }
+            }
+            runtime.onOpenPath = { [weak runtime] path, line in
+                _ = runtime?.terminalView.resignFirstResponder(); tappedFile = TappedTerminalFile(path: path, line: line)
+            }
         }
         .onDisappear { toolbox.closeRing(); runtime.pendingPaste = nil; _ = runtime.terminalView.resignFirstResponder() }
         .onChange(of: runtime.workspaceTouches) { _ in if dockAvailable { toolbox.workspaceTouch(at: now) } }
@@ -156,6 +172,11 @@ struct TerminalScreen: View {
             guard !selected.isEmpty else { return }
             imageJobs += model.files.uploadImages(selected, runtime: runtime, model: model); photos = []
         }
+        .sheet(item: $tappedFile) { file in
+            FilePreviewScreen(host: runtime.host, entry: RemoteEntry(name: file.path.split(separator: "/").last.map(String.init) ?? file.path, path: file.path, isDirectory: false),
+                              connectionTarget: .session(runtime), line: file.line).environmentObject(model)
+        }
+        .fullScreenCover(item: $portPreview) { PortPreviewScreen(request: $0).environmentObject(model) }
         .sheet(isPresented: $reverifySheet) { FingerprintReview(host: runtime.host) { model.reconnect(runtime.record) }.environmentObject(model) }
     }
 
@@ -374,4 +395,11 @@ private struct TerminalPasteConfirmation: ViewModifier {
                 "The remote program has not enabled bracketed paste. Newlines may run commands immediately. Confirm that it can safely receive multiple lines."))
         }
     }
+}
+
+/// A file a path tapped in the terminal names, and the line it points at (0 for none).
+struct TappedTerminalFile: Identifiable {
+    let path: String
+    let line: Int
+    var id: String { "\(path):\(line)" }
 }

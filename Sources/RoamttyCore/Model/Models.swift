@@ -85,6 +85,54 @@ public struct Host: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
+/// Android's `requireValidHostAddress` (roamtty #277): an address typed into the host editor is a hostname, an IPv4
+/// address or an IPv6 literal (bracketed or not, with an optional zone), by its syntax alone: saving a host never needs
+/// DNS, a network or a server. Hosts saved before this check still load, so they can be repaired. Unlike Android it takes
+/// underscores inside a name label (`build_box`).
+public func isValidHostAddress(_ address: String) -> Bool {
+    if address.isEmpty || address.utf16.count > 253 { return false }
+    if address.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.union(.controlCharacters).contains($0) }) { return false }
+    if address.contains(":") { return isValidIPv6Literal(address) }
+    if address.contains("."), address.allSatisfy({ $0.isASCII && ($0.isNumber || $0 == ".") }) { return isValidIPv4(address) }
+    let name = address.hasSuffix(".") ? String(address.dropLast()) : address
+    guard !name.isEmpty else { return false }
+    return name.split(separator: ".", omittingEmptySubsequences: false).allSatisfy { label in
+        guard (1...63).contains(label.count), let first = label.first, let last = label.last, first.isLetter || first.isNumber, last.isLetter || last.isNumber else { return false }
+        // Underscores are not in RFC 1123 hostnames, yet internal DNS, container and VM names use them.
+        return label.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
+    }
+}
+
+private func isValidIPv4(_ address: String) -> Bool {
+    let parts = address.split(separator: ".", omittingEmptySubsequences: false)
+    return parts.count == 4 && parts.allSatisfy { part in
+        !part.isEmpty && part.allSatisfy { $0.isASCII && $0.isNumber } && (Int(part).map { (0...255).contains($0) } ?? false)
+    }
+}
+
+private func isValidIPv6Literal(_ address: String) -> Bool {
+    let literal = address.hasPrefix("[") && address.hasSuffix("]") ? String(address.dropFirst().dropLast()) : address
+    let scoped = literal.split(separator: "%", omittingEmptySubsequences: false)
+    if scoped.count > 2 { return false }
+    if scoped.count == 2 && (scoped[1].isEmpty || !scoped[1].allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "_.-".contains($0)) })) { return false }
+    let ip = String(scoped[0])
+    let doubles = ip.components(separatedBy: "::").count - 1
+    if ip.filter({ $0 == ":" }).count < 2 || ip.contains(":::") || doubles > 1 { return false }
+    if (ip.hasPrefix(":") && !ip.hasPrefix("::")) || (ip.hasSuffix(":") && !ip.hasSuffix("::")) { return false }
+    let groups = ip.split(separator: ":")
+    var units = 0
+    for (index, group) in groups.enumerated() {
+        if group.contains(".") {
+            guard index == groups.count - 1, ip.hasSuffix(group), isValidIPv4(String(group)) else { return false }
+            units += 2
+        } else {
+            guard (1...4).contains(group.count), group.allSatisfy(\.isHexDigit) else { return false }
+            units += 1
+        }
+    }
+    return doubles == 1 ? units < 8 : units == 8
+}
+
 public struct Credentials: Sendable {
     public var password: Data?
     public var privateKey: Data?
@@ -159,7 +207,7 @@ public struct InputQueue {
 public enum AppTheme: String, Codable, CaseIterable { case system, dark, light }
 public struct AppSettings: Codable, Equatable {
     public var theme: AppTheme = .dark
-    public var language = "zh-Hans"
+    public var language = AppSettings.defaultLanguage()
     public var font = "JetBrainsMono-Regular"
     public var fontSize = 13.0
     public var showHiddenFiles = false
@@ -184,6 +232,11 @@ public struct AppSettings: Codable, Equatable {
     public var agentNotifications = AgentNotifications.all
     public init() {}
 
+    /// A first launch follows the phone's language: Chinese for Chinese, English otherwise. A saved choice wins.
+    public static func defaultLanguage(preferred: [String] = Locale.preferredLanguages) -> String {
+        preferred.first?.lowercased().hasPrefix("zh") == true ? "zh-Hans" : "en"
+    }
+
     private enum CodingKeys: String, CodingKey {
         case theme, language, font, fontSize, showHiddenFiles, toolboxPinned, downloadBookmark
         case fileSort, fileSortDescending, codeWrap, codeFontSize
@@ -192,7 +245,7 @@ public struct AppSettings: Codable, Equatable {
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         theme = AppTheme(rawValue: try values.decodeIfPresent(String.self, forKey: .theme) ?? "") ?? .dark
-        language = try values.decodeIfPresent(String.self, forKey: .language) ?? "zh-Hans"
+        language = try values.decodeIfPresent(String.self, forKey: .language) ?? AppSettings.defaultLanguage()
         font = try values.decodeIfPresent(String.self, forKey: .font) ?? "JetBrainsMono-Regular"
         fontSize = try values.decodeIfPresent(Double.self, forKey: .fontSize) ?? 13
         showHiddenFiles = try values.decodeIfPresent(Bool.self, forKey: .showHiddenFiles) ?? false

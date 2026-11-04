@@ -39,4 +39,25 @@ final class ModelTests: XCTestCase {
         XCTAssertNil(queue.pop())
         XCTAssertFalse(queue.enqueue(Data(repeating: 1, count: 256 * 1024 + 1)))
     }
+
+    /// Android's TargetAddressTest: addresses typed into the editor are checked by their syntax alone.
+    func testRejectsMalformedHostnamesAndAddresses() {
+        for address in ["server..example", "server..", ".server", "-server.example", "server-.example", "server!", "_server", "server_", "host:22",
+                        "[server]", "[::1", "::1]", "1.2.3.999", "1.2.3", "1:2:3", "1::2::3", "fe80::1%",
+                        "192.0.2.1::", "1:192.0.2.1::", "ssh://server", "user@server", "server/path", "server name", ""] {
+            XCTAssertFalse(isValidHostAddress(address), address)
+        }
+    }
+
+    func testAcceptsOfflineNamesAndLiteralIpAddressesWithoutDns() {
+        for address in ["dev", "server.example", "EXAMPLE.COM.", "my-server.local", "bücher.example", "192.168.1.42",
+                        "build_box", "ci_runner.lan", "::1", "[::1]", "2001:db8::12", "fe80::1%wlan0", "[fe80::1%3]", "::ffff:192.0.2.1", "1:2:3:4:5:6:7:8"] {
+            XCTAssertTrue(isValidHostAddress(address), address)
+        }
+    }
+
+    /// Hosts saved before the check still load, so they can be opened and repaired.
+    func testLegacyMalformedSavedHostsStillValidate() throws {
+        XCTAssertEqual(try Host(name: "old", address: "server..example", username: "dev").validated().address, "server..example")
+    }
 }

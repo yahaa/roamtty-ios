@@ -3,6 +3,17 @@ import XCTest
 @testable import RoamttyCore
 
 final class RemoteFilesTests: XCTestCase {
+    /// Android's terminalPathsResolveFromTheShellDirectory.
+    func testTerminalPathsResolveFromTheShellDirectory() {
+        XCTAssertEqual(resolveTerminalPath(directory: "/home/v/blog", path: "src/Post.tsx"), "/home/v/blog/src/Post.tsx")
+        XCTAssertEqual(resolveTerminalPath(directory: "/home/v/blog/", path: "./a.ts"), "/home/v/blog/a.ts")
+        XCTAssertEqual(resolveTerminalPath(directory: "/", path: "a.ts"), "/a.ts")
+        XCTAssertEqual(resolveTerminalPath(directory: nil, path: "/etc/hosts.conf"), "/etc/hosts.conf")
+        XCTAssertEqual(resolveTerminalPath(directory: nil, path: "~/notes/a.md"), "notes/a.md")
+        XCTAssertNil(resolveTerminalPath(directory: nil, path: "src/a.ts"))
+        XCTAssertNil(resolveTerminalPath(directory: "relative", path: "src/a.ts"))
+        XCTAssertNil(resolveTerminalPath(directory: "/home/v", path: "~bob/a.ts"))
+    }
     func testPathsPreserveNamesAndRejectUnsafeDeleteTargets() {
         XCTAssertEqual(joinRemotePath(directory: "/work///", name: "a b"), "/work/a b")
         XCTAssertEqual(joinRemotePath(directory: "/", name: ""), "/")
