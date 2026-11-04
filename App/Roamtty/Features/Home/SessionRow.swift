@@ -36,16 +36,19 @@ struct SessionRow: View {
         let activity = agentActivity(status)
         let reply = replyPreview(status?.reply ?? "")
         let waiting = status?.state == .waiting, idle = status?.state == .idle
+        // An offline host's card keeps what it last showed, its marks faded, so it reads as a record rather than live.
+        let offline = model.hostOffline(record) && !phase.active
+        let fade = offline ? 0.55 : 1
         VStack(alignment: .leading, spacing: 0) {
             if divider { Rectangle().fill(Palette.foreground.opacity(0.07)).frame(height: 1).padding(.leading, 14) }
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 12) {
-                    SessionIcon(record: record, size: 40, state: status?.state)
+                    SessionIcon(record: record, size: 40, state: status?.state).opacity(fade)
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
-                            if let kind { AgentNameBadge(agent: kind) }
+                            if let kind { AgentNameBadge(agent: kind).opacity(fade) }
                             MarqueeTitle(text: name).accessibilityIdentifier("home-session-title-\(record.id)")
-                            if let host { HostChip(name: host.name, id: host.id, offline: model.hostOffline(record) && !phase.active).padding(.leading, 2)
+                            if let host { HostChip(name: host.name, id: host.id, offline: offline).padding(.leading, 2)
                                 .accessibilityIdentifier("home-session-host-\(record.id)") }
                         }
                         folderLine(path)
@@ -76,7 +79,8 @@ struct SessionRow: View {
                 }
                 HStack(spacing: 8) {
                     // A dropped or restored session the list is about to reconnect says so, not "已断开".
-                    statusView(status: live ? status : nil, phase: !phase.active && model.sessionComingBack(record) ? .connecting : phase, kind: kind, activity: activity, waiting: waiting, idle: idle)
+                    statusView(status: live ? status : nil, last: status, offline: offline, phase: !phase.active && model.sessionComingBack(record) ? .connecting : phase,
+                               kind: kind, activity: activity, waiting: waiting, idle: idle)
                     if let status, let runtime, live { elapsed(status, since: runtime.agentStatusAt).padding(.leading, -2) }
                     HStack(spacing: 6) {
                         Spacer(minLength: 0)
@@ -147,10 +151,11 @@ struct SessionRow: View {
         }.foregroundStyle(Palette.secondary.opacity(0.75))
     }
 
-    @ViewBuilder private func statusView(status: AgentStatus?, phase: ConnectionPhase, kind: CodingAgent?, activity: String, waiting: Bool, idle: Bool) -> some View {
+    @ViewBuilder private func statusView(status: AgentStatus?, last: AgentStatus?, offline: Bool, phase: ConnectionPhase, kind: CodingAgent?,
+                                         activity: String, waiting: Bool, idle: Bool) -> some View {
         Group {
             if status == nil {
-                SessionStatusLabel(phase: phase, hostOffline: model.hostOffline(record))
+                SessionStatusLabel(phase: phase, hostOffline: offline, last: last)
             } else if waiting {
                 DotLabel(label: model.text("等待确认", "Needs approval"), color: Palette.warning)
             } else if !idle {
