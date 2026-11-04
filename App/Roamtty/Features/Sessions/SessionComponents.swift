@@ -109,15 +109,34 @@ struct DotLabel: View {
     }
 }
 
-/// Connection state as a coloured dot plus text, so colour is never the only signal; `hostOffline` names the reason.
+/// Connection state as a coloured dot plus text, so colour is never the only signal. While the host is offline
+/// (`hostOffline`) a grey hollow dot and "离线", then what the agent was last seen doing (`last`).
 struct SessionStatusLabel: View {
     @EnvironmentObject var model: AppModel
     let phase: ConnectionPhase
     var hostOffline = false
+    var last: AgentStatus?
     var body: some View {
-        let tone = hostOffline ? Palette.danger : phase.tone
-        DotLabel(label: hostOffline ? model.text("主机离线", "Host offline") : model.phaseText(phase), color: tone,
-                 labelColor: phase == .connected && !hostOffline ? tone : Palette.secondary)
+        if hostOffline {
+            HStack(spacing: 6) {
+                Circle().strokeBorder(Palette.secondary, lineWidth: 1.5).frame(width: 8, height: 8)
+                Text(offlineText).font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.secondary).lineLimit(1).fixedSize()
+            }
+        } else {
+            DotLabel(label: model.phaseText(phase), color: phase.tone, labelColor: phase == .connected ? phase.tone : Palette.secondary)
+        }
+    }
+    /// "离线", or "离线 · 上次已完成" with what the agent last reported.
+    private var offlineText: String {
+        let was: (String, String)?
+        switch last?.state {
+        case nil: was = nil
+        case .waiting: was = ("待确认", "Needs you")
+        case .working: was = ("运行中", "Running")
+        case .idle: was = last?.workedSeconds != nil ? ("已完成", "Done") : ("空闲", "Idle")
+        }
+        guard let was else { return model.text("离线", "Offline") }
+        return model.text("离线 · 上次\(was.0)", "Offline · last: \(was.1)")
     }
 }
 

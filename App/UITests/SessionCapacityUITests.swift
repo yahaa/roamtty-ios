@@ -76,7 +76,7 @@ final class SessionCapacityUITests: RoamttyLiveUITestCase {
         let tmux = sessions[0]
         let name = try XCTUnwrap(remoteTmux)
         XCTAssertEqual(try homeSessionIDs(), eightIDs, "A detached tmux session keeps its card")
-        waitFor(NSPredicate(format: "label CONTAINS '已断开' OR label CONTAINS 'Disconnected' OR label CONTAINS '主机离线'"), element: status(tmux.cardID), timeout: 15)
+        waitFor(NSPredicate(format: "label CONTAINS '已断开' OR label CONTAINS 'Disconnected' OR label CONTAINS '离线' OR label CONTAINS 'Offline'"), element: status(tmux.cardID), timeout: 15)
         let card = app.descendants(matching: .any)[tmux.cardID].firstMatch
         card.press(forDuration: 1.0)
         let forget = app.buttons["home-session-forget-" + String(tmux.cardID.dropFirst("home-session-".count))]

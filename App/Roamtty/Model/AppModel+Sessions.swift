@@ -33,12 +33,13 @@ extension AppModel {
     }
     /// What the list shows of a session's agent: what it reports now (`live`), or, while the session comes back and
     /// before its host has answered, what it reported last, so opening the app or returning to it does not move every
-    /// card to "其它" and back. A session that failed to connect, or whose host is offline, shows nothing.
+    /// card to "其它" and back; and while its host is offline, so the card keeps its group and says what it was doing.
+    /// A session that failed to connect shows nothing.
     func listedAgentStatus(_ record: SessionRecord) -> (status: AgentStatus?, live: Bool) {
         guard record.mode == .tmux else { return (nil, false) }
         let runtime = runtimes[record.id]
         if let runtime, runtime.phase == .connected, runtime.agentPolled { return (runtime.agentStatus, true) }
-        guard sessionComingBack(record) else { return (nil, false) }
+        guard sessionComingBack(record) || hostOffline(record) else { return (nil, false) }
         return (AgentStatusMemory.value(record.id), false)
     }
     /// A session on its way back: connecting, or dropped (the app was in the background) or restored, which the list
