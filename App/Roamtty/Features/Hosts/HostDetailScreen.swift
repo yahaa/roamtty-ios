@@ -107,7 +107,7 @@ struct HostDetailScreen: View {
             } label: {
                 actionLabel(model.text("文件", "Files"), "ic_folder", icons)
             }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-files")
-            if model.desktopSupported(host) {
+            if model.desktopOnHostPage(host) {
                 Button { model.openDesktop(host) } label: { actionLabel(model.text("桌面", "Desktop"), "ic_desktop", icons) }
                     .buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-desktop")
             }

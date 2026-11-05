@@ -99,7 +99,7 @@ extension HostDetailScreen {
                 .accessibilityLabel(model.text("继续", "Continue")).accessibilityIdentifier("host-detail-continue")
             Button { model.path.append(.files(hostID)) } label: { pill(titled ? model.text("文件", "Files") : nil, "ic_folder") }
                 .accessibilityLabel(model.text("文件", "Files")).accessibilityIdentifier("host-detail-files")
-            if model.desktopSupported(host) {
+            if model.desktopOnHostPage(host) {
                 Button { model.openDesktop(host) } label: { pill(titled ? model.text("桌面", "Desktop") : nil, "ic_desktop") }
                     .accessibilityLabel(model.text("桌面", "Desktop")).accessibilityIdentifier("host-detail-desktop")
             }
