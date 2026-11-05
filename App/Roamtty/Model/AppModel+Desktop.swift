@@ -27,6 +27,12 @@ extension AppModel {
         return (try? PluginManifest.bundled()).map { DesktopSupport.osSupported(host.system, manifest: $0) } ?? false
     }
 
+    /// Whether the host page offers 桌面 (Android `ItermuxScreen`): a supported OS whose probe has not
+    /// found it without a graphical desktop. A host never probed keeps the button; opening it checks.
+    func desktopOnHostPage(_ host: Host) -> Bool {
+        desktopSupported(host) && DesktopProbe.decode(host.desktop) != .no
+    }
+
     /// Opens the host's desktop page, starting the connection if needed.
     func openDesktop(_ host: Host) { Task { await openDesktopAsync(host) } }
 
