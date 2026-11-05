@@ -95,8 +95,6 @@ extension HostDetailScreen {
             Button { model.sheet = .launch(host, true) } label: { pill("Agent", "ic_agent", filled: true) }.accessibilityIdentifier("host-detail-agent")
             Button { model.sheet = .launch(host, false) } label: { pill(titled ? model.text("终端", "Terminal") : nil, "ic_sessions") }
                 .accessibilityLabel(model.text("终端", "Terminal")).accessibilityIdentifier("host-detail-terminal")
-            Button { model.sheet = .continueSession(host) } label: { pill(titled ? model.text("继续", "Continue") : nil, "ic_history") }
-                .accessibilityLabel(model.text("继续", "Continue")).accessibilityIdentifier("host-detail-continue")
             Button { model.path.append(.files(hostID)) } label: { pill(titled ? model.text("文件", "Files") : nil, "ic_folder") }
                 .accessibilityLabel(model.text("文件", "Files")).accessibilityIdentifier("host-detail-files")
             if model.desktopSupported(host) {

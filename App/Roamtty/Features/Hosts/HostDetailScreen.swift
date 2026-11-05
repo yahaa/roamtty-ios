@@ -37,7 +37,7 @@ struct HostDetailScreen: View {
                         ReachabilityLabel(state: model.reachability[hostID] ?? .checking)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
-                // Five buttons on a narrow phone: the icons step aside before a label would be cut short.
+                // A full row on a narrow phone: the icons step aside before a label would be cut short.
                 ViewThatFits(in: .horizontal) {
                     actions(host, icons: true)
                     actions(host, icons: false)
@@ -97,11 +97,6 @@ struct HostDetailScreen: View {
             } label: {
                 actionLabel(model.text("终端", "Terminal"), "ic_sessions", icons)
             }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-terminal")
-            Button {
-                model.sheet = .continueSession(host)
-            } label: {
-                actionLabel(model.text("继续", "Continue"), "ic_history", icons)
-            }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("host-detail-continue")
             Button {
                 model.path.append(.files(hostID))
             } label: {
