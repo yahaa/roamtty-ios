@@ -54,6 +54,62 @@ final class TerminalGestureUITests: RoamttyLiveUITestCase {
         closeTerminal()
     }
 
+    /// A swipe keeps reaching a full-screen agent that tracks the mouse once a line was typed and sent, as Codex draws:
+    /// on the alternate screen, with any-event tracking, redrawing its status all the time.
+    func testVerticalSwipeReachesAgentAfterTypingALine() throws { try swipeReachesAgentAfterTyping(mosh: false) }
+    /// mosh resizes with the keyboard and resends its modes each time, so this is the case phones see most.
+    func testMoshVerticalSwipeReachesAgentAfterTypingALine() throws { try swipeReachesAgentAfterTyping(mosh: true) }
+    /// Chinese and Japanese keyboards add a phrase-boundary recognizer inside the terminal, which is how phones type here.
+    func testVerticalSwipeReachesAgentAfterPinyinInput() throws {
+        app.terminate()
+        app.launchArguments += ["-AppleKeyboards", "(\"zh_Hans-Pinyin@sw=Pinyin;hw=Automatic\")", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+        try swipeReachesAgentAfterTyping(mosh: false, sent: "你") { surface in
+            // Pinyin stays marked text until the space bar picks the first candidate. Real key taps: typeText skips the input method.
+            for key in ["n", "i", "h", "a", "o"] {
+                let tapped = self.app.keys[key]
+                XCTAssertTrue(tapped.waitForExistence(timeout: 5), "No key \(key); keys: \(self.app.keys.allElementsBoundByIndex.map(\.label))")
+                tapped.tap()
+            }
+            let space = self.app.keys.matching(NSPredicate(format: "label IN {' ', '空格', '选定', '确认', 'space', 'Space', 'confirm'}")).firstMatch
+            XCTAssertTrue(space.waitForExistence(timeout: 5), "No space key; keys: \(self.app.keys.allElementsBoundByIndex.map(\.label))")
+            space.tap()
+            surface.typeText("\n")
+        }
+    }
+    private func swipeReachesAgentAfterTyping(mosh: Bool, line: String = "hello", sent: String = "hello", type: ((XCUIElement) -> Void)? = nil) throws {
+        let surface = try openTerminal(preferMosh: mosh)
+        try runCommand(fakeMouseAgent())
+        waitForOutput("AGENT_READY", surface: surface)
+        let upper = surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+        let lower = surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        func wheelCount() -> Int {
+            let value = (surface.value as? String ?? "").replacingOccurrences(of: "\n", with: "")
+            return value.components(separatedBy: "WHEEL=").dropFirst().compactMap { Int($0.prefix(5)) }.last ?? -1
+        }
+        func swipeReachesAgent(_ moment: String) {
+            let before = wheelCount()
+            upper.press(forDuration: 0.05, thenDragTo: lower, withVelocity: 300, thenHoldForDuration: 0.2)
+            let moved = NSPredicate { _, _ in wheelCount() > before }
+            let expectation = XCTNSPredicateExpectation(predicate: moved, object: surface)
+            expectation.expectationDescription = "A swipe reached the agent \(moment)"
+            if XCTWaiter.wait(for: [expectation], timeout: 5) == .completed { return }
+            saveFailureScreenshot("swipe-\(moment)")
+            XCTFail("A swipe \(moment) sent the agent no wheel events (still \(before))")
+        }
+        swipeReachesAgent("before-typing")
+        let row = app.buttons.matching(NSPredicate(format: "identifier IN {'cursor-escape', 'cursor-enter'}")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 6))
+        surface.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: surface.frame.width * 0.3, dy: row.frame.midY - surface.frame.minY)).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        if let type { type(surface) } else { surface.typeText(line + "\n") }
+        waitForOutput("SENT=" + sent, surface: surface)
+        swipeReachesAgent("with-keyboard-up")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 20))
+        swipeReachesAgent("after-keyboard-hid")
+        capture("Swipe reached the agent after typing a line")
+    }
+
     /// As on Android, a quick flick keeps scrolling after the finger lifts; a drag that stops first does not.
     func testTmuxFlickKeepsScrollingAfterRelease() throws {
         let surface = try openTerminal()
@@ -337,6 +393,34 @@ final class TerminalGestureUITests: RoamttyLiveUITestCase {
                         sticky = None; idx = max(0, min(len(lines[line]), idx + (1 if key == b'C' else -1)))
                 draw()
         finally:
+            termios.tcsetattr(0, termios.TCSADRAIN, saved)
+        """
+        return "python3 -u -c \"import base64; exec(base64.b64decode('\(Data(source.utf8).base64EncodedString())'))\""
+    }
+
+    /// A stand-in for Codex's interface: alternate screen, any-event SGR mouse tracking, a status redrawn ten times a
+    /// second, and a count of the wheel events and the last line it was sent.
+    private func fakeMouseAgent() -> String {
+        let source = """
+        import os, re, select, termios, tty
+        saved = termios.tcgetattr(0)
+        wheel, line, sent, pending, frame = 0, '', '', b'', 0
+        try:
+            tty.setraw(0)
+            os.write(1, b'\\x1b[?1049h\\x1b[?1003h\\x1b[?1006h\\x1b[2J\\x1b[1;1HAGENT_READY')
+            while line != 'quit':
+                if select.select([0], [], [], 0.1)[0]:
+                    pending += os.read(0, 4096)
+                    wheel += len(re.findall(rb'\\x1b\\[<6[45];\\d+;\\d+M', pending))
+                    typed = re.sub(rb'\\x1b\\[<\\d+;\\d+;\\d+[Mm]', b'', pending).decode(errors='ignore')
+                    pending = b''
+                    for character in typed:
+                        if character in '\\r\\n': sent, line = line, ''
+                        else: line += character
+                frame += 1
+                os.write(1, ('\\x1b[3;1HWHEEL=%05d\\x1b[K\\x1b[5;1HSENT=%s\\x1b[K\\x1b[7;1HWorking %d\\x1b[K\\x1b[12;1H> %s\\x1b[K' % (wheel, sent, frame, line)).encode())
+        finally:
+            os.write(1, b'\\x1b[?1006l\\x1b[?1003l\\x1b[?1049l')
             termios.tcsetattr(0, termios.TCSADRAIN, saved)
         """
         return "python3 -u -c \"import base64; exec(base64.b64decode('\(Data(source.utf8).base64EncodedString())'))\""

@@ -126,7 +126,8 @@ import RoamttyTransport
     var swipeHoldPosition: CGPoint?
     var scrollGeneration: UUID?
     var scrollAccumulator = TerminalScrollAccumulator()
-    var sendingScrollEvent = false
+    /// Gathers the wheel events of one scroll step from the delegate, so they go out as one write.
+    var scrollEventBytes: Data?
     /// Carries a vertical swipe on after the finger lifts (Android's fling); any new touch stops it.
     var fling: ScrollFling?
     var flingLink: CADisplayLink?

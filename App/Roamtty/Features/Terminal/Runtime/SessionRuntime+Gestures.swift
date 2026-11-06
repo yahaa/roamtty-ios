@@ -121,23 +121,27 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
         let rows = scrollAccumulator.rowsDown(translationY: recognizer.translation(in: terminalView).y, rowHeight: cellSize.height)
         scrollRemotely(rows: rows, disposition: disposition, at: recognizer.location(in: terminalView))
     }
-    /// Scrolls the host's screen: arrow keys for a full-screen app without mouse support, else mouse wheel events.
+    /// Scrolls the host's screen: arrow keys for a full-screen app without mouse support, else mouse wheel events. A
+    /// lost scroll is not lost input and the next frame of the swipe tries again, so it raises no notice.
     private func scrollRemotely(rows: Int, disposition: TerminalScrollDisposition, at position: CGPoint) {
         guard rows != 0 else { return }
         let terminal = terminalView.getTerminal()
         if disposition == .arrows {
             let key = TerminalKeys.arrow(rows < 0 ? "A" : "B", applicationCursor: terminal.applicationCursor, control: false, shift: false)
-            _ = send(String(repeating: key, count: abs(rows)))
+            send(Data(String(repeating: key, count: abs(rows)).utf8), reportFailure: false)
         } else {
             let cell = cellSize
             let point = TerminalScrolling.mousePoint(CGPoint(x: position.x - terminalView.contentOffset.x, y: position.y - terminalView.contentOffset.y),
                 cell: cell, columns: terminal.cols, rows: terminal.rows)
             let flags = terminal.encodeButton(button: TerminalScrolling.mouseButton(rowsDown: rows), release: false, shift: false, meta: false, control: false)
-            sendingScrollEvent = true
-            defer { sendingScrollEvent = false }
+            // One write however many rows: mosh allows 64 writes until the server acknowledges them, and a fast swipe
+            // used to spend a write per row, losing the rest of the swipe and whatever was typed next.
+            scrollEventBytes = Data()
             for _ in 0..<abs(rows) {
                 terminal.sendEvent(buttonFlags: flags, x: point.column, y: point.row, pixelX: point.pixelX, pixelY: point.pixelY)
             }
+            if let bytes = scrollEventBytes { send(bytes, reportFailure: false) }
+            scrollEventBytes = nil
         }
     }
     /// A finger moving up scrolls down, so the fling runs against the touch velocity.
