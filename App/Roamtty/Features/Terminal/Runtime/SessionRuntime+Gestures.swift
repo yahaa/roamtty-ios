@@ -41,15 +41,15 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
             self?.workspaceTouches += 1; self?.inputGestureHadPinch = false; self?.stopScrollInertia()
         }
         terminalView.addGestureRecognizer(touchObserver)
-        let swipe = UIPanGestureRecognizer(target: self, action: #selector(horizontalSwipe(_:)))
+        let swipe = TerminalPanRecognizer(target: self, action: #selector(horizontalSwipe(_:)))
         swipe.minimumNumberOfTouches = 1; swipe.maximumNumberOfTouches = 1; swipe.delegate = self
         horizontalPan = swipe; terminalView.addGestureRecognizer(swipe)
         terminalView.panGestureRecognizer.require(toFail: swipe)
-        let scroll = UIPanGestureRecognizer(target: self, action: #selector(verticalScroll(_:)))
+        let scroll = TerminalPanRecognizer(target: self, action: #selector(verticalScroll(_:)))
         scroll.minimumNumberOfTouches = 1; scroll.maximumNumberOfTouches = 1; scroll.delegate = self
         verticalPan = scroll; terminalView.addGestureRecognizer(scroll)
         terminalView.panGestureRecognizer.require(toFail: scroll)
-        let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinchFont(_:)))
+        let pinch = TerminalPinchRecognizer(target: self, action: #selector(pinchFont(_:)))
         terminalView.addGestureRecognizer(pinch)
         // The link under a finger is captured at touch down: output may move or replace its row before the tap.
         let press = TerminalTouchTracker(began: { [weak self] point in

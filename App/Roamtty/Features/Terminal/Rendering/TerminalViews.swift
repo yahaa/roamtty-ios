@@ -82,6 +82,12 @@ struct NativeTerminal: UIViewRepresentable {
     /// When the host's synchronized frame began, while one is open.
     private var frameBegan: TimeInterval?
     override func selectionChanged(source: Terminal) { super.selectionChanged(source: source); viewportChanged?() }
+    /// The scroll view's own pan moves local history and cannot be subclassed. It answers as its own delegate, so the
+    /// recognizer `TerminalTapRecognizer` describes is let run beside it here.
+    @objc(gestureRecognizer:shouldRecognizeSimultaneouslyWithGestureRecognizer:)
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        gestureRecognizer === panGestureRecognizer && other.view !== self && !(other is UIPanGestureRecognizer)
+    }
     /// The host hid the cursor (DECTCEM), as Claude Code's and Codex's panels do; it is then parked anywhere.
     private(set) var hostHidCursor = false
     override func showCursor(source: Terminal) { hostHidCursor = false; super.showCursor(source: source) }
@@ -138,10 +144,19 @@ enum TerminalCensus {
     static func change(_ delta: Int) { lock.lock(); count += delta; lock.unlock() }
 }
 
-/// The terminal's own taps. Once the keyboard has been up, iOS 26 leaves a text recognizer
-/// (UIPhraseBoundaryGestureRecognizer) on a view it adds inside the terminal, and it wins every later tap, so
-/// a tap could no longer bring the keyboard back: only recognizers on the terminal view itself may prevent these.
+/// The terminal's own taps. Once a line has been typed, iOS 26 and later leave a text recognizer
+/// (UIPhraseBoundaryGestureRecognizer) on a view it adds inside the terminal, seen on phones and not on the simulator.
+/// It begins on every later touch and wins it, keyboard up or not, until the terminal leaves the screen: a tap could
+/// no longer bring the keyboard back. Only recognizers on the terminal view itself may prevent these.
 @MainActor final class TerminalTapRecognizer: UITapGestureRecognizer {
+    override func canBePrevented(by preventing: UIGestureRecognizer) -> Bool { preventing.view === view }
+}
+/// The terminal's swipes, safe from the same recognizer: it left a terminal that could not be scrolled after typing.
+@MainActor final class TerminalPanRecognizer: UIPanGestureRecognizer {
+    override func canBePrevented(by preventing: UIGestureRecognizer) -> Bool { preventing.view === view }
+}
+/// The terminal's pinch, safe from the same recognizer.
+@MainActor final class TerminalPinchRecognizer: UIPinchGestureRecognizer {
     override func canBePrevented(by preventing: UIGestureRecognizer) -> Bool { preventing.view === view }
 }
 
