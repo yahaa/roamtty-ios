@@ -16,7 +16,7 @@ extension SessionRuntime: @preconcurrency TerminalViewDelegate {
     /// Typed keys, a native paste being gathered, and the wheel events of a remote scroll.
     func send(source: TerminalView, data: ArraySlice<UInt8>) {
         if capturedPaste != nil { capturedPaste?.append(data); return }
-        if sendingScrollEvent { _ = send(Data(data)); return }
+        if scrollEventBytes != nil { scrollEventBytes?.append(contentsOf: data); return }
         var bytes = Data(data)
         if shiftArmed, let string = String(data: bytes, encoding: .utf8) { bytes = Data(string.uppercased().utf8); shiftArmed = false }
         if send(bytes) { userTyped(bytes) }

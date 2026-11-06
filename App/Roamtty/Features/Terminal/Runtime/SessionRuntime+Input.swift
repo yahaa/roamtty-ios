@@ -8,10 +8,10 @@ extension SessionRuntime {
     // MARK: Sending
 
     @discardableResult func send(_ string: String) -> Bool { send(Data(string.utf8)) }
-    @discardableResult func send(_ data: Data) -> Bool {
+    @discardableResult func send(_ data: Data, reportFailure: Bool = true) -> Bool {
         guard phase == .connected else { return false }
         let sent = mosh?.write(data) ?? ssh?.write(data) ?? false
-        if !sent { message = "输入未发送 / Input was not sent" }
+        if !sent && reportFailure { message = "输入未发送 / Input was not sent" }
         return sent
     }
     /// The Up/Down/Left keys around the toolbox pet.
