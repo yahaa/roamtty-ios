@@ -9,10 +9,28 @@ extension SessionRuntime {
 
     @discardableResult func send(_ string: String) -> Bool { send(Data(string.utf8)) }
     @discardableResult func send(_ data: Data, reportFailure: Bool = true) -> Bool {
+        keyboardDeleteHold.reset()
+        return write(data, reportFailure: reportFailure)
+    }
+    private func write(_ data: Data, reportFailure: Bool = true) -> Bool {
         guard phase == .connected else { return false }
         let sent = mosh?.write(data) ?? ssh?.write(data) ?? false
         if !sent && reportFailure { message = "输入未发送 / Input was not sent" }
         return sent
+    }
+    /// A delete from the keyboard: holding the key clears the line once (`TerminalDeleteHold`).
+    func sendKeyboardDelete(_ bytes: Data) {
+        switch keyboardDeleteHold.onDelete(at: ProcessInfo.processInfo.systemUptime) {
+        case .delete:
+            if write(bytes) { userTyped(bytes) }
+            if controlArmed { clearModifiers() }
+        case .clear:
+            clearModifiers(); terminalView.scrollToLiveOutput()
+            if write(TerminalDeleteHold.clearLine) { userTyped(TerminalDeleteHold.clearLine) }
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        case .ignore:
+            userTyped(bytes)
+        }
     }
     /// The Up/Down/Left keys around the toolbox pet.
     func sendPetArrow(_ final: String) {

@@ -26,6 +26,38 @@ struct NativeTerminal: UIViewRepresentable {
         super.paste(sender)
         pasteFinished?()
     }
+    /// True while `keepKeyboardDeleteRepeating` writes to SwiftTerm's input buffer: what that sends must not reach the host.
+    private(set) var placingKeyboardPlaceholder = false
+    private var keyboardPlaceholderQueued = false
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        keepKeyboardDeleteRepeating()
+        return accepted
+    }
+    /// The system keyboard stops repeating a held delete once it sees no text before the cursor, and only what was
+    /// typed since the last Enter is in SwiftTerm's input buffer: a held delete on a pasted, recalled or empty line
+    /// sent one delete. So, as on Android (`IME_REMOTE_PLACEHOLDER`), spaces stand in for the remote line. They go
+    /// before anything typed, and deleting one sends a delete as any other does.
+    func keepKeyboardDeleteRepeating() {
+        guard isFirstResponder, markedTextRange == nil,
+              offset(from: beginningOfDocument, to: endOfDocument) < Self.keyboardPlaceholderMinimum,
+              let start = textRange(from: beginningOfDocument, to: beginningOfDocument) else { return }
+        placingKeyboardPlaceholder = true
+        replace(start, withText: String(repeating: " ", count: Self.keyboardPlaceholderLength))
+        placingKeyboardPlaceholder = false
+    }
+    /// For a caller inside SwiftTerm's own edit, which sets the selection after sending: runs once it has finished.
+    func queueKeepKeyboardDeleteRepeating() {
+        guard !keyboardPlaceholderQueued else { return }
+        keyboardPlaceholderQueued = true
+        DispatchQueue.main.async { [weak self] in
+            self?.keyboardPlaceholderQueued = false
+            self?.keepKeyboardDeleteRepeating()
+        }
+    }
+    private static let keyboardPlaceholderLength = 64
+    /// Refilled below this: a repeat takes about 100 ms, so the refill always comes before the buffer runs out.
+    private static let keyboardPlaceholderMinimum = 16
     override var contentOffset: CGPoint { didSet { viewportChanged?() } }
     override func layoutSubviews() {
         super.layoutSubviews()
