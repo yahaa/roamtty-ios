@@ -26,6 +26,41 @@ final class TerminalSettingsUITests: RoamttyLiveUITestCase {
         waitFor(NSPredicate(format: "exists == false"), element: app.descendants(matching: .any)[identifier].firstMatch, timeout: 15)
     }
 
+    /// With the keyboard up, an item that put it away laid the page out inside the menu's action, which took the dock
+    /// and the menu's button out of the window. UIKit then asked that button for its dismissal preview and aborted.
+    func testMenuItemsChosenWithTheKeyboardUpDoNotCrash() throws {
+        let surface = try openTerminal(mode: "SSH")
+        func openMenu(_ menu: String) {
+            let escape = app.buttons["cursor-escape"]
+            XCTAssertTrue(escape.waitForExistence(timeout: 6))
+            surface.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: surface.frame.width * 0.3, dy: escape.frame.midY - surface.frame.minY)).tap()
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+            let ghost = app.buttons["terminal-ghost"]
+            XCTAssertTrue(ghost.waitForExistence(timeout: 3)); ghost.tap()
+            XCTAssertTrue(app.keyboards.firstMatch.exists, "The keyboard must still be up when the menu opens")
+            let button = app.buttons[menu]
+            XCTAssertTrue(button.waitForExistence(timeout: 3)); button.tap()
+        }
+        let hide = NSPredicate(format: "label == '收起' OR label == 'Hide'")
+
+        openMenu("terminal-menu")
+        let edit = app.buttons["menu-edit-text"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 3)); edit.tap()
+        XCTAssertTrue(app.textViews["prompt-editor"].waitForExistence(timeout: 5), "Edit text opens the editor")
+        app.buttons.matching(hide).firstMatch.tap()
+
+        openMenu("terminal-menu")
+        let hideTools = app.buttons.matching(NSPredicate(format: "label == '隐藏操作栏' OR label == 'Hide toolbar'")).firstMatch
+        XCTAssertTrue(hideTools.waitForExistence(timeout: 3)); hideTools.tap()
+        XCTAssertTrue(app.buttons["common-commands"].waitForNonExistence(timeout: 5), "Hide toolbar hides the dock")
+        XCTAssertEqual(app.state, .runningForeground)
+
+        openMenu("session-switcher")
+        let close = app.buttons["close-session"]
+        XCTAssertTrue(close.waitForExistence(timeout: 3)); close.tap()
+        XCTAssertTrue(app.buttons["add-session"].waitForExistence(timeout: 10), "Closing returns to the session list")
+    }
+
     func testPinnedToolsReserveWidthAndFunctionShortcutsReachRemote() throws {
         defer { XCUIDevice.shared.orientation = .portrait }
         let surface = try openTerminal()

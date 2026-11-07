@@ -328,10 +328,10 @@ struct TerminalScreen: View {
     private var openSessions: [SessionRecord] { model.records.filter { model.runtimes[$0.id] != nil } }
     private var sessionMenu: some View {
         Menu {
-            Button(model.text("返回主机详情", "Back to host details")) { model.path = model.host(runtime.host.id) == nil ? [] : [.host(runtime.host.id)] }
+            Button(model.text("返回主机详情", "Back to host details")) { afterMenuSelection { model.path = model.host(runtime.host.id) == nil ? [] : [.host(runtime.host.id)] } }
             // Closing ends the session on the server, without asking, and returns to the session list.
             Button(runtime.record.external ? model.text("断开当前会话", "Detach session") : model.text("关闭当前会话", "Close session")) {
-                model.closeSession(runtime.record)
+                afterMenuSelection { model.closeSession(runtime.record) }
             }.accessibilityIdentifier("close-session")
             // A tmux pane restarts over the live connection; a plain shell restarts by reconnecting.
             Button(model.text("重启当前会话", "Restart session")) { restartConfirm = true }
@@ -340,7 +340,7 @@ struct TerminalScreen: View {
             ForEach(openSessions) { other in
                 let phase = model.runtimes[other.id]?.phase ?? .disconnected
                 Button((other.id == runtime.record.id ? "✓ " : "") + model.sessionTitle(other) + " · " + model.phaseText(phase)) {
-                    if other.id != runtime.record.id { model.openSession(other) }
+                    if other.id != runtime.record.id { afterMenuSelection { model.openSession(other) } }
                 }
             }
         } label: {
@@ -351,19 +351,25 @@ struct TerminalScreen: View {
         }.onTapGesture { _ = runtime.terminalView.resignFirstResponder(); toolbox.touchDock(at: now) }
             .accessibilityLabel(model.text("切换会话：", "Switch session: ") + model.sessionTitle(runtime.record)).accessibilityIdentifier("session-switcher")
     }
+    /// For a menu item that can take the dock off the screen. UIKit asks the menu's button for its dismissal preview
+    /// as soon as the item's action returns, and aborts if the button has left the window. SwiftUI normally removes it
+    /// later, but putting the keyboard away lays the page out on the spot, so such work waits for the next turn.
+    private func afterMenuSelection(_ action: @escaping () -> Void) { DispatchQueue.main.async(execute: action) }
     private var settingsMenu: some View {
         let size = Int(model.settings.fontSize.rounded())
         return Menu {
-            Button(model.text("编辑文本", "Edit text")) { editor = true; _ = runtime.terminalView.resignFirstResponder() }.accessibilityIdentifier("menu-edit-text")
+            Button(model.text("编辑文本", "Edit text")) { afterMenuSelection { editor = true; _ = runtime.terminalView.resignFirstResponder() } }.accessibilityIdentifier("menu-edit-text")
             Button(toolbox.pinned ? model.text("取消固定操作栏", "Unpin toolbar") : model.text("固定操作栏", "Pin toolbar")) {
                 let pinned = !toolbox.pinned; toolbox.setPinned(pinned, at: now); if !pinned { toolbox.openDock(at: now) }
                 model.settings.toolboxPinned = pinned; model.saveSettings()
             }.accessibilityIdentifier("terminal-pin-tools")
             Button(model.text("隐藏操作栏", "Hide toolbar")) {
-                toolbox.collapseDock(at: now); editor = false; _ = runtime.terminalView.resignFirstResponder()
-                model.settings.toolboxPinned = false; model.saveSettings()
+                afterMenuSelection {
+                    toolbox.collapseDock(at: now); editor = false; _ = runtime.terminalView.resignFirstResponder()
+                    model.settings.toolboxPinned = false; model.saveSettings()
+                }
             }
-            Button(model.text("粘贴", "Paste")) { pasteIntoEditor(); collapseIfFloating() }.accessibilityIdentifier("menu-paste")
+            Button(model.text("粘贴", "Paste")) { afterMenuSelection { pasteIntoEditor(); collapseIfFloating() } }.accessibilityIdentifier("menu-paste")
             Divider()
             Button(model.text("增大字号 · \(size) pt", "Larger text · \(size) pt")) { setFontSize(model.settings.fontSize + 1) }
             Button(model.text("减小字号 · \(size) pt", "Smaller text · \(size) pt")) { setFontSize(model.settings.fontSize - 1) }
