@@ -107,6 +107,7 @@ import RoamttyTransport
     var cursorRefreshQueued = false
     /// A native paste being gathered from the delegate's output.
     var capturedPaste: TerminalPasteCapture?
+    var keyboardDeleteHold = TerminalDeleteHold()
 
     // MARK: Gestures (SessionRuntime+Gestures)
 

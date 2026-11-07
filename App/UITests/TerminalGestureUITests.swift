@@ -315,6 +315,41 @@ final class TerminalGestureUITests: RoamttyLiveUITestCase {
         closePlainTerminal()
     }
 
+    /// The lines here come through the prompt editor, so SwiftTerm's input buffer holds none of them, as after a paste:
+    /// the keyboard must still repeat a held delete, and the host's line editor shows what each press did.
+    func testHoldingKeyboardDeleteClearsARemoteLineAndATapDeletesOneCharacter() throws {
+        let surface = try openTerminal(mode: "SSH")
+        func stage(_ line: String) {
+            typeIntoTerminal(line)
+            app.buttons.matching(NSPredicate(format: "label == '收起' OR label == 'Hide'")).firstMatch.tap()
+            let escape = app.buttons["cursor-escape"]
+            XCTAssertTrue(escape.waitForExistence(timeout: 6))
+            surface.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: surface.frame.width * 0.3, dy: escape.frame.midY - surface.frame.minY)).tap()
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        }
+        let delete = app.keyboards.firstMatch.keys.matching(NSPredicate(format: "label IN {'delete', '删除', 'Delete'}")).firstMatch
+
+        // Left in place, this prefix stops the command after it from printing anything.
+        stage("false && ")
+        XCTAssertTrue(delete.waitForExistence(timeout: 3))
+        delete.press(forDuration: 2.5)
+        surface.typeText("echo HOLD_$((40+2))\n")
+        waitForOutput("HOLD_42", surface: surface)
+        XCTAssertTrue(app.keyboards.firstMatch.exists, "Clearing must leave the keyboard up")
+
+        // The trailing backslash keeps the line open until one tap removes it, and only it.
+        stage("echo TAP_$((40+2)) \\")
+        delete.tap()
+        surface.typeText("\n")
+        waitForOutput("TAP_42", surface: surface)
+
+        // A press too short to be a hold only deletes: the rest of the line still runs.
+        stage("echo SHORT_$((40+2)) \\")
+        delete.press(forDuration: 0.3)
+        surface.typeText("\n")
+        waitForOutput("SHORT_42", surface: surface)
+    }
+
     private func terminalColumns(_ surface: XCUIElement) throws -> Int {
         let token = String(UUID().uuidString.prefix(6))
         try runCommand("set -- $(stty size); printf 'PTY_'; printf '\(token)_%s_%s\\n' \"$1\" \"$2\"")

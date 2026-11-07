@@ -1,5 +1,6 @@
 import UIKit
 import SwiftTerm
+import RoamttyCore
 
 /// SwiftTerm's callbacks: size, title and folder changes, the bytes the view wants sent, links and the bell.
 extension SessionRuntime: @preconcurrency TerminalViewDelegate {
@@ -15,9 +16,14 @@ extension SessionRuntime: @preconcurrency TerminalViewDelegate {
     }
     /// Typed keys, a native paste being gathered, and the wheel events of a remote scroll.
     func send(source: TerminalView, data: ArraySlice<UInt8>) {
+        let view = source as? AccessibleTerminalView
+        if view?.placingKeyboardPlaceholder == true { return }
         if capturedPaste != nil { capturedPaste?.append(data); return }
         if scrollEventBytes != nil { scrollEventBytes?.append(contentsOf: data); return }
+        view?.queueKeepKeyboardDeleteRepeating()
         var bytes = Data(data)
+        // Deleting uncommitted composition belongs to the keyboard, and must not count towards clearing the line.
+        if TerminalDeleteHold.isDelete(bytes), source.markedTextRange == nil { sendKeyboardDelete(bytes); return }
         if shiftArmed, let string = String(data: bytes, encoding: .utf8) { bytes = Data(string.uppercased().utf8); shiftArmed = false }
         if send(bytes) { userTyped(bytes) }
         if controlArmed { controlArmed = false; terminalView.controlModifier = false }
