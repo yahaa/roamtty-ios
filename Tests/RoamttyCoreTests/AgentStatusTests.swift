@@ -230,6 +230,8 @@ final class AgentStatusTests: XCTestCase {
             var tmux = "#!/bin/sh\ncase \"$1\" in\n  show-options) cat \"\(dir.path)/opt$5\" 2>/dev/null ;;\n" +
                 "  set-option) if [ \"$2\" = -u ]; then rm -f \"\(dir.path)/opt$6\"; else printf '%s' \"$6\" > \"\(dir.path)/opt$5\"; fi ;;\n"
             if listPanes { tmux += "  list-panes) printf '%%1 %s\\n' \"$(cat \"\(dir.path)/opt@roamtty_session\" 2>/dev/null)\" ;;\n" }
+            // Every tmux session lives but one.
+            tmux += "  has-session) [ \"$3\" != =gone ] ;;\n"
             tmux += "esac\n"
             let tool = dir.appendingPathComponent("tmux")
             try tmux.write(to: tool, atomically: true, encoding: .utf8)
@@ -360,6 +362,118 @@ final class AgentStatusTests: XCTestCase {
         XCTAssertEqual(fixture.option("@roamtty_session"), id)
         try hook("prompt", #"{"session_id":"other","prompt":"elsewhere"}"#, pane: nil, resumed: "00000000-0000-0000-0000-000000000000")
         XCTAssertEqual(fixture.reported(), "idle||")
+    }
+
+    func testABackgroundJobReportsToTheTmuxSessionItsSettingsName() throws {
+        let fixture = try HookFixture()
+        func job(_ event: String, _ json: String) throws { try fixture.run([fixture.script.path, "claude", event, "roamtty-a"], json: json, pane: nil) }
+        try fixture.run([fixture.script.path, "claude", "start", "roamtty-a"], json: #"{"session_id":"pane"}"#, pane: "%1")
+        XCTAssertEqual(fixture.reported(), "idle||")
+        XCTAssertEqual(fixture.option("@roamtty_session"), "pane")
+        // A spare process starts before any task: nothing changes until a job has one.
+        try job("start", #"{"session_id":"spare"}"#)
+        XCTAssertEqual(fixture.option("@roamtty_owner"), "pane")
+        try job("prompt", #"{"session_id":"job","prompt":"fix it"}"#)
+        XCTAssertEqual(fixture.reported(), "working||")
+        XCTAssertEqual(fixture.option("@roamtty_task"), "fix it")
+        try job("tool", #"{"session_id":"job","tool_name":"Bash","tool_input":{"command":"make"}}"#)
+        XCTAssertEqual(fixture.reported(), "working|Bash|make")
+        XCTAssertEqual(fixture.option("@roamtty_session"), "pane", "a job's id never replaces the pane's")
+        // The session left in the pane has nothing to say about the job's work.
+        try fixture.run([fixture.script.path, "claude", "notify", "roamtty-a"], json: #"{"session_id":"pane","notification_type":"idle_prompt"}"#, pane: "%1")
+        XCTAssertEqual(fixture.reported(), "working|Bash|make")
+        try job("notify", #"{"session_id":"job","notification_type":"permission_prompt","message":"needs permission"}"#)
+        XCTAssertEqual(fixture.reported(), "waiting|Bash|make")
+        try job("post", #"{"session_id":"job"}"#)
+        try job("stop", #"{"session_id":"job","last_assistant_message":"done"}"#)
+        XCTAssertEqual(fixture.reported(), "idle||")
+        XCTAssertEqual(fixture.option("@roamtty_reply"), "done")
+    }
+
+    func testAJobThatEndsMidTurnStopsTheWorkButLeavesThePanesOptions() throws {
+        let fixture = try HookFixture()
+        func job(_ event: String, _ json: String) throws { try fixture.run([fixture.script.path, "claude", event, "s"], json: json, pane: nil) }
+        try job("prompt", #"{"session_id":"job","prompt":"long"}"#)
+        try job("tool", #"{"session_id":"job","tool_name":"Bash","tool_input":{"command":"make"}}"#)
+        try job("end", #"{"session_id":"other"}"#)
+        XCTAssertEqual(fixture.reported(), "working|Bash|make", "another session's end says nothing about this work")
+        try job("end", #"{"session_id":"job"}"#)
+        XCTAssertEqual(fixture.reported(), "idle||")
+        XCTAssertEqual(fixture.option("@roamtty_task"), "long")
+    }
+
+    func testOnlyTheSessionThatReportedLastSaysTheWorkStopped() throws {
+        let fixture = try HookFixture()
+        func job(_ event: String, _ id: String) throws { try fixture.run([fixture.script.path, "claude", event, "s"], json: #"{"session_id":"\#(id)","prompt":"go"}"#, pane: nil) }
+        try job("prompt", "a")
+        try job("prompt", "b")
+        try job("stop", "a")
+        XCTAssertEqual(fixture.reported(), "working||")
+        try job("stop", "b")
+        XCTAssertEqual(fixture.reported(), "idle||")
+    }
+
+    func testAJobLeavesAPaneRunningAnotherAgentAndAnEndedSessionAlone() throws {
+        let fixture = try HookFixture()
+        try fixture.hook("prompt", #"{"prompt":"codex work"}"#, agent: "codex")
+        let codex = fixture.option("@roamtty_agent")
+        try fixture.run([fixture.script.path, "claude", "prompt", "s"], json: #"{"session_id":"job","prompt":"not yours"}"#, pane: nil)
+        XCTAssertEqual(fixture.option("@roamtty_agent"), codex)
+        XCTAssertEqual(fixture.option("@roamtty_task"), "codex work")
+
+        let ended = try HookFixture()
+        try ended.run([ended.script.path, "claude", "prompt", "gone"], json: #"{"session_id":"job","prompt":"late"}"#, pane: nil)
+        XCTAssertNil(ended.option("@roamtty_agent"))
+    }
+
+    func testCodexKeepsReportingWhateverSessionIdsItSends() throws {
+        let fixture = try HookFixture()
+        try fixture.hook("prompt", #"{"session_id":"a","prompt":"go"}"#, agent: "codex")
+        try fixture.hook("stop", #"{"session_id":"b"}"#, agent: "codex")
+        XCTAssertEqual(fixture.reported(), "idle||")
+        XCTAssertNil(fixture.option("@roamtty_owner"))
+    }
+
+    func testPruningKeepsSettingsOfLiveSessionsAndRecentFiles() throws {
+        let fixture = try HookFixture()
+        let folder = fixture.dir.appendingPathComponent(".roamtty")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let old = Date(timeIntervalSinceNow: -40 * 86_400)
+        for (name, date) in [("claude-hooks-gone.json", old), ("claude-hooks-live.json", old), ("claude-hooks.json", old), ("claude-hooks-new.json", Date())] {
+            let file = folder.appendingPathComponent(name)
+            try Data().write(to: file)
+            try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: file.path)
+        }
+        // The stand-in tmux takes `has-session -t =name` as $3; a pruned name other than "gone" counts as alive.
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", AgentHooks.pruneSettings]
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = fixture.dir.path + ":" + (environment["PATH"] ?? "/usr/bin:/bin")
+        environment["HOME"] = fixture.dir.path
+        process.environment = environment
+        try process.run(); process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
+        let left = try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
+        XCTAssertEqual(left, ["claude-hooks-live.json", "claude-hooks-new.json", "claude-hooks.json"])
+    }
+
+    func testClaudeStartedInATmuxSessionNamesItInItsSettings() {
+        let launch = AgentLaunch(agent: .claude, directory: "/home/v/app")
+        XCTAssertEqual(launch.commandLine(session: "roamtty-AB12"), "cd -- '/home/v/app' && claude --settings ~/.roamtty/claude-hooks-roamtty-AB12.json")
+        let file = AgentHooks.hostFile(.claude, session: "roamtty-AB12")
+        XCTAssertEqual(file.name, "claude-hooks-roamtty-AB12.json")
+        XCTAssertFalse(file.executable)
+        XCTAssertTrue(file.content.contains(#""command":"sh ~/.roamtty/agent-hook.sh claude stop roamtty-AB12""#))
+        // Without a tmux session, or with a name that cannot go into a command as it is, as before.
+        for session in [nil, "", "a b", "a;b", "会话"] as [String?] {
+            XCTAssertEqual(launch.commandLine(session: session), launch.commandLine)
+            XCTAssertEqual(AgentHooks.hostFile(.claude, session: session).name, "claude-hooks.json")
+        }
+        XCTAssertEqual(AgentHooks.hostFile(.claude).content, AgentHooks.claudeSettings)
+        // Other agents have one launcher and report from inside the pane.
+        XCTAssertEqual(AgentLaunch(agent: .codex, directory: "~").commandLine(session: "s"), AgentLaunch(agent: .codex, directory: "~").commandLine)
+        XCTAssertEqual(AgentHooks.hostFile(.codex, session: "s").name, "codex")
     }
 
     func testAStatusThatOnlyAgedIsTheSameButARestartedOneIsNot() {

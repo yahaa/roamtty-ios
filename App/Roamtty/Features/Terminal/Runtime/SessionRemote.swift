@@ -5,12 +5,13 @@ import RoamttyTransport
 /// Commands a session runs on its host beside the terminal, off the main thread.
 enum SessionRemote {
     /// Puts the status hook script and the agent's hook file on the host; a failure only costs the agent's status.
-    static func installAgentHooks(_ ssh: SSHConnection, agent: CodingAgent, cancellation: TransferCancellation) {
-        let file = AgentHooks.hostFile(agent)
+    static func installAgentHooks(_ ssh: SSHConnection, agent: CodingAgent, session: String?, cancellation: TransferCancellation) {
+        let file = AgentHooks.hostFile(agent, session: session)
         for (name, content, executable) in [(AgentHooks.scriptName, AgentHooks.script, false), (file.name, file.content, file.executable)] {
             guard let command = RemoteCommands.writeHostFile(name, executable: executable),
                   let result = try? ssh.exec(command, input: Data(content.utf8), timeout: 8, cancellation: cancellation), result.status == 0 else { return }
         }
+        if agent == .claude { _ = try? ssh.exec(AgentHooks.pruneSettings, input: Data(), timeout: 8, cancellation: cancellation) }
     }
     /// The clients attached to the tmux session, to tell when this terminal's own client has joined.
     static func tmuxClients(_ ssh: SSHConnection, name: String, cancellation: TransferCancellation, timeout: TimeInterval = 2) throws -> Set<String> {
