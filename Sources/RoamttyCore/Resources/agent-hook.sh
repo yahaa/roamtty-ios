@@ -1,15 +1,17 @@
 #!/bin/sh
 # Roamtty: records what an AI coding agent is doing as options of its tmux session, which the app reads.
-# Usage: agent-hook.sh <agent> <event>, with the agent's hook JSON on stdin. Never fails the agent.
+# Usage: agent-hook.sh <agent> <event> [tmux session], with the agent's hook JSON on stdin. Never fails the agent.
 # Claude Code and Codex pass the JSON keys this reads in snake_case, Grok in camelCase.
 PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/home/linuxbrew/.linuxbrew/bin:/snap/bin"
 agent=$1
 event=$2
+session=$3
 # Grok's hooks are global: only a Grok the app started (through ~/.roamtty/grok) reports.
 [ "$agent" != grok ] || [ "$ROAMTTY_AGENT" = grok ] || exit 0
-# A Claude Code session sent to the background (/bg) runs on outside tmux, as a new process that resumes the pane's
-# session: its hooks find the pane by that session, which the pane's hooks record.
+# A Claude Code session sent to the background (/bg, or the agents view) runs on outside tmux. Its hooks report to the
+# tmux session named in its settings; with older settings, to the pane whose recorded session it resumes.
 [ -n "$TMUX_PANE" ] || [ "$agent" = claude ] || exit 0
+in_pane=${TMUX_PANE:+1}
 input=$(cat 2>/dev/null)
 # A Grok subagent's events are not its session's.
 case "$agent:$input" in grok:*'"subagentType"'*) exit 0 ;; esac
@@ -23,7 +25,10 @@ field() {
 get() { tmux show-options -qv -t "$TMUX_PANE" "$1" 2>/dev/null; }
 put() { tmux set-option -q -t "$TMUX_PANE" "$1" "$2" 2>/dev/null; }
 
-if [ -n "$TMUX_PANE" ]; then
+if [ -z "$in_pane" ] && [ -n "$session" ]; then
+  tmux has-session -t "=$session" 2>/dev/null || exit 0
+  TMUX_PANE="=$session:"
+elif [ -n "$in_pane" ]; then
   # Kept past the session's end: a background session that resumed it still reports by it.
   [ "$agent" != claude ] || put @roamtty_session "$(field session_id 64)"
 else
@@ -47,6 +52,34 @@ record() {
   case "$(get @roamtty_agent)" in "$1|"*) now=$(get @roamtty_agent | cut -d '|' -f 2) ;; esac
   put @roamtty_agent "$1|$now|$agent|$2|$3"
 }
+
+# Claude Code runs several sessions for one tmux session once it has background jobs: the one in the pane and any number
+# outside it. Codex and Grok have one session per pane.
+if [ "$agent" = claude ]; then
+  me=$(field session_id 64)
+  if [ -z "$in_pane" ]; then
+    # A job does not speak for a pane that now runs another agent.
+    case "$(get @roamtty_agent | cut -d '|' -f 3)" in ''|claude) ;; *) exit 0 ;; esac
+    case "$event" in
+      # Spare processes start before any task, and a job starting says nothing about the pane.
+      start) exit 0 ;;
+      # A job's end leaves the pane's options. Stopped mid-turn, nothing else would say that the work is over.
+      end)
+        if [ "$(get @roamtty_owner)" = "$me" ]; then
+          case "$(get @roamtty_agent)" in working\|*|waiting\|*) record idle "" "" ;; esac
+        fi
+        exit 0 ;;
+    esac
+  fi
+  case "$event" in
+    start|prompt|tool|post|ask) put @roamtty_owner "$me" ;;
+    # Only the session that reported last says the work stopped or asks for anything: the one left in the pane notifies
+    # while a job works.
+    stop|notify)
+      owner=$(get @roamtty_owner)
+      [ -z "$owner" ] || [ "$owner" = "$me" ] || exit 0 ;;
+  esac
+fi
 
 case "$event" in
   start)
@@ -117,7 +150,7 @@ case "$event" in
     case "$turn" in ''|*[!0-9]*) ;; *) put @roamtty_worked "$(( $(date +%s) - turn ))" ;; esac
     record idle "" "" ;;
   end)
-    for option in @roamtty_agent @roamtty_task @roamtty_turn @roamtty_worked @roamtty_reply; do
+    for option in @roamtty_agent @roamtty_task @roamtty_turn @roamtty_worked @roamtty_reply @roamtty_owner; do
       tmux set-option -u -q -t "$TMUX_PANE" "$option" 2>/dev/null
     done ;;
 esac

@@ -147,13 +147,17 @@ public struct AgentLaunch: Equatable, Sendable {
     public var reportsStatus: Bool { true }
     /// `agentCommand` as typed: with the hooks `AgentHooks.hostFile` puts on the host, which Claude Code reads from its
     /// settings and the other agents get from their launcher.
-    public var typedCommand: String {
-        if agent == .claude { return agentCommand + " --settings " + AgentHooks.settingsPath }
+    public var typedCommand: String { typedCommand(session: nil) }
+    /// As `typedCommand`, in tmux session `session`, which Claude Code's hooks then report to from outside tmux too.
+    public func typedCommand(session: String?) -> String {
+        if agent == .claude { return agentCommand + " --settings " + AgentHooks.settingsPath(session: session) }
         return AgentHooks.command(agent) + agentCommand.dropFirst(agent.command.count)
     }
-    public var commandLine: String {
+    public var commandLine: String { commandLine(session: nil) }
+    public func commandLine(session: String?) -> String {
         guard StartDirectory.isSupported(directory) else { return "printf '%s\\n' 'Unsupported directory control characters' >&2; false" }
-        return StartDirectory.command(directory).map { $0 + " && " + typedCommand } ?? typedCommand
+        let typed = typedCommand(session: session)
+        return StartDirectory.command(directory).map { $0 + " && " + typed } ?? typed
     }
     public var title: String {
         var value = directory; while value.hasSuffix("/") { value.removeLast() }

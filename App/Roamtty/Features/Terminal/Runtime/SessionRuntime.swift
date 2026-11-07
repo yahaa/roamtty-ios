@@ -211,15 +211,16 @@ import RoamttyTransport
         ssh.onPhase = { [weak self] value in
             DispatchQueue.main.async { guard self?.generation == token, self?.mosh == nil else { return }; self?.phase = value == .connected && self?.startupSent == false ? .connecting : value }
         }
-        let startup: String? = agent?.commandLine ?? StartDirectory.command(directory)
         let mode = record.mode, name = record.remoteName, existing = record.external, cols = columns, rows = rows
+        let hookSession = mode == .tmux ? name : nil
+        let startup: String? = agent?.commandLine(session: hookSession) ?? StartDirectory.command(directory)
         let lifetime = lifetimeCancellation
         worker = Task { [weak self] in
             do {
                 try await performInBackground {
                     try ssh.connect()
                     // The hook script and the agent's hook file go on the host before it starts; a failure only costs the status.
-                    if let hooks { SessionRemote.installAgentHooks(ssh, agent: hooks, cancellation: lifetime) }
+                    if let hooks { SessionRemote.installAgentHooks(ssh, agent: hooks, session: hookSession, cancellation: lifetime) }
                     if preferMosh {
                         do {
                             let previous = mode == .tmux ? try SessionRemote.tmuxClients(ssh, name: name, cancellation: lifetime) : []
