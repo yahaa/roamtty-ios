@@ -33,11 +33,20 @@ final class ModelTests: XCTestCase {
     }
     func testInputNeverSurvivesReconnectAndRemainsBounded() {
         var queue = InputQueue()
-        for _ in 0..<64 { XCTAssertTrue(queue.enqueue(Data([1]))) }
+        for _ in 0..<64 { XCTAssertTrue(queue.enqueue(Data(repeating: 1, count: 256 * 1024))) }
         XCTAssertFalse(queue.enqueue(Data([2])))
         queue.reset()
         XCTAssertNil(queue.pop())
         XCTAssertFalse(queue.enqueue(Data(repeating: 1, count: 256 * 1024 + 1)))
+    }
+    /// Issue #108: dictation's revisions arrive as one write per deleted character, faster than the SSH worker takes them.
+    func testDictationBurstIsQueuedWholeAndInOrder() {
+        var queue = InputQueue()
+        let writes = (0..<200).map { $0 % 3 == 0 ? Data("改".utf8) : Data([0x7f]) }
+        for (index, write) in writes.enumerated() { XCTAssertTrue(queue.enqueue(write), "write \(index)") }
+        var received = Data()
+        while let next = queue.pop() { received.append(next) }
+        XCTAssertEqual(received, writes.reduce(Data(), +))
     }
 
     /// Android's TargetAddressTest: addresses typed into the editor are checked by their syntax alone.

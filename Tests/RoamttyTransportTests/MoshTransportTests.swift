@@ -17,6 +17,13 @@ final class MoshTransportTests: XCTestCase {
         }
     }
 
+    /// Issue #108: writes the worker has not taken yet are one event, so a burst of single deletes is not refused.
+    func testBurstOfSmallWritesJoinsOneEvent() throws {
+        let transport = try MoshTransport(host: "127.0.0.1", port: 60001, key: key)
+        for index in 0..<(MoshTransport.eventBudget * 2) { XCTAssertTrue(transport.write(Data([0x7f])), "write \(index)") }
+        transport.close()
+    }
+
     func testClosedUDPPortTriggersFirstContactTimeoutWithoutUnboundedRetry() throws {
         let transport = try MoshTransport(host: "127.0.0.1", port: 9, key: key)
         let start = Date()

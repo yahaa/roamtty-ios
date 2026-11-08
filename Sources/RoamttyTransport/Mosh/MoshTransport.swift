@@ -19,9 +19,14 @@ public final class MoshTransport {
     private var pendingKeys = [Data]()
     private var pendingSize: (columns: Int, rows: Int)?
     private var probeRequested = false
-    // Budgets include both queued and already-sent, unacknowledged input.
+    // Budgets include both queued and already-sent, unacknowledged input. `outstandingWrites` counts key events: the
+    // writes the worker takes in one turn go out as one.
     private var outstandingBytes = 0
     private var outstandingWrites = 0
+    /// Key events awaiting the server's ack. The worker can take each write of a burst in its own turn, and every
+    /// unacknowledged event is resent until acked, so this bounds the resend while leaving room for a revision of
+    /// hundreds of characters within one round trip; the byte budget bounds the size.
+    static let eventBudget = 1024
     /// Wakes the worker's poll as soon as input arrives, instead of after its timeout.
     private let wake: WorkerWake
 
@@ -107,7 +112,13 @@ public final class MoshTransport {
             // Size precedes keys in this batch, so `stty size` immediately after
             // a view resize observes the new terminal dimensions.
             if let size = pending.size { state.enqueue(.resize(columns: size.columns, rows: size.rows), at: now) }
-            for var bytes in pending.keys {
+            // Everything written since the last turn is one event, as the budget in `write` counts it.
+            if !pending.keys.isEmpty {
+                var bytes = Data(capacity: pending.keys.reduce(0) { $0 + $1.count })
+                for var piece in pending.keys {
+                    bytes.append(piece)
+                    piece.resetBytes(in: 0..<piece.count)
+                }
                 state.enqueue(.keys(bytes), at: now)
                 bytes.resetBytes(in: 0..<bytes.count)
             }
@@ -167,11 +178,14 @@ public final class MoshTransport {
         lock.lock(); defer { lock.unlock() }
         guard !closed else { return false }
         if data.isEmpty { return true }
-        guard data.count <= 256 * 1024, outstandingWrites < 64,
+        // Writes the worker has not taken yet join the event already waiting, so a burst costs one event: dictation
+        // revises its text with one write per deleted character (issue #108).
+        let newEvent = pendingKeys.isEmpty
+        guard data.count <= 256 * 1024, !newEvent || outstandingWrites < Self.eventBudget,
               data.count <= 1024 * 1024 - outstandingBytes else { return false }
         pendingKeys.append(data)
         outstandingBytes += data.count
-        outstandingWrites += 1
+        if newEvent { outstandingWrites += 1 }
         wake.signal()
         return true
     }
