@@ -63,10 +63,10 @@ struct MarkdownImageView: UIViewRepresentable {
         if let existing = identities.object(forKey: connection) { id = existing as UUID } else { id = UUID(); identities.setObject(id as NSUUID, forKey: connection) }
         return Key(connection: id, path: path)
     }
-    static func validate(model: AppModel, target: RemoteConnectionTarget, connection: SSHConnection) throws {
-        try model.validate(target)
+    static func validate(resolver: ConnectionResolver, target: RemoteConnectionTarget, connection: SSHConnection) throws {
+        try resolver.validate(target)
         if case .host(let id) = target {
-            guard model.pool.holds(connection, for: id), connection.isConnected else { throw CancellationError() }
+            guard resolver.holdsSharedConnection(connection, for: id), connection.isConnected else { throw CancellationError() }
         }
     }
 }
@@ -86,17 +86,17 @@ struct MarkdownImageView: UIViewRepresentable {
         if let token { Task { @MainActor in MarkdownImagePipeline.pool.release(token) } }
     }
 
-    func start(model: AppModel, target: RemoteConnectionTarget, path: String) {
+    func start(resolver: ConnectionResolver, target: RemoteConnectionTarget, path: String) {
         stop()
         if source != path { source = path; pixelSize = nil }
         let current = generation
-        task = Task { [weak self, weak model] in
-            guard let model else { return }
+        task = Task { [weak self, weak resolver] in
+            guard let resolver else { return }
             defer { if self?.generation == current { self?.task = nil } }
             do {
-                let ssh = try await model.connection(for: target)
+                let ssh = try await resolver.connection(for: target)
                 try Task.checkCancellation()
-                try MarkdownImagePipeline.validate(model: model, target: target, connection: ssh)
+                try MarkdownImagePipeline.validate(resolver: resolver, target: target, connection: ssh)
                 guard let self, self.generation == current else { return }
                 let key = MarkdownImagePipeline.key(connection: ssh, path: path)
                 self.token = MarkdownImagePipeline.pool.request(key, load: {
@@ -113,10 +113,10 @@ struct MarkdownImageView: UIViewRepresentable {
                         try Task.checkCancellation()
                         return MarkdownImageDisplay(bitmap)
                     }, onCancel: { cancellation.cancel() })
-                }, onLoad: { [weak self, weak model, weak ssh] result in
+                }, onLoad: { [weak self, weak resolver, weak ssh] result in
                     guard let self, self.generation == current else { return }
-                    guard let model, let ssh,
-                          (try? MarkdownImagePipeline.validate(model: model, target: target, connection: ssh)) != nil else {
+                    guard let resolver, let ssh,
+                          (try? MarkdownImagePipeline.validate(resolver: resolver, target: target, connection: ssh)) != nil else {
                         self.stop(); return
                     }
                     self.display = result

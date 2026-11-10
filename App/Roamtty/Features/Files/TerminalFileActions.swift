@@ -150,7 +150,7 @@ struct UploadFilesSheet: View {
                 try model.validate(connectionTarget)
                 directory = listing.path
                 for (index, url) in urls.enumerated() {
-                    model.files.upload(url, directory: listing.path, host: host, model: model, insert: insertPath && canInsert,
+                    model.files.upload(url, directory: listing.path, host: host, insert: insertPath && canInsert,
                         targetSessionID: sessionID, name: selectedNames[index], targetRuntime: insertionRuntime, connectionTarget: connectionTarget)
                 }
                 onStarted()

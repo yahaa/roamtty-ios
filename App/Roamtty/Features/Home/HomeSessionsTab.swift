@@ -46,39 +46,6 @@ struct HomeSessionsTab: View {
     }
 }
 
-/// A group of the session list: its records, most recently used first.
-struct SessionGroupMembers {
-    let group: SessionGroup
-    let records: [SessionRecord]
-    /// The last group is "终端" while it holds plain terminals only.
-    let plainOnly: Bool
-}
-
-extension AppModel {
-    /// The sessions whose title or host matches `search`.
-    func searchedSessions(_ sessions: [SessionRecord], _ search: String) -> [SessionRecord] {
-        guard !search.isEmpty else { return sessions }
-        return sessions.filter { record in
-            let host = host(record.hostID)
-            return "\(sessionTitle(record)) \(host?.name ?? "") \(host?.address ?? "") \(host?.username ?? "")".localizedCaseInsensitiveContains(search)
-        }
-    }
-    /// `sessions` grouped by what their agents are doing, empty groups left out; a session coming back stays in the
-    /// group its agent was last seen in.
-    func sessionGroups(_ sessions: [SessionRecord]) -> [SessionGroupMembers] {
-        // Each session is placed once per update, not once per group.
-        let placed = Dictionary(grouping: sessions) { sessionGroup(connected: true, status: listedAgentStatus($0).status) }
-        return SessionGroup.allCases.compactMap { value in
-            placed[value].map { members in
-                SessionGroupMembers(group: value, records: members,
-                                    plainOnly: !members.contains { listedAgentStatus($0).status != nil || sessionAgent($0) != nil })
-            }
-        }
-    }
-    /// The group `sessionFilter` names while `groups` still hold it: a filter whose group has emptied shows everything again.
-    func filteredGroup(_ groups: [SessionGroupMembers]) -> SessionGroup? { groups.first { $0.group == sessionFilter }?.group }
-}
-
 struct HomeSessionsList: View {
     @EnvironmentObject var model: AppModel
     let sessions: [SessionRecord]
@@ -116,7 +83,7 @@ struct HomeSessionsList: View {
     private func header(_ value: SessionGroup, count: Int, plainOnly: Bool) -> some View {
         HStack(spacing: 0) {
             Circle().strokeBorder(value.color, lineWidth: 2).background(Circle().fill(value == .waiting ? value.color : Color.clear)).frame(width: 12, height: 12)
-            Text(value.label(model, plainOnly: plainOnly)).font(.system(size: 14, weight: .medium)).foregroundStyle(value.color).padding(.leading, 8)
+            Text(value.label(model.language, plainOnly: plainOnly)).font(.system(size: 14, weight: .medium)).foregroundStyle(value.color).padding(.leading, 8)
             Text("\(count)").font(.system(size: 14, weight: .medium)).foregroundStyle(value.color.opacity(0.8)).padding(.leading, 6)
         }.padding(.leading, 6).padding(.top, compact ? 8 : 14).padding(.bottom, compact ? 6 : 8).accessibilityIdentifier("home-session-group-\(value.rawValue)")
     }
@@ -134,7 +101,7 @@ struct SessionFilters: View {
                 pill(model.text("全部", "All"), count: total, dot: nil, selected: selected == nil, id: "home-session-filter-all") { model.sessionFilter = nil }
                 ForEach(groups, id: \.group) { members in
                     let value = members.group
-                    pill(value.label(model, plainOnly: members.plainOnly), count: members.records.count, dot: value.color, selected: selected == value,
+                    pill(value.label(model.language, plainOnly: members.plainOnly), count: members.records.count, dot: value.color, selected: selected == value,
                          id: "home-session-filter-\(value.rawValue)") { model.sessionFilter = selected == value ? nil : value }
                 }
             }

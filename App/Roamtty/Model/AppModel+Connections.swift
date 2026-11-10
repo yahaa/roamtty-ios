@@ -16,7 +16,7 @@ extension AppModel {
         }
     }
 
-    func connectionTarget(hostID: String, sessionID: String? = nil) -> RemoteConnectionTarget {
+    func connectionTarget(hostID: String, sessionID: String?) -> RemoteConnectionTarget {
         guard let sessionID else { return .host(hostID) }
         let runtime = runtimes[sessionID].flatMap { $0.host.id == hostID ? $0 : nil }
         return .session(sessionID, SessionConnectionSnapshot(session: runtime, connection: runtime?.ssh))
@@ -32,6 +32,14 @@ extension AppModel {
         case .session(let id, let snapshot): return try resolve(snapshot, session: id)
         }
     }
+    func holdsSharedConnection(_ connection: SSHConnection, for hostID: String) -> Bool { pool.holds(connection, for: hostID) }
+
+    // MARK: What file transfers ask (TransferEnvironment)
+
+    var downloadBookmark: Data? { settings.downloadBookmark }
+    func report(_ message: String) { error = message }
+    func sharedFileUploaded(_ url: URL) { incomingFiles.removeAll { $0 == url } }
+
     private func resolve(_ snapshot: SessionConnectionSnapshot<SessionRuntime, SSHConnection>, session id: String) throws -> SSHConnection {
         let current = runtimes[id]
         return try snapshot.resolve(currentSession: current, currentConnection: current?.ssh,

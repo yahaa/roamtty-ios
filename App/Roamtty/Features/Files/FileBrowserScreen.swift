@@ -132,7 +132,7 @@ struct FileBrowserScreen: View {
                         .contextMenu { entryActions(entry) }.swipeActions(edge: .trailing) {
                         Button(role: .destructive) { deleteEntry = entry } label: { Label(model.text("删除", "Delete"), systemImage: "trash") }
                         Button {
-                            model.files.download(entry, host: host, model: model, connectionTarget: connectionTarget)
+                            model.files.download(entry, host: host, connectionTarget: connectionTarget)
                             transfers = true
                         } label: {
                             Label(model.text("下载", "Download"), systemImage: "arrow.down.circle")
@@ -279,7 +279,7 @@ struct FileBrowserScreen: View {
             }.font(.subheadline)
             Button {
                 let names = downloadNames(paths: selected.map(\.path))
-                for entry in selected { model.files.download(entry, host: host, model: model, name: names[entry.path], connectionTarget: connectionTarget) }
+                for entry in selected { model.files.download(entry, host: host, name: names[entry.path], connectionTarget: connectionTarget) }
                 transfers = true
             } label: {
                 Label(model.text("下载已选文件 (\(selected.count))", "Download selected (\(selected.count))"), systemImage: "arrow.down.circle")
@@ -436,7 +436,7 @@ struct FileBrowserScreen: View {
         }
         // iOS also downloads folders recursively, so 下载 is offered for both.
         Button(model.text("下载", "Download")) {
-            model.files.download(entry, host: host, model: model, connectionTarget: connectionTarget)
+            model.files.download(entry, host: host, connectionTarget: connectionTarget)
             transfers = true
         }.accessibilityIdentifier("files-action-download")
         if !entry.isDirectory { Button(model.text("选择", "Select")) { selecting = true; toggleSelection(entry) } }

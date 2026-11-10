@@ -76,8 +76,8 @@ struct TransferScreen: View {
                         Spacer()
                         if job.pendingInsertion != nil {
                             Button(model.text("插入终端", "Insert in terminal")) {
-                                transfers.insertPath(job.id, model: model)
-                            }.disabled(!transfers.canInsertPath(job, model: model)).accessibilityIdentifier("transfer-insert-path-\(job.name)")
+                                transfers.insertPath(job.id)
+                            }.disabled(!transfers.canInsertPath(job)).accessibilityIdentifier("transfer-insert-path-\(job.name)")
                         }
                     }.font(.subheadline)
                 }

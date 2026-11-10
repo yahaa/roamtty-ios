@@ -139,7 +139,7 @@ struct FilePreviewScreen: View {
     }
     private var compact: Bool { verticalSizeClass == .compact }
     private var doneButton: some View { Button(model.text("完成", "Done")) { dismiss() }.accessibilityIdentifier("preview-done") }
-    private func download() { model.files.download(entry, host: host, model: model, connectionTarget: connectionTarget); transfers = true }
+    private func download() { model.files.download(entry, host: host, connectionTarget: connectionTarget); transfers = true }
     @ViewBuilder private var optionsMenu: some View {
             Button(model.text("查找", "Find"), systemImage: "magnifyingglass") { rendered = false; searchVisible = true }.disabled(document == nil).accessibilityIdentifier("preview-find")
             Toggle(model.text("自动换行", "Wrap lines"), isOn: $model.settings.codeWrap).onChange(of: model.settings.codeWrap) { _ in model.saveSettings() }.accessibilityIdentifier("preview-wrap")
@@ -503,7 +503,7 @@ private struct RemoteMarkdownImage: View {
     }
     private func updateDemand() {
         let key = demandKey
-        if key.visible, let path = key.path { demand.start(model: model, target: connectionTarget, path: path) } else { demand.stop() }
+        if key.visible, let path = key.path { demand.start(resolver: model, target: connectionTarget, path: path) } else { demand.stop() }
     }
     private var placeholder: some View {
         Label(alt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? String(path.split(separator: "/").last ?? "") : alt, systemImage: "photo")

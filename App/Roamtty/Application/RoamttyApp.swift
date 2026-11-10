@@ -1,6 +1,5 @@
 import SwiftUI
 import UIKit
-import RoamttyCore
 
 @main struct RoamttyApp: App {
     @StateObject private var model = AppModel()

@@ -159,7 +159,7 @@ extension HostDetailScreen {
     }
     private func identityLine(_ host: Host, _ metrics: HostMetrics?) -> String {
         var parts = ["\(host.username)@\(host.address):\(host.port)", metrics?.os ?? host.system]
-        if let seconds = metrics?.uptimeSeconds { parts.append(model.text("已运行 ", "up ") + MetricFormat.uptime(seconds, model)) }
+        if let seconds = metrics?.uptimeSeconds { parts.append(model.text("已运行 ", "up ") + MetricFormat.uptime(seconds, model.language)) }
         return parts.filter { !$0.isEmpty }.joined(separator: "  ·  ")
     }
     /// One reading: its name and context on top, the number large, and its history or fill along the bottom.

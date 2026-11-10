@@ -12,7 +12,7 @@ import RoamttyTransport
 /// - `AppModel+Desktop`: remote desktops, one `DesktopController` per host
 /// - `AppModel+Notifications`: the agent notifications
 /// Debug builds add the launch fixtures of the UI tests in `AppModel+Fixtures`.
-@MainActor final class AppModel: ObservableObject, ConnectionEnvironment {
+@MainActor final class AppModel: ObservableObject, ConnectionEnvironment, TransferEnvironment {
     // MARK: State the screens show
 
     @Published var hosts: [Host] = []
@@ -34,7 +34,7 @@ import RoamttyTransport
     @Published var childModalCount = 0
     /// The login question on screen.
     var authentication: AuthenticationRequest? { logins.prompts.active }
-    let files = FileTransferModel()
+    private(set) lazy var files = FileTransferModel(environment: self)
     var runtimes: [String: SessionRuntime] = [:]
 
     // MARK: Bookkeeping shared by the feature extensions
@@ -106,7 +106,8 @@ import RoamttyTransport
     // MARK: Language and appearance
 
     var english: Bool { settings.language.hasPrefix("en") }
-    func text(_ chinese: String, _ english: String) -> String { self.english ? english : chinese }
+    var language: AppLanguage { AppLanguage(english: english) }
+    func text(_ chinese: String, _ english: String) -> String { language.text(chinese, english) }
     var colorScheme: ColorScheme? { settings.theme == .system ? nil : settings.theme == .dark ? .dark : .light }
     func phaseText(_ phase: ConnectionPhase) -> String {
         switch phase {

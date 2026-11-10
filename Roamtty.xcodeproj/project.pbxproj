@@ -2498,6 +2498,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "2D014E603245B00F01AED3E8";
 		};
+		"8E8427A2DDD2474D8B373AE7" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Model/AppLanguage.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"7DCB7B78CD1A08AC1AF0F0AF" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "8E8427A2DDD2474D8B373AE7";
+		};
 		"8D0D86AAD40EC80D68CBB5F2" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/Roamtty/Model/AppModel+Connections.swift";
@@ -2538,6 +2548,26 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "982B222189F932DC1A2BF036";
 		};
+		"CAFBBAE0AFD57D45F1BA40B1" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Model/AppModel+SessionList.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"662CC33DD5C7C48CB3BC5F35" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "CAFBBAE0AFD57D45F1BA40B1";
+		};
+		"B2A0E691C05F188C985634C5" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Model/AppModel+SessionReconnect.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"D30F7BAF0D932E592198E7FF" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "B2A0E691C05F188C985634C5";
+		};
 		"0446A1EE9ACBC696C2D24E48" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/Roamtty/Model/AppModel+Sessions.swift";
@@ -2577,6 +2607,16 @@
 		"4F568E709CED066E29AD3B06" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "A8B1C898486D5648CD6EB6F7";
+		};
+		"B1B8390EC61A83BA0E7694C0" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Model/Connections/ConnectionResolver.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"8945EC0AECC02AEB76948E0A" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "B1B8390EC61A83BA0E7694C0";
 		};
 		"44275E6DBC30E68C0463D43A" = {
 			"isa" = "PBXFileReference";
@@ -2875,14 +2915,18 @@
 				"CCCA49E03B29A52B0A5169B0",
 				"C5FC51E6EA8BCD5FEBB6FEFA",
 				"6AC846F53773FDFBF0FA574E",
+				"7DCB7B78CD1A08AC1AF0F0AF",
 				"72BF447BBEE0540CF4121741",
 				"99698B244948659734AD9930",
 				"00653FBA72F928F3E239D70D",
 				"6B8F769331A94D028C406B0B",
+				"662CC33DD5C7C48CB3BC5F35",
+				"D30F7BAF0D932E592198E7FF",
 				"EE918D000B610A88A8CB35EF",
 				"B1677875F9EA18CCC4A05111",
 				"D4794A15DBACB251C5890E49",
 				"4F568E709CED066E29AD3B06",
+				"8945EC0AECC02AEB76948E0A",
 				"C3D37C07B58A45492FDD42A0",
 				"BDD20EBE830B3DDC64B70FF8",
 				"5F3168FE051ADD08B03D52BE",
@@ -4318,14 +4362,18 @@
 				"C57107BED9387B656A3EC1DB",
 				"14FEB80F67F8624B0AE8276C",
 				"2D014E603245B00F01AED3E8",
+				"8E8427A2DDD2474D8B373AE7",
 				"8D0D86AAD40EC80D68CBB5F2",
 				"7D5228076E00B068894DFD80",
 				"B46B7B3A820F0BA4AF92ADD8",
 				"982B222189F932DC1A2BF036",
+				"CAFBBAE0AFD57D45F1BA40B1",
+				"B2A0E691C05F188C985634C5",
 				"0446A1EE9ACBC696C2D24E48",
 				"38EF7EAA30C7FA08A7FE934B",
 				"2AC98DD1E7DF0DB0A8C9474A",
 				"A8B1C898486D5648CD6EB6F7",
+				"B1B8390EC61A83BA0E7694C0",
 				"44275E6DBC30E68C0463D43A",
 				"5468ABA7DFB7C1496544B759",
 				"39166A72BF54911247FF7C0F",
