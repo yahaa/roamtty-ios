@@ -153,7 +153,7 @@ swiftc App/Shared/ShareInboxStore.swift App/Shared/ShareInboxWorker.swift App/Ro
 /tmp/roamtty-share-worker-tests
 ```
 
-The terminal interaction checks (cursor and startup gates, toolbox timing, paste and scroll routing) are Foundation-only too:
+The terminal interaction checks (cursor and startup gates, toolbox timing, paste and scroll routing) run on macOS:
 
 ```sh
 swiftc App/Roamtty/Features/Terminal/Input/TerminalInteraction.swift scripts/test-terminal-interaction.swift -o /tmp/roamtty-terminal-check
