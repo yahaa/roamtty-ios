@@ -207,6 +207,33 @@ final class UdpWireTests: XCTestCase {
         link.close()
     }
 
+    /// #112: the session and its reader thread both close the link. Closing must be idempotent and safe
+    /// from many threads at once (the timer was over-released), and a start after close starts nothing.
+    func testConcurrentCloseClosesTransportOnce() {
+        final class Counting: UdpTransport, @unchecked Sendable {
+            var onReceive: (([UInt8]) -> Void)?
+            let lock = NSLock(); var closes = 0, sends = 0
+            var localPort: Int { 1 }
+            func send(_ datagram: [UInt8]) { lock.lock(); sends += 1; lock.unlock() }
+            func rebind() throws {}
+            func close() { lock.lock(); closes += 1; lock.unlock() }
+            func count() -> (Int, Int) { lock.lock(); defer { lock.unlock() }; return (closes, sends) }
+        }
+        for _ in 0..<50 {
+            let transport = Counting()
+            let link = UdpLink(key: key, transport: transport, onFrame: { _ in }, onVideoLost: {})
+            link.start()
+            DispatchQueue.concurrentPerform(iterations: 64) { _ in link.close() }
+            waitFor(2) { transport.count().0 >= 1 }
+            Thread.sleep(forTimeInterval: 0.01)
+            XCTAssertEqual(1, transport.count().0)
+            link.start()
+            let sends = transport.count().1
+            Thread.sleep(forTimeInterval: 0.06)
+            XCTAssertEqual(sends, transport.count().1, "a closed link stays quiet")
+        }
+    }
+
     /// Same as Android's loopback test: the real socket transport against a host stand-in on a UDP port,
     /// dropping 30% of what arrives.
     func testLinkOverLoopbackSocket() throws {
