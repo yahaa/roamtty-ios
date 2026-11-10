@@ -8,7 +8,7 @@ import RoamttyCore
 /// and the app showed "输入未发送 / Input was not sent".
 final class MoshDictationTests: XCTestCase {
     func testDictationRevisionsAreAllAcceptedAndArriveInOrder() throws {
-        let serverPath = ProcessInfo.processInfo.environment["ROAMTTY_MOSH_SERVER"] ?? "/usr/bin/mosh-server"
+        let serverPath = LocalTools.moshServer
         guard FileManager.default.isExecutableFile(atPath: serverPath) else { throw XCTSkip("mosh-server is required") }
         let writes = Self.dictationWrites(["我想看一下这个仓库", "我想看一下这个仓库最近有没有新的", "我想看一下这个仓库最近有没有新的问题",
                                            "我想看一下这个仓库最近有没有新的问题需要处理一下", "我想看一下这个仓库最近有没有新的问题需要处理一下吧"])

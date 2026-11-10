@@ -79,8 +79,10 @@ Every rule the config turns off, and every inline `swiftlint:disable`, carries i
 ## Tests
 
 ```sh
-# macOS Core and transport tests
-swift test
+# macOS Core and transport tests. Without a server the live SSH tests skip; against the Docker fixture
+# (scripts/serve-container-fixture.sh) and the Android fixture's keys they run:
+ROAMTTY_TEST_PASSWORD_FILE=$PWD/.private/container-fixture/password ROAMTTY_TEST_PORT=22993 \
+  ROAMTTY_TEST_KEYS=../roamtty/ssh-core/src/test/resources/keys swift test
 
 # Linux: Swift 6+, CMake, OpenSSL/zlib development headers
 ./scripts/bootstrap-linux-native.sh
@@ -93,7 +95,7 @@ swift test
 
 `./scripts/test-terminal-url.sh` checks terminal URLs, wide cells, scrollback, reset lifecycle and bounded accessibility export against the same commit-pinned [SwiftTerm fork](https://github.com/yahaa/SwiftTerm) as the app. The upstream v1.13.0 base and two downstream patches are documented in [`docs/dependencies/swiftterm.md`](docs/dependencies/swiftterm.md).
 
-The mosh tests exercise wire-format vectors and an installed `mosh-server`, when available. Live SSH tests cover password/interactive/encrypted-key authentication, PTY, concurrent SFTP, no-overwrite and cancellation. Tests requiring unavailable services explicitly skip. XCTest UI tests are in `App/UITests`; sign simulator builds with `CODE_SIGN_IDENTITY=-` and the development entitlements so credential storage is exercised.
+The mosh tests exercise wire-format vectors and an installed `mosh-server` and `tmux`, found in `/usr/bin`, Homebrew's folders, or where `ROAMTTY_MOSH_SERVER` and `ROAMTTY_TMUX` say. Live SSH tests cover password/interactive/encrypted-key authentication, PTY, concurrent SFTP, no-overwrite and cancellation. Tests requiring unavailable services explicitly skip. XCTest UI tests are in `App/UITests`; sign simulator builds with `CODE_SIGN_IDENTITY=-` and the development entitlements so credential storage is exercised.
 
 For the complete native simulator suite, put the dedicated server's `host`, `port`, `username`, and `password` in the ignored `.private/device-fixture.json`, or start the Docker fixture on the Mac with `./scripts/serve-container-fixture.sh` and point `ROAMTTY_FIXTURE_JSON` at the `.private/container-fixture.json` it writes. The server must allow local TCP forwarding (the localhost preview tunnels through it) and have a UTF-8 locale; the container does both. Authorize the Android fixture's public keys on that server and keep `tmux`, `mosh-server`, and Python 3 available. Then run on the Mac:
 

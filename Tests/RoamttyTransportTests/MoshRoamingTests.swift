@@ -14,8 +14,8 @@ final class MoshRoamingTests: XCTestCase {
         try verifyTmuxInput(probe: false, disableEcho: false)
     }
     private func verifyTmuxInput(probe: Bool, disableEcho: Bool = true) throws {
-        let serverPath = ProcessInfo.processInfo.environment["ROAMTTY_MOSH_SERVER"] ?? "/usr/bin/mosh-server"
-        let tmuxPath = ProcessInfo.processInfo.environment["ROAMTTY_TMUX"] ?? "/usr/bin/tmux"
+        let serverPath = LocalTools.moshServer
+        let tmuxPath = LocalTools.tmux
         guard FileManager.default.isExecutableFile(atPath: serverPath), FileManager.default.isExecutableFile(atPath: tmuxPath) else { throw XCTSkip("mosh-server and tmux are required") }
         let name = "roamtty-roaming-" + UUID().uuidString
         let checkpoint = FileManager.default.temporaryDirectory.appendingPathComponent(name + ".size")
