@@ -164,7 +164,9 @@ final class TransferProgressRelay {
                 do {
                     guard !token.isCancelled else { continue }
                     try environment.validate(connectionTarget)
-                    guard let picked = try await item.loadTransferable(type: PickedTerminalImage.self) else { throw RoamError.invalid(environment.text("无法读取所选图片", "Unable to read the selected image")) }
+                    guard let picked = try await item.loadTransferable(type: PickedTerminalImage.self) else {
+                        throw RoamError.invalid(environment.text("无法读取所选图片", "Unable to read the selected image"))
+                    }
                     source = picked
                     guard !token.isCancelled else { continue }
                     let png = try await performInBackground { try picked.png(cancellation: token) }

@@ -38,7 +38,7 @@ Dependencies are version-pinned; native downloads are SHA-256 checked. Generated
 Sources/
   CNative/            C shims (sockets, crypto, local files) linking libssh2, OpenSSL and SQLite
   RoamttyCore/        platform-independent logic, unit tested on macOS and Linux
-    Model/            hosts, settings, session journal
+    Model/            hosts, credentials, settings, session journal, errors
     Persistence/      the SQLite store
     Security/         Keychain vault, in-memory logins, host-key pins, private keys
     Sessions/         reconnect rules, login and connection snapshots, generations
@@ -47,23 +47,26 @@ Sources/
     Terminal/         shortcuts, URL finder, mouse tracking, output history
     Text/             syntax highlighting, Markdown, code search
   RoamttyTransport/   SSH/SFTP (SSH/) and mosh (Mosh/)
+  RoamttyDesktopCore/ the remote desktop: its UDP link, protocol, session state machine, gestures and plugin installer
 App/
   Roamtty/            the iOS app
     Application/      entry point and launch splash
     Navigation/       routes, sheets, the root stack and drawer
-    Model/            AppModel, the state screens observe, split by feature in extensions
-    Services/         diagnostics, reachability, the share inbox, per-session preferences
+    Model/            AppModel: hosts, sessions and navigation, split by feature in extensions
+      Connections/    logins, the login questions, each host's shared connection
+      Hosts/          a host's live metrics and reachability
+    Services/         diagnostics, the reachability probe, the share inbox, per-session preferences
     DesignSystem/     palette, shared components, button styles, formatting
-    Features/         Home, Hosts, Sessions, Terminal, Files, Settings, Authentication
+    Features/         Home, Hosts, Sessions, Terminal, Files, Desktop, Settings, Authentication
     Debug/            on-device validation (Debug builds only)
     Resources/        fonts and the asset catalog
   Shared/             code shared by the app and the share extension
   ShareExtension/     the share extension
   UITests/            XCTest UI suite against live SSH fixtures
-Tests/                RoamttyCore and RoamttyTransport unit and live tests
+Tests/                RoamttyCore, RoamttyTransport and RoamttyDesktopCore unit and live tests
 ```
 
-Views read state from `AppModel` and call its actions; logic that needs no UIKit lives in `RoamttyCore`, where it is unit tested. `scripts/generate-project.py` picks up every source file under these folders.
+Views observe `AppModel` and call its actions. `AppModel` owns the hosts, the sessions and what is on screen; how a host is logged in to, connected and watched is the work of its services (`HostLogins`, `HostConnectionPool`, `HostMonitor`, `HostReachabilityTracker`), which know only the small `ConnectionEnvironment` protocol. Tools that need a connection or the wording of the app's language take a `ConnectionResolver` or an `AppLanguage`, not the model. Logic that needs no UIKit lives in `RoamttyCore`, where it is unit tested. `scripts/generate-project.py` picks up every source file under these folders.
 
 ## Lint
 
@@ -150,7 +153,14 @@ swiftc App/Shared/ShareInboxStore.swift App/Shared/ShareInboxWorker.swift App/Ro
 /tmp/roamtty-share-worker-tests
 ```
 
-`docs/PLAN.md` records the intended parity scope; `docs/PROGRESS.md` records verification and remaining work. Device and visual checks require Xcode and a paired device. See `THIRD_PARTY_NOTICES.md` for licenses.
+The terminal interaction checks (cursor and startup gates, toolbox timing, paste and scroll routing) are Foundation-only too:
+
+```sh
+swiftc App/Roamtty/Features/Terminal/Input/TerminalInteraction.swift scripts/test-terminal-interaction.swift -o /tmp/roamtty-terminal-check
+/tmp/roamtty-terminal-check
+```
+
+[`docs/SIMULATOR-COVERAGE.md`](docs/SIMULATOR-COVERAGE.md) records what each full run executed and how it ended; [`docs/UI-PARITY.md`](docs/UI-PARITY.md) maps Android's screens to this app's. Device and visual checks require Xcode and a paired device. See `THIRD_PARTY_NOTICES.md` for licenses.
 
 ## Data and lifecycle
 

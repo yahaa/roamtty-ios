@@ -34,7 +34,7 @@ The UI reference is the current reachable Android UI in `../roamtty`, especially
 | --- | --- |
 | Host-only home, search, drawer | `Features/Home/HomeScreen.swift`, `Navigation/DrawerScreen.swift` |
 | Password, private key and interactive host editor | `Features/Hosts/HostEditorScreen.swift` |
-| First-use fingerprint approval, keyboard-interactive fields | `Model/AppModel+Connections.swift`, `Features/Authentication/AuthenticationOverlay.swift` |
+| First-use fingerprint approval, keyboard-interactive fields | `Model/Connections/HostLogins.swift`, `Features/Authentication/AuthenticationOverlay.swift` |
 | Changed fingerprint blocks connection | Transport pin store plus explicit `FingerprintReview`; as on Android, 移除旧记录并重连 reconnects at once and shows the new fingerprint |
 | mosh first-contact timeout falls back to SSH | `SessionRuntime` shows Android's 提示 card ("mosh 无法连接（可能未放行 UDP 60000–61000），已改用 SSH。") once the fallback connects |
 | Host online state and latency | `Services/ReachabilityProbe.swift`: online only once sshd's identification arrives (our own goes first); latency is DNS + TCP connect |
@@ -51,7 +51,7 @@ The UI reference is the current reachable Android UI in `../roamtty`, especially
 | Scrollback, text selection/copy, paste, pinch font size | Native SwiftTerm/UIKit |
 | Common commands and remote bash/zsh history | `CommandSheet`, Core `ShellHistoryCommands` |
 | Path-aware fuzzy file search, new folder, persistent Name/Size/Modified/Type sorting, hidden files and batch download | `Features/Files/FileBrowserScreen.swift` |
-| Syntax highlighting, counted search with wrapping navigation, saved preview font/wrap, Markdown and text fullscreen | `Features/Files/FilePreviewScreen.swift`, Core Syntax/Markdown parsers |
+| Syntax highlighting, counted search with wrapping navigation, saved preview font/wrap, Markdown and text fullscreen | `Features/Files/Preview/`, Core Syntax/Markdown parsers |
 | Image zoom and full-screen image preview | `ZoomableImage` |
 | File/folder upload and download with progress/cancel | `Features/Files/FileTransferModel.swift` |
 | Direct terminal upload/download and selected-image attachment | `Features/Files/TerminalFileActions.swift`, native Files/Photos pickers, initiating-runtime insertion |
