@@ -18,7 +18,9 @@ struct HostDetailScreen: View {
                     if verticalSizeClass == .compact { landscape(host) } else { portrait(host) }
                 }
                     .onAppear { model.monitor.start(host); Task { await model.refreshDesktopProbe(host) } }
-                    .task(id: host.address + ":" + String(host.port)) { while !Task.isCancelled { await model.reachability.probe([host]); do { try await Task.sleep(for: .seconds(15)) } catch { break } } }
+                    .task(id: host.address + ":" + String(host.port)) {
+                        while !Task.isCancelled { await model.reachability.probe([host]); do { try await Task.sleep(for: .seconds(15)) } catch { break } }
+                    }
                     .onDisappear { model.monitor.stop(hostID) }
                     .confirmationDialog(model.text("删除 \(host.name)？", "Delete \(host.name)?"), isPresented: $deleteConfirm, titleVisibility: .visible) {
                         Button(model.text("删除主机", "Delete host"), role: .destructive) { model.deleteHost(host) }.accessibilityIdentifier("host-delete-confirm")
