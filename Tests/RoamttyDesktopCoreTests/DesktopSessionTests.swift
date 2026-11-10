@@ -386,6 +386,32 @@ final class DesktopSessionTests: XCTestCase {
         XCTAssertEqual(s.quality, "clear"); XCTAssertEqual(s.fps, 30); XCTAssertTrue(s.lockOnClose)
     }
 
+    /// The small window alone: the host is asked for at most 15 fps and 1.5 Mbit/s; the page (or the user's lower
+    /// rate) lifts it again. Not shown twice: the same state sends nothing.
+    func testMiniCapsTheStream() throws {
+        let host = FakeHost(probe: FakeHost.probe(), plugin: Self.goodPlugin)
+        let s = session(host)
+        s.start()
+        wait(s, "connected", Self.connected)
+        let stream = try XCTUnwrap(host.allStreams.first)
+        func configs() -> [[String: Any]] {
+            stream.received.filter { $0.type == DesktopProtocol.CONFIG }
+                .compactMap { try? JSONSerialization.jsonObject(with: Data($0.payload)) as? [String: Any] }
+        }
+        let before = configs().count
+        s.setMini(true); s.setMini(true)
+        XCTAssertTrue(waitUntil(2) { configs().count == before + 1 })
+        XCTAssertEqual(configs().last?["fps"] as? Int, DesktopSession.miniFps)
+        XCTAssertEqual(configs().last?["max_bitrate"] as? Int, DesktopSession.miniMaxBitrate)
+        s.setFps(30)
+        XCTAssertTrue(waitUntil(2) { configs().count == before + 2 })
+        XCTAssertEqual(configs().last?["fps"] as? Int, DesktopSession.miniFps, "still capped")
+        s.setMini(false)
+        XCTAssertTrue(waitUntil(2) { configs().count == before + 3 })
+        XCTAssertEqual(configs().last?["fps"] as? Int, 30)
+        XCTAssertEqual(configs().last?["max_bitrate"] as? Int, DesktopSession.uncappedBitrate)
+    }
+
     /// 声音: asked for in the first CONFIG when the host offers Opus; packets reach the player only while the
     /// page is shown and sound is on; switching it off tells the host; STATE `unavailable` says the host has none.
     func testAudioFollowsTheSwitchAndThePage() throws {

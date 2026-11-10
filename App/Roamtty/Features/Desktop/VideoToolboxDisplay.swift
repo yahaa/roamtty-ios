@@ -207,12 +207,18 @@ final class DesktopVideoHostView: UIView {
         isMultipleTouchEnabled = true
     }
     required init?(coder: NSCoder) { fatalError("init(coder:)") }
+    /// One layer, one picture: the desktop page and the small window over the terminal take it in turn (never both
+    /// at once), so a view shown again takes it back.
     func attach(_ display: VideoToolboxDisplay) {
-        if self.display === display { return }
+        if self.display === display, display.layer.superlayer === layer { return }
         self.display?.layer.removeFromSuperlayer()
         self.display = display
         layer.addSublayer(display.layer)
         setNeedsLayout()
+    }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil, let display { attach(display) }
     }
     override func layoutSubviews() {
         super.layoutSubviews()

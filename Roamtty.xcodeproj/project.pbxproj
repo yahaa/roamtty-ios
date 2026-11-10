@@ -1314,6 +1314,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "214A7AC0F6382E8EE9E9A072";
 		};
+		"C9C7633C7C4727C481BF11F4" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/PipLayout.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"408DCF7D41C374AEB4053C24" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "C9C7633C7C4727C481BF11F4";
+		};
 		"F2672ED5BBF58576E44F8C0E" = {
 			"isa" = "PBXFileReference";
 			"path" = "Sources/RoamttyDesktopCore/PluginManifest.swift";
@@ -1377,6 +1387,7 @@
 				"0CAAF1F71ADDE5162583E2C8",
 				"EB4DEC948846FE29B01C7FAE",
 				"6DC6B48436D00D6707500F92",
+				"408DCF7D41C374AEB4053C24",
 				"1EFF663F82683B86DE60547F",
 				"1E3F7B7CB8FDF532AC3BCFA8",
 				"D699A753B79EABE070C27E1A",
@@ -1755,6 +1766,26 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "B3AFEB07524685A45CC93F10";
 		};
+		"0CEF2D92A67D5D025950DB67" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Features/Desktop/DesktopKeyboardPanel.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"EBD3132CC71652F64AE3FF55" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "0CEF2D92A67D5D025950DB67";
+		};
+		"7C2309583EE663A006BE0984" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Features/Desktop/DesktopMiniContent.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"B4DE60D4F1C2F9111BB28B0B" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "7C2309583EE663A006BE0984";
+		};
 		"E141EFA8404E93DBC6F842A6" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/Roamtty/Features/Desktop/DesktopPage.swift";
@@ -1794,6 +1825,16 @@
 		"EA1B54AB3AB6F05C5560088E" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "6DF5BD7A41ABA93A5B3BCC6A";
+		};
+		"4B2AA5557B256CD276AA0686" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Features/Desktop/PipWindow.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"D0C2BF1F0DEA5721A85AF5D9" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "4B2AA5557B256CD276AA0686";
 		};
 		"12E6B62471A619BBA53C6A1E" = {
 			"isa" = "PBXFileReference";
@@ -2592,10 +2633,13 @@
 				"6A935FEDBFF81FE7283D1430",
 				"4241F59F15110DC570B41269",
 				"D4CABE2FEFBE9E39A1FE0247",
+				"EBD3132CC71652F64AE3FF55",
+				"B4DE60D4F1C2F9111BB28B0B",
 				"D5E10AFFB2A511263FEF5585",
 				"3FDC8BA58EA11ECED1555E13",
 				"69119A85CFCB1484B3A9EA74",
 				"EA1B54AB3AB6F05C5560088E",
+				"D0C2BF1F0DEA5721A85AF5D9",
 				"760C7417749DC948376206DF",
 				"C2380531D47BE2DCA43010BF",
 				"3382BF10933A5569D49CD02E",
@@ -3512,6 +3556,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "9B76F49E9E6AEDB080AD92DB";
 		};
+		"62A6469CDBEDBA84199504CE" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/UITests/DesktopPipUITests.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"8745D811940EA801D59378F8" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "62A6469CDBEDBA84199504CE";
+		};
 		"0BE5CF59813BE59F707871C3" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/UITests/DraftFocusUITests.swift";
@@ -3723,6 +3777,7 @@
 				"4DDB6ECBA8F391CF35A39272",
 				"5D1FE89A78BF14A03A5B4C89",
 				"89FA9E018A32D004626F17CB",
+				"8745D811940EA801D59378F8",
 				"49AEEC144FA6D9666704752E",
 				"713EB25EB0623A039F1E39B6",
 				"6C4C6149B117DB44A37C9270",
@@ -3987,6 +4042,7 @@
 				"49EA6B4325FB139A90B6D6D6",
 				"92ECD6A0F533B5871C577065",
 				"214A7AC0F6382E8EE9E9A072",
+				"C9C7633C7C4727C481BF11F4",
 				"F2672ED5BBF58576E44F8C0E",
 				"06553FE0040153E107D34809",
 				"2920228034DC1736EC9D27A2",
@@ -4014,10 +4070,13 @@
 				"FD95E4BA05DE0B8F82CBC8C2",
 				"AF728D00D79479C342578648",
 				"B3AFEB07524685A45CC93F10",
+				"0CEF2D92A67D5D025950DB67",
+				"7C2309583EE663A006BE0984",
 				"E141EFA8404E93DBC6F842A6",
 				"F6BA3F722378544A63AD3274",
 				"1ADA88A30302E2D195D883DE",
 				"6DF5BD7A41ABA93A5B3BCC6A",
+				"4B2AA5557B256CD276AA0686",
 				"12E6B62471A619BBA53C6A1E",
 				"12DB3B6F296F1EB501DF00A2",
 				"8F958728F8123D720A6D9DCE",
@@ -4131,6 +4190,7 @@
 				"4514B1534341631C40E050B2",
 				"5578F26A17FECB07997E0DF6",
 				"9B76F49E9E6AEDB080AD92DB",
+				"62A6469CDBEDBA84199504CE",
 				"0BE5CF59813BE59F707871C3",
 				"24C627DA616761C7BF19EE30",
 				"48A213B2252282D1D8204985",

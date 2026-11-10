@@ -7,9 +7,14 @@ import RoamttyDesktopCore
 struct DesktopGestureOverlay: UIViewRepresentable {
     @ObservedObject var controller: DesktopController
     let size: CGSize
+    /// In the small window over the terminal: a hardware keyboard types on the host only while `keys`, and edge
+    /// swipes stay the system's.
+    var small = false
+    var keys = true
 
     func makeUIView(context: Context) -> DesktopGestureView {
         let view = DesktopGestureView()
+        view.small = small
         view.controller = controller
         return view
     }
@@ -17,6 +22,11 @@ struct DesktopGestureOverlay: UIViewRepresentable {
         uiView.controller = controller
         uiView.boundsSize = size
         uiView.hostCursorChanged(controller.cursor)
+        if small {
+            uiView.accessibilityIdentifier = "pip-desktop-gestures"
+            if keys, uiView.window != nil, !uiView.isFirstResponder { uiView.becomeFirstResponder() }
+            if !keys, uiView.isFirstResponder { uiView.resignFirstResponder() }
+        }
     }
     static func dismantleUIView(_ uiView: DesktopGestureView, coordinator: ()) {
         uiView.stopTicking()
@@ -29,6 +39,8 @@ struct DesktopGestureOverlay: UIViewRepresentable {
 final class DesktopGestureView: UIView {
     weak var controller: DesktopController?
     var boundsSize: CGSize = .zero
+    /// The small window's picture: it takes the keyboard only when asked (`DesktopGestureOverlay.keys`).
+    var small = false
     private let gestures = DesktopGestures(mode: .touch, density: 1)
     /// Fires once, when `gestures` next needs a tick (a hold, a waiting right click, inertia); nil while nothing waits.
     private var tickTimer: Timer?
@@ -289,9 +301,11 @@ final class DesktopGestureView: UIView {
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window != nil {
-            becomeFirstResponder()
+            if !small {
+                becomeFirstResponder()
+                InteractivePopGesture.desktop = self
+            }
             scheduleTick()
-            InteractivePopGesture.desktop = self
         } else {
             stopTicking()
             if InteractivePopGesture.desktop === self { InteractivePopGesture.desktop = nil }
