@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Run DesktopGestureUITests on the simulator against a live desktop host (Ubuntu, Windows or macOS
 # with roamtty-desktop): real touches on the page, their input read back, the host's picture checked.
-#   scripts/test-desktop-gestures.sh host.json [testName ...]
+#   scripts/test-desktop-gestures.sh host.json [testName | Class | Class/testName ...]
 # host.json holds "host", "port", "username" and "password" of a disposable desktop host. Without test
-# names it runs the whole class. ROAMTTY_TAP_POINTS="x,y;dx,y" (fractions of the host's screen, "d" for a
+# names it runs the whole class; a bare name is one of its tests. DesktopPipUITests (the desktop in a small
+# window over its terminal) needs the same kind of host: name the class to run it. ROAMTTY_TAP_POINTS="x,y;dx,y" (fractions of the host's screen, "d" for a
 # double tap) is where testTapHostPoints taps. Builds for testing first unless ROAMTTY_SKIP_BUILD=1.
 # Some tests drive the host itself (Show Desktop, ⌃⌘F, typing its password at the lock screen): see each
 # test's comment before running one against a machine in use.
@@ -46,7 +47,12 @@ python3 scripts/configure-ui-fixture.py "$TEST_RUN" "$HOST_JSON" "$EXTRA" >/dev/
 ONLY=(-only-testing:RoamttyUITests/DesktopGestureUITests)
 if [ $# -gt 0 ]; then
   ONLY=()
-  for test in "$@"; do ONLY+=("-only-testing:RoamttyUITests/DesktopGestureUITests/$test"); done
+  for test in "$@"; do
+    case "$test" in
+      */*|*UITests) ONLY+=("-only-testing:RoamttyUITests/$test") ;;
+      *) ONLY+=("-only-testing:RoamttyUITests/DesktopGestureUITests/$test") ;;
+    esac
+  done
 fi
 STATUS=0
 xcodebuild test-without-building -xctestrun "$TEST_RUN" -destination "id=$SIMULATOR" -resultBundlePath "$RUN.xcresult" \

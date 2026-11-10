@@ -9,6 +9,14 @@ final class DesktopPipUITests: RoamttyLiveUITestCase {
     private var bar: XCUIElement { app.descendants(matching: .any)["pip-desktop-bar"].firstMatch }
     private var dockDesktop: XCUIElement { app.descendants(matching: .any)["terminal-desktop"].firstMatch }
 
+    /// The suite's SSH fixture has no desktop, so there these tests skip, as the gesture tests do.
+    override func setUpWithError() throws {
+        guard ProcessInfo.processInfo.environment["ROAMTTY_DESKTOP_GESTURE_HOST"] == "1" else {
+            throw XCTSkip("Needs a live desktop host: run scripts/test-desktop-gestures.sh host.json DesktopPipUITests")
+        }
+        try super.setUpWithError()
+    }
+
     private func openDock() {
         openTools()
         XCTAssertTrue(dockDesktop.waitForExistence(timeout: 30), "The host's desktop button must show once its desktop is found")

@@ -95,7 +95,7 @@ swift test
 
 The mosh tests exercise wire-format vectors and an installed `mosh-server`, when available. Live SSH tests cover password/interactive/encrypted-key authentication, PTY, concurrent SFTP, no-overwrite and cancellation. Tests requiring unavailable services explicitly skip. XCTest UI tests are in `App/UITests`; sign simulator builds with `CODE_SIGN_IDENTITY=-` and the development entitlements so credential storage is exercised.
 
-For the complete native simulator suite, put the dedicated server's `host`, `port`, `username`, and `password` in the ignored `.private/device-fixture.json`. Authorize the Android fixture's public keys on that server and keep `tmux`, `mosh-server`, and Python 3 available. Then run on the Mac:
+For the complete native simulator suite, put the dedicated server's `host`, `port`, `username`, and `password` in the ignored `.private/device-fixture.json`, or start the Docker fixture on the Mac with `./scripts/serve-container-fixture.sh` and point `ROAMTTY_FIXTURE_JSON` at the `.private/container-fixture.json` it writes. The server must allow local TCP forwarding (the localhost preview tunnels through it) and have a UTF-8 locale; the container does both. Authorize the Android fixture's public keys on that server and keep `tmux`, `mosh-server`, and Python 3 available. Then run on the Mac:
 
 ```sh
 ./scripts/test-simulator.sh
@@ -128,6 +128,7 @@ The desktop gesture tests need a live desktop host with `roamtty-desktop`, so th
 ```sh
 ./scripts/test-desktop-gestures.sh .private/ubuntu.json                           # the whole class
 ./scripts/test-desktop-gestures.sh .private/ubuntu.json testTrackpadModeGestures  # one test
+./scripts/test-desktop-gestures.sh .private/ubuntu.json DesktopPipUITests         # the small window over the terminal
 ```
 
 Some of these tests act on the host itself: they show its desktop, toggle full screen with ⌃⌘F, or type its password at the lock screen. Read a test's comment before running it against a machine someone is using.
