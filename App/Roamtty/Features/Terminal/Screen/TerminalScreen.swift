@@ -30,6 +30,15 @@ struct TerminalScreen: View {
     @State private var editor = false
     /// Until when a double tap's Up/Down/Left keys stay around the pet; each press restarts it.
     @State private var petArrowsUntil: TimeInterval = 0
+    /// The desktop's small window, focused: its touches and typing go to the desktop. A touch on the terminal gives
+    /// the terminal its input back. Focusing does not bring up the keyboard; the bar's keyboard button does.
+    @State private var pipFocused = false
+    @State private var pipKeyboard = false
+    @State private var pipComposing = ""
+    @State private var pipShortcutBar = true
+    @State private var pipLatchRevision = 0
+    @State private var pipKeyboardPage: DesktopKeyboardPage = .ime
+    @State private var pipIMEFocused = false
     private var connected: Bool { runtime.phase == .connected }
     private var dockAvailable: Bool { connected && !editor && !commandSheet }
     /// A double tap or a line starting with `/` brings arrow keys around the pet, while its ring is closed.
@@ -89,6 +98,7 @@ struct TerminalScreen: View {
                         }
                     }
                 }
+                if let desktop = pipDesktop { desktopWindow(desktop, page: page, landscape: landscape, reserved: reserved, twoColumns: twoColumns) }
                 ImageInsertStatus(transfers: model.files, jobs: $imageJobs, topInset: page.safeAreaInsets.top).frame(width: page.size.width, height: page.size.height)
             }
         }
@@ -123,7 +133,11 @@ struct TerminalScreen: View {
             }
         }
         .onDisappear { toolbox.closeRing(); runtime.pendingPaste = nil; _ = runtime.terminalView.resignFirstResponder() }
-        .onChange(of: runtime.workspaceTouches) { _ in if dockAvailable { toolbox.workspaceTouch(at: now) } }
+        .onChange(of: runtime.workspaceTouches) { _ in
+            if pipFocused { unfocusPip() }
+            if dockAvailable { toolbox.workspaceTouch(at: now) }
+        }
+        .onChange(of: pipDesktop == nil) { gone in if gone { unfocusPip() } }
         .onChange(of: runtime.phase) { phase in
             if phase == .connected { toolbox.wake(at: now) } else { toolbox.closeRing(); runtime.pendingPaste = nil }
         }
@@ -275,16 +289,7 @@ struct TerminalScreen: View {
     /// The keys below the dock's collapse and session keys; `dockControlCount` sizes the dock for them.
     /// Android `TerminalPane` primaryControls: desktop (when probe YES) before files, then commands and settings.
     @ViewBuilder private var dockControls: some View {
-        if showDesktopDock {
-            dockButton("ic_desktop", model.text("打开桌面", "Open desktop"), id: "terminal-desktop") {
-                // Android: sticky.clear(); hideKeyboard(); onDesktop()
-                runtime.controlArmed = false
-                runtime.shiftArmed = false
-                hideKeyboard()
-                _ = runtime.terminalView.resignFirstResponder()
-                if let host = model.host(runtime.record.hostID) { model.openDesktop(host) }
-            }
-        }
+        if showDesktopDock { desktopDockButton }
         dockButton("ic_cloud_upload", model.text("上传文件", "Upload files"), id: "upload-file", enabled: connected) { fileAction = .upload }
         dockButton("ic_cloud_download", model.text("下载文件", "Download files"), id: "download-file", enabled: connected) { fileAction = .download }
         dockButton("ic_image", model.text("插入图片", "Insert image"), id: "select-image", enabled: connected) { photoPicker = true }
@@ -292,6 +297,108 @@ struct TerminalScreen: View {
         settingsMenu
     }
     private var dockControlCount: Int { 5 + (showDesktopDock ? 1 : 0) }
+    /// A tap shows the desktop small over the terminal (or closes it), tinted while it shows; a long press opens the
+    /// desktop page.
+    private var desktopDockButton: some View {
+        let shown = pipDesktop != nil
+        let tap = {
+            toolbox.touchDock(at: now)
+            runtime.controlArmed = false; runtime.shiftArmed = false
+            if let host = model.host(runtime.record.hostID) { model.toggleDesktopPip(host) }
+            collapseIfFloating()
+        }
+        let full = {
+            toolbox.touchDock(at: now)
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            openDesktopPage()
+            collapseIfFloating()
+        }
+        return AppIcon("ic_desktop").frame(width: 48, height: 48).contentShape(Rectangle())
+            .foregroundStyle(shown ? Palette.accent : Palette.foreground)
+            .onTapGesture(perform: tap)
+            .onLongPressGesture(minimumDuration: 0.5, perform: full)
+            .accessibilityElement()
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(shown ? model.text("关闭桌面小窗", "Close the desktop window") : model.text("小窗查看桌面", "Show the desktop in a window"))
+            .accessibilityValue(shown ? model.text("已打开", "Open") : "")
+            .accessibilityAction { tap() }
+            .accessibilityAction(named: model.text("打开全屏桌面", "Open the desktop full screen")) { full() }
+            .accessibilityIdentifier("terminal-desktop")
+    }
+    /// The desktop page takes the screen; going back comes to this terminal, its desktop small again if it was.
+    private func openDesktopPage() {
+        unfocusPip()
+        runtime.controlArmed = false; runtime.shiftArmed = false
+        hideKeyboard()
+        _ = runtime.terminalView.resignFirstResponder()
+        if let host = model.host(runtime.record.hostID) { model.openDesktop(host) }
+    }
+
+    // MARK: Desktop window
+
+    /// The host's desktop in the small window, while this terminal is the page on top (the desktop page takes the
+    /// picture otherwise).
+    private var pipDesktop: DesktopController? {
+        guard showDesktopDock, model.path.last == .terminal(runtime.record.id) else { return nil }
+        return model.pipDesktop(for: runtime.record.hostID)
+    }
+    private func focusPip() {
+        runtime.controlArmed = false; runtime.shiftArmed = false
+        toolbox.closeRing()
+        hideKeyboard()
+        _ = runtime.terminalView.resignFirstResponder()
+        resetPipKeyboard()
+        pipFocused = true
+    }
+    private func unfocusPip() {
+        guard pipFocused || pipKeyboard else { return }
+        resetPipKeyboard()
+        pipFocused = false
+    }
+    private func setPipKeyboard(_ open: Bool, _ desktop: DesktopController) {
+        if !open { resetPipKeyboard(desktop); return }
+        pipKeyboard = true; pipShortcutBar = true; pipKeyboardPage = .ime; desktop.page.keyboardPage = .ime; pipIMEFocused = true
+    }
+    private func resetPipKeyboard(_ desktop: DesktopController? = nil) {
+        pipKeyboard = false; pipIMEFocused = false; pipComposing = ""; pipKeyboardPage = .ime
+        if let page = (desktop ?? pipDesktop)?.page {
+            page.keyboardPage = .ime
+            for hid in [HidUsage.LEFT_CTRL, HidUsage.LEFT_ALT, HidUsage.LEFT_GUI, HidUsage.LEFT_SHIFT] where page.latch.state(hid) != .off { page.tapModifier(hid) }
+        }
+        pipLatchRevision += 1
+    }
+    @ViewBuilder
+    private func desktopWindow(_ desktop: DesktopController, page: GeometryProxy, landscape: Bool, reserved: Bool, twoColumns: Bool) -> some View {
+        // The page runs under the status bar and the camera housing, so its own proxy reports no insets: the window's do.
+        let window = runtime.terminalView.window?.safeAreaInsets ?? .zero
+        let insets = EdgeInsets(top: max(window.top, page.safeAreaInsets.top), leading: max(window.left, page.safeAreaInsets.leading),
+                                bottom: max(window.bottom, page.safeAreaInsets.bottom), trailing: max(window.right, page.safeAreaInsets.trailing))
+        let margin: CGFloat = 8
+        // Anywhere it is dragged, clear of the status bar, the camera housing, a pinned dock and the home indicator.
+        let dockWidth: CGFloat = reserved ? (twoColumns ? 96 : 48) : 0
+        let room = CGRect(x: insets.leading + margin, y: insets.top + margin,
+                          width: max(0, page.size.width - insets.leading - max(insets.trailing, dockWidth) - 2 * margin),
+                          height: max(0, page.size.height - insets.top - (keyboardVisible ? 0 : insets.bottom) - 2 * margin))
+        let key = runtime.record.hostID + ".terminal" + (landscape ? ".land" : "")
+        PipDesktopWindow(controller: desktop, stateKey: key, defaultFraction: landscape ? 0.4 : 0.7, room: room,
+                         reference: page.size.width,
+                         focused: pipFocused, keyboardOpen: pipKeyboard,
+                         onTap: { if !pipFocused { focusPip() } },
+                         onClose: { unfocusPip(); model.pipDesktopHostID = nil },
+                         onKeyboard: { setPipKeyboard(!pipKeyboard, desktop) },
+                         onFull: openDesktopPage)
+            .id(key)
+        // Typing on the desktop, as its page's 键盘: the input method and the shortcut bar, over the terminal.
+        if pipFocused && pipKeyboard {
+            DesktopKeyboardPanel(controller: desktop, composingText: $pipComposing, shortcutBar: $pipShortcutBar,
+                                 latchRevision: $pipLatchRevision, keyboardPage: $pipKeyboardPage, imeFocused: $pipIMEFocused,
+                                 alwaysBar: true) { setPipKeyboard(false, desktop) }
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, insets.leading).padding(.trailing, insets.trailing)
+                .padding(.bottom, keyboardVisible ? 0 : insets.bottom)
+                .frame(width: page.size.width, height: page.size.height, alignment: .bottom)
+        }
+    }
     /// Android: only when desktopSupported && probe == YES.
     private var showDesktopDock: Bool {
         guard let host = model.host(runtime.record.hostID), model.desktopSupported(host) else { return false }

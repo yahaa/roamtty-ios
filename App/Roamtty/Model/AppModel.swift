@@ -73,6 +73,8 @@ import RoamttyTransport
     /// Remote desktops' thumbnails, and their controllers once the first desktop opens.
     let desktopThumbnails = DesktopThumbnails()
     var desktopStore: DesktopStore?
+    /// The host whose desktop shows in the small window over its terminal (the dock's desktop button).
+    @Published var pipDesktopHostID: String?
     var desktopPathMonitor: NWPathMonitor?
 
     init() {

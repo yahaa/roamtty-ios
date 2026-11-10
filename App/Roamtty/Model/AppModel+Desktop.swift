@@ -36,10 +36,25 @@ extension AppModel {
     /// Opens the host's desktop page, starting the connection if needed.
     func openDesktop(_ host: Host) { Task { await openDesktopAsync(host) } }
 
-    func openDesktopAsync(_ host: Host) async {
+    /// The dock's desktop button: the host's desktop in a small window over its terminal, starting the connection
+    /// without opening the page; tapped again, the window goes and the desktop stays for its keep-alive.
+    func toggleDesktopPip(_ host: Host) {
+        if pipDesktopHostID == host.id { pipDesktopHostID = nil; return }
+        pipDesktopHostID = host.id
+        if let existing = desktops[host.id], existing.host.hasSameLoginIdentity(as: host), existing.active { return }
+        Task { await openDesktopAsync(host, show: false) }
+    }
+
+    /// The controller the small window shows for `hostID`, if it is open over that host's terminal.
+    func pipDesktop(for hostID: String) -> DesktopController? {
+        pipDesktopHostID == hostID ? desktopStore?[hostID] : nil
+    }
+
+    /// `show`: push the desktop page; otherwise only connect (for the small window).
+    func openDesktopAsync(_ host: Host, show: Bool = true) async {
         if let existing = desktops[host.id],
            existing.host.hasSameLoginIdentity(as: host), existing.active {
-            if !path.contains(.desktop(host.id)) { path.append(.desktop(host.id)) }
+            if show, !path.contains(.desktop(host.id)) { path.append(.desktop(host.id)) }
             return
         }
         desktops.remove(host.id)
@@ -83,9 +98,10 @@ extension AppModel {
             desktops.put(controller)
             controller.start()
             startDesktopPathMonitor()
-            if !path.contains(.desktop(host.id)) { path.append(.desktop(host.id)) }
+            if show, !path.contains(.desktop(host.id)) { path.append(.desktop(host.id)) }
             objectWillChange.send()
         } catch {
+            if !show, pipDesktopHostID == host.id { pipDesktopHostID = nil }
             self.error = error.localizedDescription
         }
     }
@@ -124,6 +140,7 @@ extension AppModel {
     }
 
     func closeDesktop(_ hostID: String) {
+        if pipDesktopHostID == hostID { pipDesktopHostID = nil }
         desktops.remove(hostID)
         path.removeAll { $0 == .desktop(hostID) }
         objectWillChange.send()

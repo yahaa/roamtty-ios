@@ -176,8 +176,40 @@ import RoamttyDesktopCore
     }
 
     func start() { session.start() }
-    func close() { session.close() }
+    func close() { hideTask?.cancel(); shownBy.removeAll(); session.close() }
     func pause() { session.pause() }
+
+    /// Who shows the picture now (the desktop page, the small window over the terminal), each with whether it is small.
+    private var shownBy: [String: Bool] = [:]
+    private var hideTask: Task<Void, Never>?
+    /// How long the picture may go unshown before the host pauses: longer than a switch between the page and the
+    /// small window takes, so that switch never pauses the host or flushes the picture.
+    static let hideGrace: Duration = .milliseconds(600)
+
+    /// `owner` shows the picture, `small` or full (Android `DesktopConnection.shown`). The first one resumes the host;
+    /// only small windows showing it ask the host for a smaller stream.
+    func shown(_ owner: String, small: Bool) {
+        hideTask?.cancel(); hideTask = nil
+        let wasShown = !shownBy.isEmpty
+        shownBy[owner] = small
+        if !wasShown { resume() }
+        updateMini()
+    }
+
+    /// `owner` no longer shows the picture; the host pauses once nothing has shown it for `hideGrace`.
+    func hidden(_ owner: String) {
+        guard shownBy.removeValue(forKey: owner) != nil else { return }
+        if !shownBy.isEmpty { updateMini(); return }
+        hideTask?.cancel()
+        hideTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.hideGrace)
+            guard let self, !Task.isCancelled, self.shownBy.isEmpty else { return }
+            self.hideTask = nil
+            if self.active { self.pause() }
+        }
+    }
+
+    private func updateMini() { session.setMini(!shownBy.isEmpty && shownBy.values.allSatisfy { $0 }) }
     #if DEBUG
     private var layoutFixture = false
     private var fixtureWindowsHost = false

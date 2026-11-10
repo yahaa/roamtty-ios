@@ -167,6 +167,8 @@ public final class DesktopSession: @unchecked Sendable {
     private var _display = 0
     private var _viewOnly = false
     private var _fps: Int, _quality: String, _lockOnClose: Bool, _audio: Bool
+    /// Only the small window over the terminal shows the picture: the host sends fewer, smaller frames.
+    private var _mini = false
     private var _audioAvailable: Bool?
     private var audioPacketsSeen: Int64 = 0
     private var _failure: DesktopText?
@@ -536,7 +538,8 @@ public final class DesktopSession: @unchecked Sendable {
                 if !hello.displays.indices.contains(_display) { _display = max(0, hello.displays.firstIndex { $0.primary } ?? 0) }
                 lastVideoFrame = -1; brokenUntilKey = true
                 _audioAvailable = canAudio
-                var config: [String: Any] = ["display": _display, "fps": _fps, "quality": _quality, "lock_on_close": _lockOnClose]
+                var config: [String: Any] = ["display": _display, "fps": streamFps, "quality": _quality, "lock_on_close": _lockOnClose]
+                if _mini { config["max_bitrate"] = Self.miniMaxBitrate }
                 if canAudio && _audio { config["audio"] = true }
                 return config
             }
@@ -820,7 +823,26 @@ public final class DesktopSession: @unchecked Sendable {
         send(DesktopProtocol.req(on ? DesktopProtocol.REQ_VIEW_ONLY_ON : DesktopProtocol.REQ_VIEW_ONLY_OFF))
     }
     public func setQuality(_ value: String) { sync { _quality = value }; send(DesktopProtocol.config(["quality": value])) }
-    public func setFps(_ value: Int) { sync { _fps = value }; send(DesktopProtocol.config(["fps": value])) }
+    public func setFps(_ value: Int) { let fps = sync { _fps = value; return streamFps }; send(DesktopProtocol.config(["fps": fps])) }
+    /// The frame rate asked of the host: the user's, capped while only the small window shows the picture. Under `sync`.
+    private var streamFps: Int { _mini ? min(_fps, Self.miniFps) : _fps }
+    /// Whether only the small window over the terminal shows the picture (Android `DesktopConnection.updateMini`):
+    /// the host then sends at most `miniFps` frames a second and `miniMaxBitrate` bits.
+    public func setMini(_ on: Bool) {
+        let fps: Int? = sync {
+            guard _mini != on else { return nil }
+            _mini = on
+            return streamFps
+        }
+        guard let fps else { return }
+        send(DesktopProtocol.config(["fps": fps, "max_bitrate": on ? Self.miniMaxBitrate : Self.uncappedBitrate]))
+    }
+    public var mini: Bool { sync { _mini } }
+    /// The small window's frame rate and bitrate cap (bits per second): plenty for a picture a third of the screen.
+    public static let miniFps = 15
+    public static let miniMaxBitrate = 1_500_000
+    /// Lifts the cap: the host takes the lower of this and its own quality cap.
+    public static let uncappedBitrate = 1_000_000_000
     public func setDisplay(_ index: Int) { sync { _display = index }; send(DesktopProtocol.config(["display": index])) }
     public func setLockOnClose(_ on: Bool) { sync { _lockOnClose = on }; send(DesktopProtocol.config(["lock_on_close": on])) }
     /// 声音: asking again after the host said it has none lets it try once more (a device plugged in since).
