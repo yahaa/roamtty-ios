@@ -29,7 +29,7 @@ public enum HostSystem: String, Codable, CaseIterable, Sendable {
 
 public enum HostSystemProbe {
     public static let kernelMarker = "__ITERMUX_KERNEL__", releaseMarker = "__ITERMUX_OS_RELEASE__", legacyMarker = "__ITERMUX_LEGACY_RELEASE__"
-    public static let command = RemoteCommands.stdinShell, windowsCommand = "cmd.exe /c ver"
+    public static let windowsCommand = "cmd.exe /c ver"
     public static let script = #"""
     printf '__ITERMUX_KERNEL__\n'; uname -s 2>/dev/null
     printf '__ITERMUX_OS_RELEASE__\n'

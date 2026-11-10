@@ -1,14 +1,11 @@
 // Behavioral port of Roamtty Android's HostPlugins helpers.
 import Foundation
 
-public enum HostPlugin: String, Codable, CaseIterable, Sendable { case tmux, mosh
-    public var id: String { rawValue }
-}
+public enum HostPlugin: String, Codable, CaseIterable, Sendable { case tmux, mosh }
 
 public enum HostPluginProbe {
     public static let tmuxMarker = "__ITERMUX_TMUX__="
     public static let moshMarker = "__ITERMUX_MOSH__="
-    public static let command = RemoteCommands.stdinShell
     public static var script: String {
         RemoteCommands.pathSetup + "\nm=$(command -v mosh-server 2>/dev/null)\nprintf '\(tmuxMarker)%s\\n' \"$(command -v tmux 2>/dev/null)\"\nprintf '\(moshMarker)%s\\n' \"$m\"\nexit 0"
     }

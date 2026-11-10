@@ -837,7 +837,6 @@ public final class DesktopSession: @unchecked Sendable {
         guard let fps else { return }
         send(DesktopProtocol.config(["fps": fps, "max_bitrate": on ? Self.miniMaxBitrate : Self.uncappedBitrate]))
     }
-    public var mini: Bool { sync { _mini } }
     /// The small window's frame rate and bitrate cap (bits per second): plenty for a picture a third of the screen.
     public static let miniFps = 15
     public static let miniMaxBitrate = 1_500_000

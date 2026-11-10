@@ -49,9 +49,8 @@ public struct AgentLaunch: Equatable, Sendable {
     /// Agents report their state through hooks on hosts that run POSIX scripts.
     public var reportsStatus: Bool { true }
     /// `agentCommand` as typed: with the hooks `AgentHooks.hostFile` puts on the host, which Claude Code reads from its
-    /// settings and the other agents get from their launcher.
-    public var typedCommand: String { typedCommand(session: nil) }
-    /// As `typedCommand`, in tmux session `session`, which Claude Code's hooks then report to from outside tmux too.
+    /// settings and the other agents get from their launcher. In tmux session `session`, Claude Code's hooks then
+    /// report to it from outside tmux too.
     public func typedCommand(session: String?) -> String {
         if agent == .claude { return agentCommand + " --settings " + AgentHooks.settingsPath(session: session) }
         return AgentHooks.command(agent) + agentCommand.dropFirst(agent.command.count)
