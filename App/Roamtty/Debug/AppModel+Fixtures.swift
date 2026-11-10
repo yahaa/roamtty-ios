@@ -14,7 +14,7 @@ extension AppModel {
               let username = environment["ROAMTTY_TEST_USERNAME"], let password = environment["ROAMTTY_TEST_PASSWORD"] else { return }
         let fixture = Host(id: "ui-live-host", name: "UI Live Host", address: address, port: Int(environment["ROAMTTY_TEST_PORT"] ?? "22") ?? 22,
             username: username, auth: .password, mode: .tmux, savePassword: true)
-        try store.saveHost(fixture); try vault.save(data: Data(password.utf8), hostID: fixture.id, purpose: .password); hosts = try store.hosts()
+        try store.saveHost(fixture); try logins.vault.save(data: Data(password.utf8), hostID: fixture.id, purpose: .password); hosts = try store.hosts()
     }
 
     /// An isolated, offline UI fixture: no credentials, network connection or user-store changes.

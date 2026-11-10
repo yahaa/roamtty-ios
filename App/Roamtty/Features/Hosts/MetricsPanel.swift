@@ -125,7 +125,7 @@ struct MetricsPanel: View {
     private func percent(_ value: Double?) -> String { MetricFormat.percent(value) }
     private func bytes(_ value: Double) -> String { MetricFormat.bytes(value) }
     private func usage(_ used: Int64?, _ total: Int64?) -> String? { MetricFormat.usage(used, total) }
-    private func uptime(_ seconds: Int64) -> String { MetricFormat.uptime(seconds, model) }
+    private func uptime(_ seconds: Int64) -> String { MetricFormat.uptime(seconds, model.language) }
 }
 
 /// How the host page writes its readings, shared by the portrait panel and the landscape tabs.
@@ -148,11 +148,11 @@ enum MetricFormat {
         let scaledUsed = Double(max(0, used)) / scale
         return String(format: unit == 0 || scaledUsed >= 100 ? "%.0f/" : "%.1f/", scaledUsed) + bytes(Double(total))
     }
-    @MainActor static func uptime(_ seconds: Int64, _ model: AppModel) -> String {
+    static func uptime(_ seconds: Int64, _ language: AppLanguage) -> String {
         let days = seconds / 86400, hours = seconds % 86400 / 3600, minutes = seconds % 3600 / 60
-        if days > 0 { return model.text("\(days) 天 \(hours) 小时", "\(days)d \(hours)h") }
-        if hours > 0 { return model.text("\(hours) 小时 \(minutes) 分钟", "\(hours)h \(minutes)m") }
-        return model.text("\(minutes) 分钟", "\(minutes)m")
+        if days > 0 { return language.text("\(days) 天 \(hours) 小时", "\(days)d \(hours)h") }
+        if hours > 0 { return language.text("\(hours) 小时 \(minutes) 分钟", "\(hours)h \(minutes)m") }
+        return language.text("\(minutes) 分钟", "\(minutes)m")
     }
 }
 

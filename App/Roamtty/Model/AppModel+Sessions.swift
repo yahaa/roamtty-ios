@@ -2,67 +2,10 @@ import Foundation
 import RoamttyCore
 import RoamttyTransport
 
-/// Terminal sessions: what the lists show of them, launching, connecting, closing, and reconnecting by themselves.
+/// Terminal sessions: launching, connecting and closing them. What the lists show of them is in
+/// `AppModel+SessionList`, reconnecting by themselves in `AppModel+SessionReconnect`.
 extension AppModel {
-    // MARK: What the lists show
-
-    /// Android `TerminalConnection.titleForDisplay`: "host · title", or "host · 会话 N" without a title.
-    func sessionDefaultTitle(_ record: SessionRecord) -> String { "\(host(record.hostID)?.name ?? "") · " + text("会话 \(record.number)", "Session \(record.number)") }
-    func sessionTitle(_ record: SessionRecord) -> String {
-        record.title.isEmpty ? sessionDefaultTitle(record) : "\(host(record.hostID)?.name ?? "") · \(record.title)"
-    }
-    /// Sessions the app holds, live or coming back first, then needing the user, and closed (Android `activityRank`).
-    var sessionsByActivity: [SessionRecord] {
-        func rank(_ record: SessionRecord) -> Int {
-            // A restored session that comes back keeps its place among the live ones, so cards do not reorder
-            // while the app reconnects them one by one.
-            guard let runtime = runtimes[record.id] else { return hostOffline(record) ? 3 : 0 }
-            if sessionComingBack(record) { return 0 }
-            switch runtime.phase {
-            case .connected, .connecting, .verifying, .authenticating: return 0
-            case .disconnected: return 3
-            default: return 2
-            }
-        }
-        return records.enumerated().sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }.map(\.element)
-    }
-    /// The agent a session runs: the one its hooks report, else the one it was launched for.
-    func sessionAgent(_ record: SessionRecord) -> CodingAgent? {
-        let runtime = runtimes[record.id]
-        return CodingAgent.fromCommand(listedAgentStatus(record).status?.agent) ?? runtime?.launchedAgent ?? CodingAgent.fromTitle(record.title)
-    }
-    /// What the list shows of a session's agent: what it reports now (`live`), or, while the session comes back and
-    /// before its host has answered, what it reported last, so opening the app or returning to it does not move every
-    /// card to "其它" and back; and while its host is offline, so the card keeps its group and says what it was doing.
-    /// A session that failed to connect shows nothing.
-    func listedAgentStatus(_ record: SessionRecord) -> (status: AgentStatus?, live: Bool) {
-        guard record.mode == .tmux else { return (nil, false) }
-        let runtime = runtimes[record.id]
-        if let runtime, runtime.phase == .connected, runtime.agentPolled { return (runtime.agentStatus, true) }
-        guard sessionComingBack(record) || hostOffline(record) else { return (nil, false) }
-        return (AgentStatusMemory.value(record.id), false)
-    }
-    /// A session on its way back: connecting, or dropped (the app was in the background) or restored, which the list
-    /// reconnects by itself, on a host that is not offline.
-    func sessionComingBack(_ record: SessionRecord) -> Bool {
-        if let runtime = runtimes[record.id], runtime.phase.active { return true }
-        return SessionReconnect.onOpen(sessionEnd(record)) && !hostOffline(record)
-    }
-    /// Why a session's terminal is down; one with no runtime came back from the journal.
-    func sessionEnd(_ record: SessionRecord) -> SessionEnd? { runtimes[record.id].map { $0.phase.active ? nil : $0.end } ?? .restored }
-
     func persistJournal() { records = journal.records; do { try store?.saveJournal(journal) } catch { self.error = error.localizedDescription } }
-
-    // MARK: Sessions already on the server
-
-    /// The tmux sessions running on the host, most recently used first; nil when the host has no tmux.
-    func tmuxSessions(on hostID: String) async throws -> [TmuxSessionInfo]? {
-        let ssh = try await connection(for: hostID)
-        let result = try await ssh.run(RemoteCommands.tmuxSessions, timeout: 10)
-        if result.status == 127 { return nil }
-        guard result.status == 0 else { throw RoamError.invalid(text("无法读取 tmux 会话", "Cannot list tmux sessions")) }
-        return TmuxSessionInfo.parse(result.text)
-    }
 
     // MARK: Opening and launching
 
@@ -126,22 +69,22 @@ extension AppModel {
         let host = originalLogin?.reconnect(using: savedHost).host ?? savedHost
         let usesSavedCredentials = host.hasSameLoginIdentity(as: savedHost)
         cancelLaunch(record.id)
-        let attempt = generations.attempt(host: host.id, owner: record.id)
+        let attempt = logins.attempt(host: host.id, owner: record.id)
         let preference = preferMosh ?? MoshPreference.value(record.id) ?? (savedHost.plugins?.contains("mosh") == true)
         if let preferMosh { MoshPreference.set(preferMosh, for: record.id) }
         let runtime = SessionRuntime(record: record, host: host, loginSnapshot: originalLogin)
         runtime.onFailure = { [weak self, weak runtime] failure in
-            guard let self, let runtime, self.runtimes[record.id] === runtime, self.isCurrent(attempt) else { return }
+            guard let self, let runtime, self.runtimes[record.id] === runtime, self.logins.isCurrent(attempt) else { return }
             if usesSavedCredentials, let current = self.host(host.id), host.hasSameLoginIdentity(as: current), (failure as? RoamError) == .authentication {
-                self.credentialCache.rejectLogin(host.id)
+                self.logins.rejectLogin(host.id)
             }
         }
         // Only a login that needs no answer from the user: it runs in the background, from the status poll.
         runtime.reopenSideConnection = { [weak self, weak runtime] in
-            guard let self, let runtime, host.auth != .interactive, self.runtimes[record.id] === runtime, self.isCurrent(attempt) else { throw RoamError.cancelled }
+            guard let self, let runtime, host.auth != .interactive, self.runtimes[record.id] === runtime, self.logins.isCurrent(attempt) else { throw RoamError.cancelled }
             let retained = runtime.loginSnapshot.reconnect(using: savedHost).retainedCredentials
-            let creds = try await self.credentials(for: host, owner: record.id, retained: retained, useSavedCredentials: usesSavedCredentials, asking: false)
-            let ssh = try self.makeConnection(host, credentials: creds, owner: record.id)
+            let creds = try await self.logins.credentials(for: host, owner: record.id, retained: retained, useSavedCredentials: usesSavedCredentials, asking: false)
+            let ssh = try self.logins.makeConnection(host, credentials: creds, owner: record.id)
             do { try await ssh.connectInBackground() } catch { ssh.disconnectInBackground(); throw error }
             return ssh
         }
@@ -158,20 +101,20 @@ extension AppModel {
             defer { if sessionLaunches[record.id]?.token == token { sessionLaunches.removeValue(forKey: record.id) } }
             do {
                 let retained = runtime.loginSnapshot.reconnect(using: savedHost).retainedCredentials
-                let creds = try await credentials(for: host, owner: record.id, retained: retained, useSavedCredentials: usesSavedCredentials)
+                let creds = try await logins.credentials(for: host, owner: record.id, retained: retained, useSavedCredentials: usesSavedCredentials)
                 guard foreground else { throw RoamError.cancelled }
-                guard !Task.isCancelled, sessionLaunches[record.id]?.token == token, runtimes[record.id] === runtime, runtime.phase.active, isCurrent(attempt) else { return }
-                let ssh = try makeConnection(host, credentials: creds, owner: record.id)
+                guard !Task.isCancelled, sessionLaunches[record.id]?.token == token, runtimes[record.id] === runtime, runtime.phase.active, logins.isCurrent(attempt) else { return }
+                let ssh = try logins.makeConnection(host, credentials: creds, owner: record.id)
                 runtime.connect(ssh: ssh, credentials: creds, preferMosh: preference, directory: directory, agent: agent)
-            } catch { if isCurrent(attempt), runtimes[record.id] === runtime { runtime.fail(error) } }
+            } catch { if logins.isCurrent(attempt), runtimes[record.id] === runtime { runtime.fail(error) } }
         }
         sessionLaunches[record.id] = TrackedTask(token: token, task: task)
     }
     /// Stops a login under way for `id` (a session, or a host's tools) and drops the questions it asked.
     func cancelLaunch(_ id: String) {
-        generations.invalidateOwner(id)
+        logins.invalidateOwner(id)
         sessionLaunches.removeValue(forKey: id)?.cancel()
-        if prompts.contains(owner: id) { prompts.removeAll(owner: id).forEach { $0.answer(nil) } }
+        logins.dismissPrompts(owner: id)
     }
 
     // MARK: Closing
@@ -213,8 +156,8 @@ extension AppModel {
         guard record.mode == .tmux && !record.external, let login else { return }
         Task {
             do {
-                let creds = try await credentials(for: login.host, retained: login.retainedCredentials, useSavedCredentials: login.usesSavedCredentials, asking: false)
-                let ssh = try makeConnection(login.host, credentials: creds)
+                let creds = try await logins.credentials(for: login.host, retained: login.retainedCredentials, useSavedCredentials: login.usesSavedCredentials, asking: false)
+                let ssh = try logins.makeConnection(login.host, credentials: creds)
                 defer { ssh.disconnectInBackground() }
                 try await ssh.connectInBackground()
                 let result = try await ssh.run(RemoteCommands.shell(RemoteCommands.killTmux(record.remoteName)), timeout: 15)
@@ -274,42 +217,5 @@ extension AppModel {
         MoshPreference.forget(id)
         AgentStatusMemory.set(nil, for: id)
         AgentNotifier.shared.withdraw(id)
-    }
-
-    // MARK: Reconnecting by itself
-
-    /// Opening a dropped or restored terminal reconnects it, at most once per `SessionReconnect.interval`.
-    func reconnectOnOpen(_ record: SessionRecord) async {
-        guard SessionReconnect.onOpen(sessionEnd(record)) else { return }
-        let wait = SessionReconnect.delay(lastAttempt: autoReconnectedAt[record.id], now: Date())
-        if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
-        guard !Task.isCancelled, foreground, records.contains(record), SessionReconnect.onOpen(sessionEnd(record)) else { return }
-        autoReconnectedAt[record.id] = Date()
-        reconnect(record)
-    }
-    func beginSessionListVisit() { retriedThisVisit = [] }
-    /// While the session list is on screen, sessions that dropped, came back from the journal or lost the network
-    /// reconnect by themselves: only on hosts that need nothing typed, and only once the host answers again.
-    func reconnectFromList() {
-        guard foreground else { return }
-        let now = Date()
-        for record in records where !retriedThisVisit.contains(record.id) {
-            let end = sessionEnd(record)
-            // This runs every two seconds: the session's own state rules it out before its host's login is read
-            // from the Keychain.
-            guard SessionReconnect.fromList(end), SessionReconnect.delay(lastAttempt: autoReconnectedAt[record.id], now: now) == 0,
-                  let host = host(record.hostID), canLoginSilently(host) else { continue }
-            // An offline host is left alone, not retried on every visit: a fresh probe must find its sshd first.
-            if !hostConnected(host) {
-                let since: Date
-                if let waiting = waitingForHostSince[record.id] { since = waiting } else { since = now; waitingForHostSince[record.id] = now; Task { await probeHosts([host]) } }
-                guard SessionReconnect.hostBack(online: reachability[host.id]?.isOnline == true, checkedAt: reachabilityCheckedAt[host.id], since: since) else { continue }
-            }
-            waitingForHostSince.removeValue(forKey: record.id)
-            // A host still out of reach is tried once per visit, not every few seconds.
-            if !SessionReconnect.onOpen(end) { retriedThisVisit.insert(record.id) }
-            autoReconnectedAt[record.id] = now
-            if runtimes[record.id] == nil { connectSession(record) } else { reconnect(record) }
-        }
     }
 }

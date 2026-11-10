@@ -38,7 +38,7 @@ Dependencies are version-pinned; native downloads are SHA-256 checked. Generated
 Sources/
   CNative/            C shims (sockets, crypto, local files) linking libssh2, OpenSSL and SQLite
   RoamttyCore/        platform-independent logic, unit tested on macOS and Linux
-    Model/            hosts, settings, session journal
+    Model/            hosts, credentials, settings, session journal, errors
     Persistence/      the SQLite store
     Security/         Keychain vault, in-memory logins, host-key pins, private keys
     Sessions/         reconnect rules, login and connection snapshots, generations
@@ -47,23 +47,26 @@ Sources/
     Terminal/         shortcuts, URL finder, mouse tracking, output history
     Text/             syntax highlighting, Markdown, code search
   RoamttyTransport/   SSH/SFTP (SSH/) and mosh (Mosh/)
+  RoamttyDesktopCore/ the remote desktop: its UDP link, protocol, session state machine, gestures and plugin installer
 App/
   Roamtty/            the iOS app
     Application/      entry point and launch splash
     Navigation/       routes, sheets, the root stack and drawer
-    Model/            AppModel, the state screens observe, split by feature in extensions
-    Services/         diagnostics, reachability, the share inbox, per-session preferences
+    Model/            AppModel: hosts, sessions and navigation, split by feature in extensions
+      Connections/    logins, the login questions, each host's shared connection
+      Hosts/          a host's live metrics and reachability
+    Services/         diagnostics, the reachability probe, the share inbox, per-session preferences
     DesignSystem/     palette, shared components, button styles, formatting
-    Features/         Home, Hosts, Sessions, Terminal, Files, Settings, Authentication
+    Features/         Home, Hosts, Sessions, Terminal, Files, Desktop, Settings, Authentication
     Debug/            on-device validation (Debug builds only)
     Resources/        fonts and the asset catalog
   Shared/             code shared by the app and the share extension
   ShareExtension/     the share extension
   UITests/            XCTest UI suite against live SSH fixtures
-Tests/                RoamttyCore and RoamttyTransport unit and live tests
+Tests/                RoamttyCore, RoamttyTransport and RoamttyDesktopCore unit and live tests
 ```
 
-Views read state from `AppModel` and call its actions; logic that needs no UIKit lives in `RoamttyCore`, where it is unit tested. `scripts/generate-project.py` picks up every source file under these folders.
+Views observe `AppModel` and call its actions. `AppModel` owns the hosts, the sessions and what is on screen; how a host is logged in to, connected and watched is the work of its services (`HostLogins`, `HostConnectionPool`, `HostMonitor`, `HostReachabilityTracker`), which know only the small `ConnectionEnvironment` protocol. Tools that need a connection or the wording of the app's language take a `ConnectionResolver` or an `AppLanguage`, not the model. Logic that needs no UIKit lives in `RoamttyCore`, where it is unit tested. `scripts/generate-project.py` picks up every source file under these folders.
 
 ## Lint
 
@@ -76,8 +79,10 @@ Every rule the config turns off, and every inline `swiftlint:disable`, carries i
 ## Tests
 
 ```sh
-# macOS Core and transport tests
-swift test
+# macOS Core and transport tests. Without a server the live SSH tests skip; against the Docker fixture
+# (scripts/serve-container-fixture.sh) and the Android fixture's keys they run:
+ROAMTTY_TEST_PASSWORD_FILE=$PWD/.private/container-fixture/password ROAMTTY_TEST_PORT=22993 \
+  ROAMTTY_TEST_KEYS=../roamtty/ssh-core/src/test/resources/keys swift test
 
 # Linux: Swift 6+, CMake, OpenSSL/zlib development headers
 ./scripts/bootstrap-linux-native.sh
@@ -90,9 +95,9 @@ swift test
 
 `./scripts/test-terminal-url.sh` checks terminal URLs, wide cells, scrollback, reset lifecycle and bounded accessibility export against the same commit-pinned [SwiftTerm fork](https://github.com/yahaa/SwiftTerm) as the app. The upstream v1.13.0 base and two downstream patches are documented in [`docs/dependencies/swiftterm.md`](docs/dependencies/swiftterm.md).
 
-The mosh tests exercise wire-format vectors and an installed `mosh-server`, when available. Live SSH tests cover password/interactive/encrypted-key authentication, PTY, concurrent SFTP, no-overwrite and cancellation. Tests requiring unavailable services explicitly skip. XCTest UI tests are in `App/UITests`; sign simulator builds with `CODE_SIGN_IDENTITY=-` and the development entitlements so credential storage is exercised.
+The mosh tests exercise wire-format vectors and an installed `mosh-server` and `tmux`, found in `/usr/bin`, Homebrew's folders, or where `ROAMTTY_MOSH_SERVER` and `ROAMTTY_TMUX` say. Live SSH tests cover password/interactive/encrypted-key authentication, PTY, concurrent SFTP, no-overwrite and cancellation. Tests requiring unavailable services explicitly skip. XCTest UI tests are in `App/UITests`; sign simulator builds with `CODE_SIGN_IDENTITY=-` and the development entitlements so credential storage is exercised.
 
-For the complete native simulator suite, put the dedicated server's `host`, `port`, `username`, and `password` in the ignored `.private/device-fixture.json`. Authorize the Android fixture's public keys on that server and keep `tmux`, `mosh-server`, and Python 3 available. Then run on the Mac:
+For the complete native simulator suite, put the dedicated server's `host`, `port`, `username`, and `password` in the ignored `.private/device-fixture.json`, or start the Docker fixture on the Mac with `./scripts/serve-container-fixture.sh` and point `ROAMTTY_FIXTURE_JSON` at the `.private/container-fixture.json` it writes. The server must allow local TCP forwarding (the localhost preview tunnels through it) and have a UTF-8 locale; the container does both. Authorize the Android fixture's public keys on that server and keep `tmux`, `mosh-server`, and Python 3 available. Then run on the Mac:
 
 ```sh
 ./scripts/test-simulator.sh
@@ -125,6 +130,7 @@ The desktop gesture tests need a live desktop host with `roamtty-desktop`, so th
 ```sh
 ./scripts/test-desktop-gestures.sh .private/ubuntu.json                           # the whole class
 ./scripts/test-desktop-gestures.sh .private/ubuntu.json testTrackpadModeGestures  # one test
+./scripts/test-desktop-gestures.sh .private/ubuntu.json DesktopPipUITests         # the small window over the terminal
 ```
 
 Some of these tests act on the host itself: they show its desktop, toggle full screen with ⌃⌘F, or type its password at the lock screen. Read a test's comment before running it against a machine someone is using.
@@ -133,7 +139,7 @@ The custom font checks use real CoreText on macOS:
 
 ```sh
 swiftc App/Roamtty/Features/Settings/Fonts/CustomFontStore.swift scripts/test-font-catalog.swift -o /tmp/roamtty-font-checks
-/tmp/roamtty-font-checks
+/tmp/roamtty-font-checks App/Roamtty/Resources/Fonts/JetBrainsMono-Regular.ttf App/Roamtty/Resources/Fonts/FiraCode-Regular.ttf
 ```
 
 The Foundation-only share recovery checks also run on Linux:
@@ -150,7 +156,14 @@ swiftc App/Shared/ShareInboxStore.swift App/Shared/ShareInboxWorker.swift App/Ro
 /tmp/roamtty-share-worker-tests
 ```
 
-`docs/PLAN.md` records the intended parity scope; `docs/PROGRESS.md` records verification and remaining work. Device and visual checks require Xcode and a paired device. See `THIRD_PARTY_NOTICES.md` for licenses.
+The terminal interaction checks (cursor and startup gates, toolbox timing, paste and scroll routing) run on macOS:
+
+```sh
+swiftc App/Roamtty/Features/Terminal/Input/TerminalInteraction.swift scripts/test-terminal-interaction.swift -o /tmp/roamtty-terminal-check
+/tmp/roamtty-terminal-check
+```
+
+[`docs/SIMULATOR-COVERAGE.md`](docs/SIMULATOR-COVERAGE.md) records what each full run executed and how it ended; [`docs/UI-PARITY.md`](docs/UI-PARITY.md) maps Android's screens to this app's. Device and visual checks require Xcode and a paired device. See `THIRD_PARTY_NOTICES.md` for licenses.
 
 ## Data and lifecycle
 

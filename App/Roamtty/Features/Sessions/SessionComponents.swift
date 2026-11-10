@@ -25,12 +25,12 @@ extension AgentStatus.State {
 }
 
 extension SessionGroup {
-    @MainActor func label(_ model: AppModel, plainOnly: Bool) -> String {
+    func label(_ language: AppLanguage, plainOnly: Bool) -> String {
         switch self {
-        case .waiting: return model.text("待确认", "Needs you")
-        case .working: return model.text("运行中", "Running")
-        case .done: return model.text("已完成", "Done")
-        case .other: return plainOnly ? model.text("终端", "Terminal") : model.text("其它", "Other")
+        case .waiting: return language.text("待确认", "Needs you")
+        case .working: return language.text("运行中", "Running")
+        case .done: return language.text("已完成", "Done")
+        case .other: return plainOnly ? language.text("终端", "Terminal") : language.text("其它", "Other")
         }
     }
     var color: Color {

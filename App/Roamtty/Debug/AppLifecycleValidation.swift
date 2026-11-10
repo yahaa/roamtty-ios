@@ -103,7 +103,7 @@ import RoamttyTransport
         let host = Host(id: "lifecycle-fixture", name: "Lifecycle fixture", address: address,
                         port: Int(env["ROAMTTY_TEST_PORT"] ?? "22") ?? 22, username: user, auth: .password, mode: .tmux, savePassword: true)
         try store.saveHost(host)
-        try model.vault.save(data: Data(password.utf8), hostID: host.id, purpose: .password)
+        try model.logins.vault.save(data: Data(password.utf8), hostID: host.id, purpose: .password)
         model.hosts = try store.hosts()
         // Older runs' cards go, so every cycle starts from the same list.
         for record in model.records { model.forceDeleteSession(record) }
@@ -196,11 +196,11 @@ import RoamttyTransport
             footprints.append(footprint())
         }
         let frames = watch.stop()
-        let stopped = await wait(5, until: { model.monitorJobs.isEmpty })
+        let stopped = await wait(5, until: { model.monitor.idle })
         let growth = Int(footprints.last ?? 0) - Int(footprints.dropFirst().first ?? 0)
         return ["name": "host_page_and_files_cycles", "cycles": cycles, "footprintsMiB": footprints, "frames": frames,
                 "monitorStoppedAfterLeaving": stopped, "growthAfterFirstCycleMiB": growth,
-                "sharedConnections": model.connections.count, "passed": stopped && growth < 8]
+                "sharedConnections": model.pool.count, "passed": stopped && growth < 8]
     }
 
     /// Four tmux sessions left open on the home list for 30 seconds: what the idle app costs and whether it grows.

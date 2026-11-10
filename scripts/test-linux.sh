@@ -24,7 +24,8 @@ KbdInteractiveAuthentication yes
 UsePAM yes
 PermitRootLogin no
 AllowUsers itermux_test
-AllowTcpForwarding no
+AllowTcpForwarding local
+PermitOpen localhost:* 127.0.0.1:* [::1]:*
 X11Forwarding no
 PrintMotd no
 PrintLastLog no

@@ -13,7 +13,7 @@ struct TmuxSessionList: View {
     var idPrefix = "launch"
     let onTap: (TmuxSessionInfo) -> Void
     var body: some View {
-        let text = TmuxSessionText(model: model, home: home)
+        let text = TmuxSessionText(language: model.language, home: home)
         return ScrollView {
             LazyVStack(spacing: 0) {
                 ForEach(sessions) { session in
@@ -54,7 +54,7 @@ struct TmuxSessionCard: View {
     let session: TmuxSessionInfo
     var home: String?
     var body: some View {
-        let text = TmuxSessionText(model: model, home: home)
+        let text = TmuxSessionText(language: model.language, home: home)
         let agent = text.agent(session)
         let headline = text.headline(session, agent: agent)
         let open = model.records.contains { $0.hostID == hostID && $0.mode == .tmux && $0.remoteName == session.name }
@@ -77,8 +77,8 @@ struct TmuxSessionCard: View {
 }
 
 /// How a tmux session reads in the list and on the card. `home` shows folders as `~/…`.
-@MainActor struct TmuxSessionText {
-    let model: AppModel
+struct TmuxSessionText {
+    let language: AppLanguage
     let home: String?
     /// The agent in the session: the one its hooks report, else one running without them, by its program's name.
     func agent(_ session: TmuxSessionInfo) -> CodingAgent? {
@@ -98,9 +98,9 @@ struct TmuxSessionCard: View {
         guard let status = session.agent else { return nil }
         let state: String
         switch status.state {
-        case .working: state = model.text("运行中", "Running")
-        case .waiting: state = model.text("等待确认", "Needs approval")
-        case .idle: state = model.text("空闲", "Idle")
+        case .working: state = language.text("运行中", "Running")
+        case .waiting: state = language.text("等待确认", "Needs approval")
+        case .idle: state = language.text("空闲", "Idle")
         }
         let more = status.state == .idle ? replyPreview(status.reply) : agentActivity(status)
         return more.isEmpty ? state : state + " · " + more
@@ -113,13 +113,13 @@ struct TmuxSessionCard: View {
     /// "~/work/app · 5分钟前 · 3 个窗口 · 2 个客户端已连接 · roamtty-1a2b": the folder unless the headline is it; a name
     /// the app made up goes last, as it says least, one somebody chose first.
     func detail(_ session: TmuxSessionInfo, headline: String) -> String {
-        guard session.attachable else { return model.text("名称含有特殊字符，暂不支持打开", "Its name has special characters, so it can't be opened") }
+        guard session.attachable else { return language.text("名称含有特殊字符，暂不支持打开", "Its name has special characters, so it can't be opened") }
         var parts: [String] = []
         let folder = path(session.directory)
         if !folder.isEmpty && folder != headline { parts.append(folder) }
         if let activity = session.activity { parts.append(ago(activity)) }
-        if session.windows > 1 { parts.append(model.text("\(session.windows) 个窗口", "\(session.windows) windows")) }
-        if session.attached > 0 { parts.append(model.text("\(session.attached) 个客户端已连接", session.attached == 1 ? "1 client attached" : "\(session.attached) clients attached")) }
+        if session.windows > 1 { parts.append(language.text("\(session.windows) 个窗口", "\(session.windows) windows")) }
+        if session.attached > 0 { parts.append(language.text("\(session.attached) 个客户端已连接", session.attached == 1 ? "1 client attached" : "\(session.attached) clients attached")) }
         if headline != session.name {
             if session.name.hasPrefix("roamtty-") { parts.append(session.name) } else { parts.insert(session.name, at: 0) }
         }
@@ -128,9 +128,9 @@ struct TmuxSessionCard: View {
     /// How long ago, as the session list says it on Android: "刚刚", "3分钟前".
     private func ago(_ date: Date) -> String {
         let seconds = max(0, Int(Date().timeIntervalSince(date)))
-        if seconds < 60 { return model.text("刚刚", "now") }
-        if seconds < 3600 { return model.text("\(seconds / 60)分钟前", "\(seconds / 60)m ago") }
-        if seconds < 86400 { return model.text("\(seconds / 3600)小时前", "\(seconds / 3600)h ago") }
-        return model.text("\(seconds / 86400)天前", "\(seconds / 86400)d ago")
+        if seconds < 60 { return language.text("刚刚", "now") }
+        if seconds < 3600 { return language.text("\(seconds / 60)分钟前", "\(seconds / 60)m ago") }
+        if seconds < 86400 { return language.text("\(seconds / 3600)小时前", "\(seconds / 3600)h ago") }
+        return language.text("\(seconds / 86400)天前", "\(seconds / 86400)d ago")
     }
 }

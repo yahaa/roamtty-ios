@@ -60,6 +60,10 @@ final class TransferProgressRelay {
     private var cancellations = Set<UUID>()
     private var reservedDestinations = Set<String>()
     private var insertionTargets: [UUID: InsertionTarget] = [:]
+    private unowned let environment: TransferEnvironment
+
+    init(environment: TransferEnvironment) { self.environment = environment }
+
     func prepareSharedUpload(_ urls: [URL], hostID: String) -> UUID? {
         let existing = Set(pendingUploadURLs).union(activeUploadURLs)
         var seen = existing
@@ -92,12 +96,12 @@ final class TransferProgressRelay {
     private func update(_ id: UUID, _ apply: (inout TransferJob) -> Void) { if let index = jobs.firstIndex(where: { $0.id == id }) { apply(&jobs[index]) } }
     /// Where a job's transfer reports its bytes and total.
     private func progressRelay(for id: UUID) -> TransferProgressRelay { TransferProgressRelay { bytes, total in self.update(id) { $0.bytes = bytes; $0.total = total } } }
-    func upload(_ url: URL, directory: String, host: Host, model: AppModel, insert: Bool = false, targetSessionID: String? = nil, name: String? = nil,
+    func upload(_ url: URL, directory: String, host: Host, insert: Bool = false, targetSessionID: String? = nil, name: String? = nil,
                 targetRuntime: SessionRuntime? = nil, connectionTarget: RemoteConnectionTarget? = nil) {
         let connectionTarget = connectionTarget ?? targetRuntime.map { RemoteConnectionTarget.session($0) }
-            ?? model.connectionTarget(hostID: host.id, sessionID: targetSessionID)
+            ?? environment.connectionTarget(hostID: host.id, sessionID: targetSessionID)
         let remoteName = name ?? url.lastPathComponent
-        guard isSafeRemoteEntryName(remoteName), isValidRemoteDirectory(directory) else { model.error = model.text("无效的上传路径", "Invalid upload path"); return }
+        guard isSafeRemoteEntryName(remoteName), isValidRemoteDirectory(directory) else { environment.report(environment.text("无效的上传路径", "Invalid upload path")); return }
         activeUploadURLs.insert(url)
         let target = joinRemotePath(directory: directory, name: remoteName)
         let job = TransferJob(name: remoteName, uploading: true, remotePath: target)
@@ -109,7 +113,7 @@ final class TransferProgressRelay {
             let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() }; tokens.removeValue(forKey: job.id); activeUploadURLs.remove(url) }
             do {
                 guard !cancellation.isCancelled else { throw RoamError.cancelled }
-                let ssh = try await model.connection(for: connectionTarget)
+                let ssh = try await environment.connection(for: connectionTarget)
                 guard !cancellation.isCancelled else { throw RoamError.cancelled }
                 let progress = progressRelay(for: job.id)
                 try await performInBackground {
@@ -125,25 +129,25 @@ final class TransferProgressRelay {
                 update(job.id) { $0.state = .complete }
                 do {
                     try await SharedInbox.acknowledge([url])
-                    model.incomingFiles.removeAll { $0 == url }
-                } catch { update(job.id) { $0.message = model.text("上传已完成，但共享队列未能更新：", "Upload completed, but the shared queue could not be updated: ") + error.localizedDescription } }
-                if insert, let text = terminalPathText(target) { update(job.id) { $0.pendingInsertion = text }; insertPath(job.id, model: model) }
+                    environment.sharedFileUploaded(url)
+                } catch { update(job.id) { $0.message = environment.text("上传已完成，但共享队列未能更新：", "Upload completed, but the shared queue could not be updated: ") + error.localizedDescription } }
+                if insert, let text = terminalPathText(target) { update(job.id) { $0.pendingInsertion = text }; insertPath(job.id) }
             } catch { if !cancellations.contains(job.id) { update(job.id) { $0.state = .failed; $0.message = error.localizedDescription } } }
         }
     }
-    func canInsertPath(_ job: TransferJob, model: AppModel) -> Bool {
+    func canInsertPath(_ job: TransferJob) -> Bool {
         guard job.state == .complete, job.pendingInsertion != nil, let target = insertionTargets[job.id], target.runtime != nil else { return false }
-        do { try model.validate(target.connectionTarget); return true } catch { return false }
+        do { try environment.validate(target.connectionTarget); return true } catch { return false }
     }
-    @discardableResult func insertPath(_ id: UUID, model: AppModel) -> Bool {
+    @discardableResult func insertPath(_ id: UUID) -> Bool {
         guard let job = jobs.first(where: { $0.id == id }), let input = job.pendingInsertion else { return false }
-        guard canInsertPath(job, model: model), let runtime = insertionTargets[id]?.runtime, runtime.pasteText(input) else { return false }
+        guard canInsertPath(job), let runtime = insertionTargets[id]?.runtime, runtime.pasteText(input) else { return false }
         update(id) { $0.pendingInsertion = nil }
         insertionTargets.removeValue(forKey: id)
         return true
     }
     /// Returns the queued jobs so the caller can follow them until their paths are in the terminal.
-    @discardableResult func uploadImages(_ images: [PhotosPickerItem], runtime: SessionRuntime, model: AppModel, connectionTarget: RemoteConnectionTarget? = nil) -> [UUID] {
+    @discardableResult func uploadImages(_ images: [PhotosPickerItem], runtime: SessionRuntime, connectionTarget: RemoteConnectionTarget? = nil) -> [UUID] {
         let connectionTarget = connectionTarget ?? .session(runtime)
         let queued = images.prefix(9).map { item -> (PhotosPickerItem, TransferJob, TransferCancellation) in
             let path = TerminalAttachment.remotePNGPath()
@@ -159,26 +163,28 @@ final class TransferProgressRelay {
                 defer { source?.remove(); tokens.removeValue(forKey: job.id); if jobs.first(where: { $0.id == job.id })?.pendingInsertion == nil { insertionTargets.removeValue(forKey: job.id) } }
                 do {
                     guard !token.isCancelled else { continue }
-                    try model.validate(connectionTarget)
-                    guard let picked = try await item.loadTransferable(type: PickedTerminalImage.self) else { throw RoamError.invalid(model.text("无法读取所选图片", "Unable to read the selected image")) }
+                    try environment.validate(connectionTarget)
+                    guard let picked = try await item.loadTransferable(type: PickedTerminalImage.self) else {
+                        throw RoamError.invalid(environment.text("无法读取所选图片", "Unable to read the selected image"))
+                    }
                     source = picked
                     guard !token.isCancelled else { continue }
                     let png = try await performInBackground { try picked.png(cancellation: token) }
                     guard !token.isCancelled else { continue }
-                    let ssh = try await model.connection(for: connectionTarget)
+                    let ssh = try await environment.connection(for: connectionTarget)
                     guard !token.isCancelled else { continue }
                     let progress = progressRelay(for: job.id)
                     try await performInBackground { try ssh.upload(png, to: job.remotePath, progress: progress.send, cancellation: token) }
                     guard !token.isCancelled else { continue }
                     let input = try TerminalAttachment.imageInput(job.remotePath, bracketed: false)
                     update(job.id) { $0.state = .complete; $0.pendingInsertion = input }
-                    insertPath(job.id, model: model)
+                    insertPath(job.id)
                 } catch { if !token.isCancelled { update(job.id) { $0.state = .failed; $0.message = error.localizedDescription } } }
             }
         }
         return queued.map(\.1.id)
     }
-    func download(_ entry: RemoteEntry, host: Host, model: AppModel, name: String? = nil, connectionTarget: RemoteConnectionTarget? = nil) {
+    func download(_ entry: RemoteEntry, host: Host, name: String? = nil, connectionTarget: RemoteConnectionTarget? = nil) {
         let connectionTarget = connectionTarget ?? .host(host.id)
         let job = TransferJob(name: name ?? entry.name, uploading: false, remotePath: entry.path)
         let cancellation = TransferCancellation()
@@ -191,14 +197,14 @@ final class TransferProgressRelay {
             defer { directoryDownload?.discard(); scoped?.stopAccessingSecurityScopedResource(); tokens.removeValue(forKey: job.id); if let reservedPath { reservedDestinations.remove(reservedPath) } }
             do {
                 guard !cancellation.isCancelled else { throw RoamError.cancelled }
-                let ssh = try await model.connection(for: connectionTarget)
+                let ssh = try await environment.connection(for: connectionTarget)
                 guard !cancellation.isCancelled else { throw RoamError.cancelled }
                 let folder: URL
-                if let bookmark = model.settings.downloadBookmark {
+                if let bookmark = environment.downloadBookmark {
                     var stale = false
                     let url = try URL(resolvingBookmarkData: bookmark, options: [], relativeTo: nil, bookmarkDataIsStale: &stale)
                     guard !stale, url.startAccessingSecurityScopedResource() else {
-                        throw RoamError.invalid(model.text("下载目录授权已过期，请在设置中重新选择", "Download folder access expired. Choose it again in Settings."))
+                        throw RoamError.invalid(environment.text("下载目录授权已过期，请在设置中重新选择", "Download folder access expired. Choose it again in Settings."))
                     }
                     scoped = url; folder = url
                 } else {

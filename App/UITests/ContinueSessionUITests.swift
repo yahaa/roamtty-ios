@@ -65,9 +65,10 @@ final class ContinueSessionUITests: RoamttyLiveUITestCase {
         XCTAssertEqual(Set(sessionCards.allElementsBoundByIndex.map(\.identifier)), before, "Closing ends the continued session's card only")
     }
 
-    /// With only the fixture host saved, 继续会话 skips the host step.
+    /// With only the fixture host saved, 继续会话 skips the host step. It starts from the home page's sessions tab,
+    /// back from the host page when that is where the test stands.
     private func openContinueSheet() {
-        showSessionsTab()
+        _ = homeSessionCards()
         let add = app.buttons["add-session"]
         XCTAssertTrue(add.waitForExistence(timeout: 8)); add.tap()
         let pick = app.buttons["new-session-pick-continue"]

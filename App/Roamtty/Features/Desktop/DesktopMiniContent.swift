@@ -71,7 +71,6 @@ struct DesktopMiniContent: View {
 /// The terminal page's small window on `controller`: the window, placed and remembered under `stateKey`, with the
 /// connection's status dot and latency on its bar.
 struct PipDesktopWindow: View {
-    @EnvironmentObject var model: AppModel
     @ObservedObject var controller: DesktopController
     @StateObject private var state: PipState
     let room: CGRect

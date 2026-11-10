@@ -57,7 +57,7 @@ final class MoshTransportTests: XCTestCase {
 
     #if os(Linux) || os(macOS)
     func testRealMoshServerInputResizeProbeAndRemoteShutdown() throws {
-        let executable = ProcessInfo.processInfo.environment["ROAMTTY_MOSH_SERVER"] ?? "/usr/bin/mosh-server"
+        let executable = LocalTools.moshServer
         guard FileManager.default.isExecutableFile(atPath: executable) else { throw XCTSkip("mosh-server is not installed") }
         let server = Process()
         server.executableURL = URL(fileURLWithPath: executable)

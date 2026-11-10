@@ -1,18 +1,18 @@
 import SwiftUI
 import Combine
-import Network
 import RoamttyCore
 import RoamttyTransport
 
-/// The app's state and the actions on it. The features live in extensions:
-/// - `AppModel+Hosts`: saved hosts, their credentials and reachability
+/// The app's state and the actions on it: the saved hosts, the terminal sessions and what is on screen.
+/// How hosts are logged in to, connected and watched is the work of its services (`logins`, `pool`, `monitor`,
+/// `reachability`), which know nothing of sessions or screens. The features live in extensions:
+/// - `AppModel+Hosts`: saved hosts and their stored secrets
 /// - `AppModel+Sessions`: terminal sessions, from launch to close, and their reconnects
-/// - `AppModel+Connections`: logins, prompts and the host connections that tools share
-/// - `AppModel+Monitor`: the host page's live metrics
+/// - `AppModel+Connections`: which connection a tool works over, and dropping a host's connections
 /// - `AppModel+Desktop`: remote desktops, one `DesktopController` per host
 /// - `AppModel+Notifications`: the agent notifications
 /// Debug builds add the launch fixtures of the UI tests in `AppModel+Fixtures`.
-@MainActor final class AppModel: ObservableObject {
+@MainActor final class AppModel: ObservableObject, ConnectionEnvironment, TransferEnvironment {
     // MARK: State the screens show
 
     @Published var hosts: [Host] = []
@@ -30,38 +30,18 @@ import RoamttyTransport
     @Published var drawer = false
     @Published var error: String?
     @Published var notice: String?
-    @Published var metrics: [String: HostMetrics] = [:]
-    @Published var metricSeries: [String: HostMetricSeries] = [:]
-    @Published var monitorStates: [String: HostMonitorState] = [:]
-    @Published var reachability: [String: HostReachability] = [:]
     @Published var incomingFiles: [URL] = []
     @Published var childModalCount = 0
-    /// Login questions waiting for the user; `authentication` is the one on screen.
-    @Published var prompts = PromptQueue()
-    var authentication: AuthenticationRequest? { prompts.active }
-    let files = FileTransferModel()
+    /// The login question on screen.
+    var authentication: AuthenticationRequest? { logins.prompts.active }
+    private(set) lazy var files = FileTransferModel(environment: self)
     var runtimes: [String: SessionRuntime] = [:]
 
     // MARK: Bookkeeping shared by the feature extensions
 
     var store: AppStore?
-    // Read by the model only, so not published: a change redraws nothing.
-    /// When each host's shown reachability was measured.
-    var reachabilityCheckedAt: [String: Date] = [:]
-    /// Where each host's shared connection (files, plugins, metrics) stands.
-    var hostPhases: [String: ConnectionPhase] = [:]
-    let vault = SecretVault()
     var journal = SessionJournal()
-    var foreground = true
-    var generations = ConnectionGenerations()
-    var credentialCache = CredentialCache()
-    /// Host tools' shared connections, the attempts under way and the token of each host's latest attempt.
-    var connections: [String: SSHConnection] = [:]
-    var connectionTasks: [String: Task<SSHConnection, Error>] = [:]
-    var connectionTokens: [String: UUID] = [:]
-    var connectingSSH: [String: SSHConnection] = [:]
-    var metadataJobs: [String: TrackedTask] = [:]
-    var monitorJobs: [String: TrackedTask] = [:]
+    private(set) var foreground = true
     var sessionLaunches: [String: TrackedTask] = [:]
     var sessionSubscriptions: [String: AnyCancellable] = [:]
     /// Session id → when it last reconnected by itself; see `SessionReconnect.interval`.
@@ -72,10 +52,36 @@ import RoamttyTransport
     var waitingForHostSince: [String: Date] = [:]
     /// Remote desktops' thumbnails, and their controllers once the first desktop opens.
     let desktopThumbnails = DesktopThumbnails()
-    var desktopStore: DesktopStore?
+    private(set) var desktopStore: DesktopStore?
     /// The host whose desktop shows in the small window over its terminal (the dock's desktop button).
     @Published var pipDesktopHostID: String?
-    var desktopPathMonitor: NWPathMonitor?
+    let desktopNetwork = DesktopNetworkMonitor()
+
+    // MARK: Connection services
+
+    /// Credentials, the questions a login asks and whether a login under way is still wanted.
+    private(set) lazy var logins = relay(HostLogins(environment: self))
+    /// The connection each host's tools (files, plugins, metrics) share.
+    private(set) lazy var pool: HostConnectionPool = {
+        let pool = HostConnectionPool(environment: self, logins: logins)
+        pool.onMetadata = { [weak self] host, plugins, system in self?.updateMetadata(host: host, plugins: plugins, system: system) }
+        return pool
+    }()
+    /// The host page's live metrics.
+    private(set) lazy var monitor: HostMonitor = {
+        let monitor = relay(HostMonitor(environment: self, logins: logins, pool: pool))
+        monitor.onConnected = { [weak self] host in Task { await self?.refreshDesktopProbe(host) } }
+        return monitor
+    }()
+    /// Whether each host's sshd answers.
+    private(set) lazy var reachability = relay(HostReachabilityTracker(environment: self))
+    private var relays = Set<AnyCancellable>()
+    /// Screens observe the model alone, so a change in one of its services redraws them as a change in the model does.
+    private func relay<Service: ObservableObject>(_ service: Service) -> Service where Service.ObjectWillChangePublisher == ObservableObjectPublisher {
+        service.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &relays)
+        return service
+    }
+    var pinStore: PinStore? { store }
 
     init() {
         do {
@@ -100,7 +106,8 @@ import RoamttyTransport
     // MARK: Language and appearance
 
     var english: Bool { settings.language.hasPrefix("en") }
-    func text(_ chinese: String, _ english: String) -> String { self.english ? english : chinese }
+    var language: AppLanguage { AppLanguage(english: english) }
+    func text(_ chinese: String, _ english: String) -> String { language.text(chinese, english) }
     var colorScheme: ColorScheme? { settings.theme == .system ? nil : settings.theme == .dark ? .dark : .light }
     func phaseText(_ phase: ConnectionPhase) -> String {
         switch phase {
@@ -145,10 +152,10 @@ import RoamttyTransport
         // reconnect then; it does now.
         if case .terminal(let id)? = path.last, let record = records.first(where: { $0.id == id }) { Task { await reconnectOnOpen(record) } }
         restartVisibleMonitor()
-        // Cold launch never creates the store or NWPathMonitor: both wait for the first desktop opened.
+        // Cold launch never creates the store or the network monitor: both wait for the first desktop opened.
         if desktopStore != nil {
             desktopStore?.live.forEach { $0.resume() }
-            startDesktopPathMonitor()
+            watchDesktopNetwork()
         }
         #if DEBUG
         // Fixture diagnostics use separate stores and must not consume the user's shared inbox.
@@ -171,6 +178,11 @@ import RoamttyTransport
             }
         }
     }
+    /// Restarts the monitor of the host page on screen, after a login change stopped it.
+    func restartVisibleMonitor() {
+        guard foreground, case .host(let id) = path.last, let host = host(id) else { return }
+        monitor.start(host)
+    }
     private func appendIncoming(_ urls: [URL]) {
         var existing = Set(incomingFiles + files.pendingUploadURLs).union(files.activeUploadURLs)
         incomingFiles.append(contentsOf: urls.filter { existing.insert($0).inserted })
@@ -179,11 +191,11 @@ import RoamttyTransport
     func suspend() {
         foreground = false
         Diagnostics.shared.log("background", "sessions=\(runtimes.count) terminals=\(TerminalCensus.live)")
-        for id in Array(monitorJobs.keys) { stopMonitor(id) }
-        credentialCache.forgetAll()
+        monitor.stopAll()
+        logins.forgetAll()
         for runtime in runtimes.values { runtime.clearLoginCredentials() }
         desktopStore?.live.forEach { $0.pause() }
-        prompts.removeAll().forEach { $0.answer(nil) }
+        logins.dismissAllPrompts()
         // An agent at work may still need the user or finish before iOS suspends the app.
         AgentNotifier.shared.keepWatching(runtimes.values.contains { $0.phase == .connected && ($0.agentStatus.map { $0.state != .idle } ?? false) })
     }

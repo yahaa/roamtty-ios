@@ -184,7 +184,7 @@ struct TerminalScreen: View {
         .onChange(of: photoPicker) { presented in model.childModalCount = max(0, model.childModalCount + (presented ? 1 : -1)) }
         .onChange(of: photos) { selected in
             guard !selected.isEmpty else { return }
-            imageJobs += model.files.uploadImages(selected, runtime: runtime, model: model); photos = []
+            imageJobs += model.files.uploadImages(selected, runtime: runtime); photos = []
         }
         .sheet(item: $tappedFile) { file in
             FilePreviewScreen(host: runtime.host, entry: RemoteEntry(name: file.path.split(separator: "/").last.map(String.init) ?? file.path, path: file.path, isDirectory: false),

@@ -72,6 +72,9 @@ final class HomeLandscapeUITests: RoamttyLiveUITestCase {
                 if app.descendants(matching: .any)["home-session-time-" + id].exists { heights.append(card.frame.height) }
             }
             list.swipeUp(velocity: .slow)
+            // Let the list come to rest: while it still glides, cards counted a moment ago leave the lazy stack, and
+            // reading the frame of one that has gone fails the test.
+            sleep(1)
         }
         XCTAssertGreaterThanOrEqual(heights.count, 4, "agent cards seen: \(heights)")
         for height in heights { XCTAssertEqual(height, heights[0], accuracy: 1, "agent card heights \(heights)") }

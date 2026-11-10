@@ -246,12 +246,15 @@ final class TerminalGestureUITests: RoamttyLiveUITestCase {
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         // The editor parks the cursor on its output row, then on the end of the last input row: the cursor's key
         // follows it, which measures the rows. Cells are measured from the column count, so taps stay near the left.
-        let resized = expectation(for: NSPredicate { _, _ in (sizes("CAL") ?? 0) > drawn }, evaluatedWith: surface)
-        resized.expectationDescription = "The keyboard resized the editor"
-        wait(for: [resized], timeout: 10); sleep(1)
-        let output = row.frame.midY
-        let size = sizes("CAL") ?? 0
-        waitForOutput("EDITOR_READY_\(size)", surface: surface); sleep(1)
+        // The output row is only the cursor's for the three seconds after a resize, so it is measured while the
+        // editor says so, not after a wait that a slow simulator stretches past them.
+        var size = 0, output: CGFloat = 0
+        let resized = expectation(for: NSPredicate { _, _ in
+            if let measuring = sizes("CAL"), measuring > drawn { size = measuring; output = row.frame.midY; return false }
+            return size > 0 && sizes("READY") == size
+        }, evaluatedWith: surface)
+        resized.expectationDescription = "The keyboard resized the editor, which then parked the cursor on its input"
+        wait(for: [resized], timeout: 20); sleep(1)
         let last = row.frame.midY, rowHeight = (last - output) / 4
         let value = surface.value as? String ?? ""
         let sizePattern = try NSRegularExpression(pattern: "SIZE_([0-9]+)x([0-9]+)")
