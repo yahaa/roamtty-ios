@@ -55,12 +55,19 @@ public final class UdpLink: @unchecked Sendable {
     private var lastHeartbeatUs: Int64 = 0
     private var window: [(at: Int64, received: Int, total: Int)] = []
 
-    public private(set) var rttMs: Int?
+    // Written under `lock` by the receive and tick threads; read through the locked getters below.
+    private var rttMsValue: Int?
+    private var lossValue = 0.0
+    private var fecRecoveredValue: Int64 = 0
+    private var lostMessagesValue: Int64 = 0
+    private var nacksValue: Int64 = 0
+
+    public var rttMs: Int? { locked { rttMsValue } }
     /// Share of shards lost on the way over the last second, before FEC.
-    public private(set) var loss = 0.0
-    public private(set) var fecRecovered: Int64 = 0
-    public private(set) var lostMessages: Int64 = 0
-    public private(set) var nacks: Int64 = 0
+    public var loss: Double { locked { lossValue } }
+    public var fecRecovered: Int64 { locked { fecRecoveredValue } }
+    public var lostMessages: Int64 { locked { lostMessagesValue } }
+    public var nacks: Int64 { locked { nacksValue } }
     /// Test hook: drop this share of datagrams in both directions.
     public var dropRate = 0.0
 
@@ -85,11 +92,17 @@ public final class UdpLink: @unchecked Sendable {
     private func locked<T>(_ body: () -> T) -> T { lock.lock(); defer { lock.unlock() }; return body() }
 
     /// Starts the 20 ms tick (heartbeats, resends, NACKs, feedback) and sends the first heartbeat.
+    /// Does nothing once the link is closed, or when it is already running.
     public func start() {
-        let t = DispatchSource.makeTimerSource(queue: tickQueue)
-        t.schedule(deadline: .now() + .milliseconds(20), repeating: .milliseconds(20))
-        t.setEventHandler { [weak self] in self?.tick() }
-        timer = t
+        let t: DispatchSourceTimer? = locked {
+            guard !closed, timer == nil else { return nil }
+            let t = DispatchSource.makeTimerSource(queue: tickQueue)
+            t.schedule(deadline: .now() + .milliseconds(20), repeating: .milliseconds(20))
+            t.setEventHandler { [weak self] in self?.tick() }
+            timer = t
+            return t
+        }
+        guard let t else { return }
         t.resume()
         heartbeat()
     }
@@ -104,7 +117,7 @@ public final class UdpLink: @unchecked Sendable {
         guard let p = Packet.decode(plain) else { return }
         switch p {
         case .heartbeat(let t, let echo):
-            locked { lastServerT = t; if echo != 0 { rttMs = Int((now - echo) / 1000) } }
+            locked { lastServerT = t; if echo != 0 { rttMsValue = Int((now - echo) / 1000) } }
             // The host's RTT probe: answered at once, or the host times its resends by our next heartbeat.
             if echo == 0 { raw(Packet.heartbeat(t: clock(), echo: t).encode()) }
         case .frag(let f):
@@ -162,7 +175,7 @@ public final class UdpLink: @unchecked Sendable {
         // Keepalive four times a second: the host counts the link down after 3 s of silence, and the
         // answers let a stall show within 700 ms even when one or two are lost.
         if t - locked({ lastHeartbeatUs }) > 250_000 { heartbeat() }
-        let rtt = Int64(locked { rttMs } ?? 50) * 1000
+        let rtt = Int64(locked { rttMsValue } ?? 50) * 1000
         let resendAfter = max(2 * rtt, 80_000)
         var resend: [[Packet.Frag]] = []
         var nackOut: [Packet] = []
@@ -182,21 +195,21 @@ public final class UdpLink: @unchecked Sendable {
                 let (count, at) = nacked[key] ?? (0, 0)
                 if count >= 3 || t - at < max(2 * rtt, 30_000) { continue }
                 nacked[key] = (count + 1, t)
-                nacks += 1
+                nacksValue += 1
                 nackOut.append(.nack(msg: m, block: block, indices: idx))
             }
             if nacked.count > 2000 { nacked.removeAll() }
             if !reports.isEmpty {
                 for r in reports {
-                    if r.outcome == 2 { fecRecovered += 1 }
+                    if r.outcome == 2 { fecRecoveredValue += 1 }
                     window.append((t, r.received, r.total))
                 }
                 window.removeAll { t - $0.at > 1_000_000 }
                 let rx = window.reduce(0) { $0 + $1.received }, tot = window.reduce(0) { $0 + $1.total }
                 // Too few shards make a noisy estimate: it needs 50 in the last second to count.
-                loss = tot < 50 ? 0 : max(0, 1 - Double(rx) / Double(tot))
+                lossValue = tot < 50 ? 0 : max(0, 1 - Double(rx) / Double(tot))
             }
-            lostMessages += Int64(lost.count)
+            lostMessagesValue += Int64(lost.count)
             return (reports, lost)
         }
         resend.forEach { $0.forEach { raw($0.encode()) } }
@@ -212,10 +225,18 @@ public final class UdpLink: @unchecked Sendable {
         log("udp rebound to port \(transport.localPort)")
     }
 
+    /// Safe to call from several threads at once, and more than once: the session's own close and its
+    /// reader thread both close the link when they race (#112). Only the first call stops the timer and
+    /// the transport; reading and clearing `timer` outside the lock over-released it.
     public func close() {
-        locked { closed = true }
-        timer?.cancel()
-        timer = nil
+        let (first, t) = locked { () -> (Bool, DispatchSourceTimer?) in
+            if closed { return (false, nil) }
+            closed = true
+            defer { timer = nil }
+            return (true, timer)
+        }
+        guard first else { return }
+        t?.cancel()
         sender.async { [transport] in transport.close() }
     }
 
