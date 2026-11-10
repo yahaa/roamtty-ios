@@ -79,7 +79,9 @@ struct PipWindow<Content: View>: View {
         if let dragPos { return dragPos }
         if let resizing {
             let w = size.width
-            return CGPoint(x: resizing.fixed.x > placed.minX + 1 ? resizing.fixed.x - w : resizing.fixed.x, y: resizing.fixed.y)
+            // The left grip keeps the right corner, the right grip the left one: the side the drag started on, not
+            // one guessed from the placement (which moves as the width grows).
+            return CGPoint(x: handleSide == true ? resizing.fixed.x - w : resizing.fixed.x, y: resizing.fixed.y)
         }
         return placed.origin
     }
@@ -178,12 +180,13 @@ struct PipWindow<Content: View>: View {
 
     // MARK: Bar
 
-    /// Focused: above the window (below it when there is no room above), translucent and low; moves it and holds
+    /// Focused: above the window (below it when there is no room above, over its top edge when there is room for
+    /// neither), translucent and low; moves it and holds
     /// its buttons. Narrow windows drop the latency first (under 220pt), then the name (under 190pt: Android's 160 leaves
     /// iOS's wider name font only an ellipsis); the buttons always stay.
     private var bar: some View {
         let f = frame
-        let top = f.minY - barHeight - 4 >= room.minY ? f.minY - barHeight - 4 : f.maxY + 4
+        let top = PipLayout.barTop(room: r, window: PipRect(f.minX, f.minY, f.maxX, f.maxY), bar: barHeight, gap: 4)
         let barShape = RoundedRectangle(cornerRadius: 12, style: .continuous)
         return HStack(spacing: 0) {
             HStack(spacing: 0) {

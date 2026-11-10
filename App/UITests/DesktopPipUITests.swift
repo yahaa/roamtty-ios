@@ -44,9 +44,11 @@ final class DesktopPipUITests: RoamttyLiveUITestCase {
         let before = window.frame
         let place = app.descendants(matching: .any)["pip-desktop-place"].firstMatch
         // Towards the middle of the screen, wherever an earlier run left it.
+        // Sideways to between the left edge and the middle, where the grip is on its right.
         let down = before.midY < app.frame.midY
+        let toX = 0.5 + (app.frame.width * 0.38 - before.midX) / before.width
         place.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            .press(forDuration: 0.05, thenDragTo: place.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: down ? 1.6 : -0.6)))
+            .press(forDuration: 0.05, thenDragTo: place.coordinate(withNormalizedOffset: CGVector(dx: toX, dy: down ? 1.6 : -0.6)))
         let moved = window.frame
         XCTAssertGreaterThan(abs(moved.minY - before.minY), 60, "\(before) → \(moved)")
         XCTAssertGreaterThanOrEqual(moved.minY, 62, "Clear of the status bar")
@@ -60,9 +62,13 @@ final class DesktopPipUITests: RoamttyLiveUITestCase {
             grip.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
                 .press(forDuration: 0.05, thenDragTo: grip.coordinate(withNormalizedOffset: CGVector(dx: 0.5 + dx, dy: 0.5)))
         }
+        XCTAssertGreaterThan(grip.frame.midX, window.frame.midX, "The grip is on the right, with room to grow")
         dragGrip(out: true)
         let grown = window.frame
         XCTAssertGreaterThan(grown.width, moved.width + 20, "\(moved) → \(grown)")
+        // The right grip keeps the left corner: the window does not jump aside.
+        XCTAssertEqual(grown.minX, moved.minX, accuracy: 3, "\(moved) → \(grown)")
+        XCTAssertEqual(grown.minY, moved.minY, accuracy: 3)
         dragGrip(out: false)
         XCTAssertLessThan(window.frame.width, grown.width - 20, "\(grown) → \(window.frame)")
 

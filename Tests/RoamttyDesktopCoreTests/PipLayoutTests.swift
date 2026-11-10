@@ -59,6 +59,14 @@ final class PipLayoutTests: XCTestCase {
         XCTAssertEqual(PipLayout.resized(width: 400, dx: -100, dy: -62.5, onLeft: false, aspect: 1.6), 300, accuracy: 0.01)
     }
 
+    func testTheBarGoesAboveElseBelowElseOverTheTopEdge() {
+        XCTAssertEqual(PipLayout.barTop(room: room, window: PipRect(0, 600, 500, 900), bar: 32, gap: 8), 560, accuracy: 0.01)
+        XCTAssertEqual(PipLayout.barTop(room: room, window: PipRect(0, 0, 500, 300), bar: 32, gap: 8), 308, accuracy: 0.01)
+        // As tall as the room: over its top edge, still inside.
+        XCTAssertEqual(PipLayout.barTop(room: room, window: PipRect(0, 0, 500, 2000), bar: 32, gap: 8), 8, accuracy: 0.01)
+        XCTAssertEqual(PipLayout.barTop(room: PipRect(0, 10, 1000, 2000), window: PipRect(0, 10, 500, 2000), bar: 32, gap: 0), 10, accuracy: 0.01)
+    }
+
     func testCloseTargetIsARadius() {
         XCTAssertTrue(PipLayout.overClose(cx: 500, cy: 1900, tx: 510, ty: 1910, radius: 50))
         XCTAssertFalse(PipLayout.overClose(cx: 500, cy: 1700, tx: 510, ty: 1910, radius: 50))

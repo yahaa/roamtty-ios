@@ -44,6 +44,14 @@ public enum PipLayout {
                 freeY > 0 ? min(max((top - room.top) / freeY, 0), 1) : 0)
     }
 
+    /// Where the focused window's `bar`-high bar goes: `gap` above it, else `gap` below it, else (a window as tall as
+    /// the room, or the keyboard up) over its top edge, so it always stays inside `room` and its buttons reachable.
+    public static func barTop(room: PipRect, window: PipRect, bar: Double, gap: Double) -> Double {
+        if window.top - bar - gap >= room.top { return window.top - bar - gap }
+        if window.bottom + gap + bar <= room.bottom { return window.bottom + gap }
+        return max(min(window.top + gap, room.bottom - bar), room.top)
+    }
+
     /// Whether the resize handle goes on the window's left: the side with more room to grow into (the right on a tie).
     public static func handleOnLeft(room: PipRect, window: PipRect) -> Bool {
         window.left - room.left > room.right - window.right + 1
