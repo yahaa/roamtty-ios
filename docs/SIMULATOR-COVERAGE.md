@@ -1,5 +1,19 @@
 # Simulator acceptance coverage
 
+## 2026-11-10: app structure refactor (`refactor/app-structure`)
+
+Simulator: Roamtty Validation (iPhone 17, iOS 26.4, Xcode 26.4), the Docker SSH fixture on the Mac (`ROAMTTY_FIXTURE_JSON=.private/container-fixture.json`), recovery and plugin fixtures on the dev box.
+
+| Evidence | Result |
+| --- | --- |
+| Full UI run on the refactored code, `TestResults/Simulator-20261110-110214.xcresult` | **95 total: 78 passed, 16 skipped, 1 failed**, in 7753 s. The 16 skips are the tests that need a live desktop host or an opt-in fixture. |
+| The 1 failure | `TerminalGestureUITests.testTapMovesTheCursorInsideAMultiLineInput` read the editor's size after its three-second measuring phase had ended, so it waited for `EDITOR_READY_0`. The test now measures while the editor is in that phase. Rerun three times in a row: 3/3 passed (`Simulator-20261110-131353.xcresult`). |
+| An earlier run, `Simulator-20261110-070917.xcresult`, stopped at 72 tests | `HomeLandscapeUITests.testCardsShareHeightAndLandscapeBarSlides` read a card's frame while the list was still scrolling; it now waits. `NativeFileWorkflowUITests.testNativeFolderImportUploadsNestedBytes` and `PluginInstallationUITests.testCancellingStreamingAptKeepsBothSSHConnectionsUsable` never found the toolbox button while XCTest logged "App animations complete notification not received" 16 times. Neither that message nor those failures came back in the full run above, nor in two reruns of the folder import on a fresh boot; the cause was not found. |
+| `main` before the refactor, run against the dev box's sshd | 7 failed. 5 need what only the container has (local TCP forwarding, a UTF-8 locale) and pass against it. `ContinueSessionUITests` opened its sheet from the wrong screen (test fixed). `DesktopPipUITests` needs a live desktop host: it is now opt-in like the gesture tests and passed against the Ubuntu VM with `scripts/test-desktop-gestures.sh`. |
+| Unit tests on the Mac (`swift test` with the container fixture and the Android fixture's keys) | **495 total: 486 passed, 9 skipped, 0 failed.** The mosh tests now find Homebrew's `mosh-server` and `tmux`. The skips need the plugin archive, the desktop plugin fixture, the sudo fixture or a desktop SSH host. |
+| Standalone checks | Share inbox, share worker, terminal interaction, font catalog and `scripts/test-terminal-url.sh` passed. |
+| Lint and build | `scripts/lint.sh` 0 warnings (Linux and Mac). The simulator Debug build prints no warnings. |
+
 ## 2026-11-01 (later): the remaining items
 
 Same simulator and fixtures. Changes: `tmux -u` on attach, `LM_SKIP_METADATA_EXTRACTION`, the desktop gesture tests' own opt-in and runner (`scripts/test-desktop-gestures.sh`).
