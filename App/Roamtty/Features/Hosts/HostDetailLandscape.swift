@@ -62,7 +62,7 @@ extension HostDetailScreen {
             }.accessibilityLabel(model.text("返回", "Back")).accessibilityIdentifier("host-detail-back")
             HStack(spacing: 0) {
                 tab(model.text("概览", "Overview"), count: nil, .overview, proxy, id: "host-tab-overview")
-                tab(model.text("进程", "Processes"), count: model.metrics[hostID].map { $0.processes.count }, .processes, proxy, id: "host-tab-processes")
+                tab(model.text("进程", "Processes"), count: model.monitor.metrics[hostID].map { $0.processes.count }, .processes, proxy, id: "host-tab-processes")
                 tab(model.text("信息", "Info"), count: nil, .info, proxy, id: "host-tab-info")
             }.padding(3).background(Palette.foreground.opacity(0.07), in: Capsule()).fixedSize()
             Spacer(minLength: 8)
@@ -118,7 +118,7 @@ extension HostDetailScreen {
     // MARK: 概览
 
     private func overview(_ host: Host) -> some View {
-        let metrics = model.metrics[hostID]
+        let metrics = model.monitor.metrics[hostID]
         let live = monitorLive
         return VStack(spacing: 12) {
             HStack(spacing: 12) {
@@ -139,7 +139,7 @@ extension HostDetailScreen {
             }.padding(.horizontal, 4)
             if !live { monitorPanel(host) }
             if let metrics {
-                let series = model.metricSeries[hostID] ?? HostMetricSeries()
+                let series = model.monitor.series[hostID] ?? HostMetricSeries()
                 HStack(spacing: 10) {
                     tile("CPU", trailing: metrics.cpus.map { model.text("\($0) 核", "\($0) cores") }, value: metrics.cpuPercent, id: "host-gauge-cpu") {
                         Sparkline(values: series.cpuHistory, tone: MetricFormat.levelColor(metrics.cpuPercent), height: 26)
@@ -219,8 +219,8 @@ extension HostDetailScreen {
     // MARK: 进程
 
     @ViewBuilder private var processes: some View {
-        if let metrics = model.metrics[hostID] {
-            MetricsPanel(metrics: metrics, series: model.metricSeries[hostID] ?? HostMetricSeries(), layout: .processes)
+        if let metrics = model.monitor.metrics[hostID] {
+            MetricsPanel(metrics: metrics, series: model.monitor.series[hostID] ?? HostMetricSeries(), layout: .processes)
         } else {
             Panel(title: model.text("进程", "Processes")) {
                 InfoRow(title: model.text("连接后可查看进程", "Connect to see processes"))
@@ -231,7 +231,7 @@ extension HostDetailScreen {
     // MARK: 信息
 
     private func information(_ host: Host) -> some View {
-        let metrics = model.metrics[hostID]
+        let metrics = model.monitor.metrics[hostID]
         return HStack(alignment: .top, spacing: 12) {
             Panel(title: model.text("连接", "Connection")) { connectionRows(host) }.frame(maxWidth: .infinity)
             VStack(spacing: 16) {

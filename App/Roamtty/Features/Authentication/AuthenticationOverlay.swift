@@ -61,9 +61,9 @@ private struct AuthenticationCard: View {
                 }
             }
             HStack {
-                Button(model.text("取消", "Cancel")) { model.answerPrompt(nil) }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("auth-cancel")
+                Button(model.text("取消", "Cancel")) { model.logins.answerPrompt(nil) }.buttonStyle(RoamButtonStyle()).accessibilityIdentifier("auth-cancel")
                 Button(request.fingerprint == nil ? model.text("继续", "Continue") : model.text("信任并连接", "Trust and connect")) {
-                    model.answerPrompt(request.fingerprint == nil ? values : ["trust"])
+                    model.logins.answerPrompt(request.fingerprint == nil ? values : ["trust"])
                 }.buttonStyle(RoamButtonStyle(primary: true)).accessibilityIdentifier("auth-confirm")
             }
         }.padding(24).background(Palette.raised, in: RoundedRectangle(cornerRadius: 28)).foregroundStyle(Palette.foreground)

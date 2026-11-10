@@ -220,9 +220,9 @@ import RoamttyTransport
         operation = Task {
             defer { finishOperation(id) }
             do {
-                let ssh = try await model.connection(for: host.id)
+                let ssh = try await model.pool.connection(for: host.id)
                 try checkOperation(id, token)
-                let password = enteredPassword.isEmpty ? model.loginPassword(for: host.id) : enteredPassword
+                let password = enteredPassword.isEmpty ? model.logins.loginPassword(for: host.id) : enteredPassword
                 streaming = true
                 let result = try await performInBackground {
                     var input = Data(HostPluginInstaller.script(plugin: plugin, sudoPassword: password).utf8)
@@ -258,7 +258,7 @@ import RoamttyTransport
     }
 
     private func probe(_ id: UUID, _ token: TransferCancellation) async throws {
-        let ssh = try await model.connection(for: host.id)
+        let ssh = try await model.pool.connection(for: host.id)
         try checkOperation(id, token)
         let plugins = try await ssh.probePlugins(timeout: 20, cancellation: token)
         try checkOperation(id, token)

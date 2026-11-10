@@ -1,5 +1,6 @@
 import RoamttyCore
 
+/// Where a host page's metrics monitor stands.
 struct HostMonitorState {
     var phase: ConnectionPhase
     var reconnecting = false

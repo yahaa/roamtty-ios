@@ -470,8 +470,8 @@ private struct RemoteMarkdownImage: View {
     private var demandKey: DemandKey {
         let generation: UUID
         switch connectionTarget {
-        case .host(let id): generation = model.generations.host(id)
-        case .session(let id, _): generation = model.generations.owner(id)
+        case .host(let id): generation = model.logins.hostGeneration(id)
+        case .session(let id, _): generation = model.logins.ownerGeneration(id)
         }
         return DemandKey(path: markdownRemoteImagePath(directory: directory, source: path), generation: generation,
                          visible: appeared && enabled && !frame.isEmpty && frame.intersects(CGRect(origin: .zero, size: viewport)))

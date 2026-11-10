@@ -328,7 +328,7 @@ struct LaunchScreen: View {
     private func load(_ path: String, revision: Int, cancellation: TransferCancellation) async {
         defer { if revision == loadRevision { busy = false } }
         do {
-            let ssh = try await model.connection(for: host.id)
+            let ssh = try await model.pool.connection(for: host.id)
             try Task.checkCancellation()
             let script = try RemoteFolders.script(path)
             let result = try await ssh.runScript(script, cancellation: cancellation)

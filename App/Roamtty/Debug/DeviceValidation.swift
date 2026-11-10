@@ -38,7 +38,7 @@ enum DeviceValidation {
             let host = fixture.host(auth: .password)
             let previousPath = model.path
             model.hosts.append(host)
-            if let metrics = runner.displayMetrics { model.metrics[host.id] = metrics }
+            if let metrics = runner.displayMetrics { model.monitor.showValidationMetrics(metrics, for: host.id) }
             model.path = []; model.homeTab = .sessions
             _ = await waitUntilActive()
             try? await Task.sleep(for: .milliseconds(800))
@@ -62,11 +62,11 @@ enum DeviceValidation {
                 try png.write(to: folder.appendingPathComponent("host-detail.png"), options: .atomic)
                 return ["artifact": "host-detail.png", "screen": "HostDetailScreen", "method": "App-owned window capture; no automated tap or accessibility assertions"]
             }
-            model.stopMonitor(host.id)
+            model.monitor.stop(host.id)
             model.path = previousPath
             model.hosts.removeAll { $0.id == host.id }
-            model.metrics.removeValue(forKey: host.id)
-            model.reachability.removeValue(forKey: host.id)
+            model.monitor.showValidationMetrics(nil, for: host.id)
+            model.reachability.forgetValidationHost(host.id)
             runner.finish()
         } catch {
             // No environment values, credentials, SSH output or remote file contents

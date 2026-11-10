@@ -66,7 +66,7 @@ struct MarkdownImageView: UIViewRepresentable {
     static func validate(model: AppModel, target: RemoteConnectionTarget, connection: SSHConnection) throws {
         try model.validate(target)
         if case .host(let id) = target {
-            guard model.connections[id] === connection, connection.isConnected else { throw CancellationError() }
+            guard model.pool.holds(connection, for: id), connection.isConnected else { throw CancellationError() }
         }
     }
 }

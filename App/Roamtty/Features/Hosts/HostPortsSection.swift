@@ -13,7 +13,7 @@ struct HostPortsSection: View {
     @State private var reads = 0
     @State private var preview: PortPreviewRequest?
     /// The page's monitor holds the host's login: the list is read once it is up.
-    private var ready: Bool { model.monitorStates[host.id]?.phase == .connected }
+    private var ready: Bool { model.monitor.states[host.id]?.phase == .connected }
 
     var body: some View {
         Group {
@@ -51,7 +51,7 @@ struct HostPortsSection: View {
 
     private func open(_ port: ListeningPort) {
         let id = host.id, model = self.model
-        preview = PortPreviewRequest(url: port.url, hostName: host.name) { try await model.connection(for: id) }
+        preview = PortPreviewRequest(url: port.url, hostName: host.name) { try await model.pool.connection(for: id) }
     }
 
     /// The ports the host listens on; nothing changes when the login is not up or the host cannot tell (Windows, or
@@ -59,7 +59,7 @@ struct HostPortsSection: View {
     private func read() async {
         guard ready, HostSystem(rawValue: host.system) != .WINDOWS else { return }
         do {
-            let ssh = try await model.connection(for: host.id)
+            let ssh = try await model.pool.connection(for: host.id)
             let result = try await ssh.runScript(ListeningPort.script, timeout: 10)
             guard !Task.isCancelled, result.status == 0 else { return }
             ports = ListeningPort.parse(result.text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init))

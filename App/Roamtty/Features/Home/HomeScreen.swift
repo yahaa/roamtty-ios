@@ -46,7 +46,7 @@ struct HomeScreen: View {
             .onChange(of: compact) { _ in barHidden = 0 }
             .onChange(of: searching) { _ in barHidden = 0 }
             .task(id: model.hosts) {
-                while !Task.isCancelled { await model.probeHosts(model.hosts); do { try await Task.sleep(for: .seconds(30)) } catch { break } }
+                while !Task.isCancelled { await model.reachability.probe(model.hosts); do { try await Task.sleep(for: .seconds(30)) } catch { break } }
             }
 
     }

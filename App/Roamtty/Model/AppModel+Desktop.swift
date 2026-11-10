@@ -1,6 +1,4 @@
 import Foundation
-import Combine
-import Network
 import UIKit
 import RoamttyCore
 import RoamttyTransport
@@ -59,7 +57,7 @@ extension AppModel {
         }
         desktops.remove(host.id)
         do {
-            let credentials = try await credentials(for: host)
+            let credentials = try await logins.credentials(for: host)
             let prefs = settings.desktopHosts[host.id] ?? DesktopHostSettings()
             var config = desktopConfig(for: host)
             config.fps = prefs.fps
@@ -97,7 +95,7 @@ extension AppModel {
                 })
             desktops.put(controller)
             controller.start()
-            startDesktopPathMonitor()
+            watchDesktopNetwork()
             if show, !path.contains(.desktop(host.id)) { path.append(.desktop(host.id)) }
             objectWillChange.send()
         } catch {
@@ -126,7 +124,7 @@ extension AppModel {
         let host: Host? = DispatchQueue.main.sync { self.host(hostID) }
         guard let host else { return .failed(message: nil, connecting: false) }
         do {
-            let ssh = try DispatchQueue.main.sync { try self.makeConnection(host, credentials: credentials, owner: "desktop-\(hostID)") }
+            let ssh = try DispatchQueue.main.sync { try self.logins.makeConnection(host, credentials: credentials, owner: "desktop-\(hostID)") }
             try ssh.connect()
             return .host(SSHDesktopHost(connection: ssh))
         } catch let error as RoamError {
@@ -162,39 +160,16 @@ extension AppModel {
     /// Read-only desktop probe over the host's shared connection (host page / session connect).
     func refreshDesktopProbe(_ host: Host) async {
         // Best-effort: never ask for a password just to look. The monitor runs it again once the user logs in.
-        guard connections[host.id]?.isConnected == true || canLoginSilently(host) else { return }
+        guard pool.isConnected(host.id) || logins.canLoginSilently(host) else { return }
         do {
-            let ssh = try await connection(for: host.id)
+            let ssh = try await pool.connection(for: host.id)
             let found = try await performInBackground { DesktopProbeScript.probe(SSHDesktopHost(connection: ssh)) }
             if let found { saveDesktopProbe(host, found) }
         } catch { /* probe is best-effort */ }
     }
 
-    func startDesktopPathMonitor() {
-        // Already running.
-        if desktopPathMonitor != nil { return }
-        let monitor = NWPathMonitor()
-        desktopPathMonitor = monitor
-        // Updates come one at a time on this serial queue, the only place `last` is touched.
-        let queue = DispatchQueue(label: "roamtty.desktop.path", qos: .utility)
-        final class Last: @unchecked Sendable { var interface: String?? }
-        let last = Last()
-        monitor.pathUpdateHandler = { [weak self] path in
-            let current = Self.defaultInterface(path)
-            let change = NetworkChange.between(last.interface, current)
-            last.interface = .some(current)
-            guard let change else { return }
-            DispatchQueue.main.async { self?.desktopStore?.networkChanged(change) }
-        }
-        monitor.start(queue: queue)
-    }
-
-    /// The interface the traffic goes out on ("cellular:pdp_ip0"), nil without one. A VPN's tunnel
-    /// (Tailscale's utun, type other) is not it: its updates leave the network the same.
-    nonisolated static func defaultInterface(_ path: NWPath) -> String? {
-        guard path.status == .satisfied else { return nil }
-        let kinds: [NWInterface.InterfaceType] = [.wifi, .cellular, .wiredEthernet]
-        guard let i = path.availableInterfaces.first(where: { kinds.contains($0.type) }) else { return nil }
-        return "\(i.type):\(i.name)"
+    /// Desktops follow the phone onto another network once the first one opened.
+    func watchDesktopNetwork() {
+        desktopNetwork.start { [weak self] change in self?.desktopStore?.networkChanged(change) }
     }
 }

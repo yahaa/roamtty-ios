@@ -109,7 +109,7 @@ struct ContinueSessionScreen: View {
         Task {
             defer { busy = false }
             // The login comes first, so a failure to sign in reads as such and offers to reconnect, not to retry a list.
-            do { _ = try await model.connection(for: host.id) } catch {
+            do { _ = try await model.pool.connection(for: host.id) } catch {
                 listing = .loginFailed(error.localizedDescription); return
             }
             // Only to show the sessions' folders as `~/…`; first, so the list does not change under the finger.
@@ -122,7 +122,7 @@ struct ContinueSessionScreen: View {
         }
     }
     private func homeDirectory() async -> String? {
-        guard let ssh = try? await model.connection(for: host.id), let script = try? RemoteFolders.script(StartDirectory.home),
+        guard let ssh = try? await model.pool.connection(for: host.id), let script = try? RemoteFolders.script(StartDirectory.home),
               let result = try? await ssh.runScript(script, timeout: 10),
               result.status == 0 else { return nil }
         return RemoteFolders.parse(result.text)?.home

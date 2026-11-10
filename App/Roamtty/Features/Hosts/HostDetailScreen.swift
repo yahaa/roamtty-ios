@@ -17,9 +17,9 @@ struct HostDetailScreen: View {
                 Group {
                     if verticalSizeClass == .compact { landscape(host) } else { portrait(host) }
                 }
-                    .onAppear { model.startMonitor(host); Task { await model.refreshDesktopProbe(host) } }
-                    .task(id: host.address + ":" + String(host.port)) { while !Task.isCancelled { await model.probeHosts([host]); do { try await Task.sleep(for: .seconds(15)) } catch { break } } }
-                    .onDisappear { model.stopMonitor(hostID) }
+                    .onAppear { model.monitor.start(host); Task { await model.refreshDesktopProbe(host) } }
+                    .task(id: host.address + ":" + String(host.port)) { while !Task.isCancelled { await model.reachability.probe([host]); do { try await Task.sleep(for: .seconds(15)) } catch { break } } }
+                    .onDisappear { model.monitor.stop(hostID) }
                     .confirmationDialog(model.text("删除 \(host.name)？", "Delete \(host.name)?"), isPresented: $deleteConfirm, titleVisibility: .visible) {
                         Button(model.text("删除主机", "Delete host"), role: .destructive) { model.deleteHost(host) }.accessibilityIdentifier("host-delete-confirm")
                     } message: { Text(model.text("此设备上保存的凭据和会话卡片也会移除。", "Saved credentials and session cards on this device will also be removed.")) }
@@ -33,7 +33,7 @@ struct HostDetailScreen: View {
                     HostSystemMark(system: host.system).frame(width: 56, height: 56)
                     VStack(alignment: .leading, spacing: 6) {
                         Text("\(host.username)@\(host.address):\(String(host.port))").font(.subheadline).textSelection(.enabled)
-                        Text(model.metrics[hostID]?.os ?? host.system).font(.subheadline).foregroundStyle(Palette.secondary)
+                        Text(model.monitor.metrics[hostID]?.os ?? host.system).font(.subheadline).foregroundStyle(Palette.secondary)
                         ReachabilityLabel(state: model.reachability[hostID] ?? .checking)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -43,10 +43,10 @@ struct HostDetailScreen: View {
                     actions(host, icons: false)
                 }
                 monitorStatus(host)
-                if let metrics = model.metrics[hostID] { MetricsPanel(metrics: metrics, series: model.metricSeries[hostID] ?? HostMetricSeries()) }
+                if let metrics = model.monitor.metrics[hostID] { MetricsPanel(metrics: metrics, series: model.monitor.series[hostID] ?? HostMetricSeries()) }
                 Panel(title: model.text("主机信息", "Host information")) {
                     connectionRows(host)
-                    if let metrics = model.metrics[hostID] { systemRows(metrics) }
+                    if let metrics = model.monitor.metrics[hostID] { systemRows(metrics) }
                 }
                 // Last on the page: the ports list can run long.
                 HostPortsSection(host: host)
@@ -113,7 +113,7 @@ struct HostDetailScreen: View {
         HStack(spacing: 8) { if withIcon { AppIcon(icon, size: 18) }; Text(title).lineLimit(1).fixedSize() }.padding(.horizontal, 8)
     }
     /// The monitor is connected and reading, so its numbers are current.
-    var monitorLive: Bool { model.monitorStates[hostID].map { $0.phase == .connected && $0.sampled && !$0.reconnecting && !$0.samplingFailed } ?? false }
+    var monitorLive: Bool { model.monitor.states[hostID].map { $0.phase == .connected && $0.sampled && !$0.reconnecting && !$0.samplingFailed } ?? false }
     private func monitorStatus(_ host: Host) -> some View {
         let live = monitorLive
         return VStack(alignment: .leading, spacing: 8) {
@@ -130,13 +130,13 @@ struct HostDetailScreen: View {
     }
     func monitorPanel(_ host: Host) -> some View {
         Panel {
-            if let state = model.monitorStates[hostID], state.samplingFailed {
+            if let state = model.monitor.states[hostID], state.samplingFailed {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(model.text("无法读取监控数据，请检查远端系统查询权限后重试。", "Couldn't read monitoring data. Check remote system query permissions and try again."))
                         .font(.subheadline).foregroundStyle(Palette.danger).accessibilityIdentifier("host-monitor-error")
-                    Button(model.text("重试", "Retry")) { model.stopMonitor(hostID); model.startMonitor(host, interactive: true) }.accessibilityIdentifier("host-monitor-retry")
+                    Button(model.text("重试", "Retry")) { model.monitor.stop(hostID); model.monitor.start(host, interactive: true) }.accessibilityIdentifier("host-monitor-retry")
                 }.padding(16)
-            } else if let state = model.monitorStates[hostID] {
+            } else if let state = model.monitor.states[hostID] {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 8) {
                         if state.phase.active && !(state.phase == .connected && state.sampled) {
@@ -154,12 +154,12 @@ struct HostDetailScreen: View {
                         Text(detail).font(.system(.caption, design: .monospaced)).foregroundStyle(Palette.secondary).textSelection(.enabled).accessibilityIdentifier("host-monitor-detail")
                     }
                     if !state.phase.active {
-                        if model.metrics[hostID] != nil { Text(model.text("下方保留上次读取结果。", "The last readings are shown below.")).font(.caption).foregroundStyle(Palette.secondary) }
-                        Button(model.text("重新连接", "Reconnect")) { model.startMonitor(host, interactive: true) }.accessibilityIdentifier("host-monitor-retry")
+                        if model.monitor.metrics[hostID] != nil { Text(model.text("下方保留上次读取结果。", "The last readings are shown below.")).font(.caption).foregroundStyle(Palette.secondary) }
+                        Button(model.text("重新连接", "Reconnect")) { model.monitor.start(host, interactive: true) }.accessibilityIdentifier("host-monitor-retry")
                     }
                 }.padding(16)
             } else {
-                Button { model.startMonitor(host, interactive: true) } label: {
+                Button { model.monitor.start(host, interactive: true) } label: {
                     InfoRow(title: model.text("连接以查看 CPU、内存和磁盘", "Connect to view CPU, memory and disks"), icon: "waveform.path.ecg")
                 }.accessibilityIdentifier("host-monitor-login")
             }
