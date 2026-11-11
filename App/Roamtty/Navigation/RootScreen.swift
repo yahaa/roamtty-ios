@@ -22,6 +22,7 @@ struct RootScreen: View {
                 DrawerScreen().frame(width: width).offset(x: drawerDrag).transition(.move(edge: .leading))
                     .simultaneousGesture(drawerSwipe(width: width))
             }
+            RenameSessionOverlay()
             AuthenticationOverlay()
         }
         .onChange(of: model.drawer) { open in if open { drawerDrag = 0 } }

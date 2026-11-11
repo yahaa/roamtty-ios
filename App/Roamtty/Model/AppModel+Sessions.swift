@@ -148,6 +148,11 @@ extension AppModel {
     /// 强制删除: the card goes at once, whatever the host does. Its tmux session is then ended on the server over a
     /// connection of its own, with the login the card already has and without asking anything; one the host could not
     /// end keeps running, and the user is told.
+    /// Names a card on this device; blank gives it back its automatic name. The open terminal's switcher names it too.
+    func renameSession(_ id: String, to name: String) {
+        journal.rename(id, to: name); persistJournal()
+        if let renamed = records.first(where: { $0.id == id }) { runtimes[id]?.record.name = renamed.name }
+    }
     func forceDeleteSession(_ record: SessionRecord) {
         if path.last == .terminal(record.id) { leaveTerminal() }
         // Taken before the card goes, which clears a session's own login.
