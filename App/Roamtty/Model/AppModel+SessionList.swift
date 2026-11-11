@@ -6,10 +6,12 @@ import RoamttyTransport
 extension AppModel {
     // MARK: What the lists show
 
-    /// Android `TerminalConnection.titleForDisplay`: "host · title", or "host · 会话 N" without a title.
+    /// Android `TerminalConnection.titleForDisplay`: "host · name" for a card the user named, else "host · title", or
+    /// "host · 会话 N" without a title.
     func sessionDefaultTitle(_ record: SessionRecord) -> String { "\(host(record.hostID)?.name ?? "") · " + text("会话 \(record.number)", "Session \(record.number)") }
     func sessionTitle(_ record: SessionRecord) -> String {
-        record.title.isEmpty ? sessionDefaultTitle(record) : "\(host(record.hostID)?.name ?? "") · \(record.title)"
+        let shown = record.name.isEmpty ? record.title : record.name
+        return shown.isEmpty ? sessionDefaultTitle(record) : "\(host(record.hostID)?.name ?? "") · \(shown)"
     }
     /// Sessions the app holds, live or coming back first, then needing the user, and closed (Android `activityRank`).
     var sessionsByActivity: [SessionRecord] {

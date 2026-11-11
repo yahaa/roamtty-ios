@@ -30,6 +30,23 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(SessionRecord.self, from: JSONEncoder().encode(attached)), attached)
         let legacy = #"{"id":"a","hostID":"one","mode":"tmux","title":"","remoteName":"roamtty-1","number":2}"#
         XCTAssertFalse(try JSONDecoder().decode(SessionRecord.self, from: Data(legacy.utf8)).external)
+        XCTAssertEqual(try JSONDecoder().decode(SessionRecord.self, from: Data(legacy.utf8)).name, "")
+    }
+    /// A card's name: one trimmed line of at most 80 characters, kept by the journal; blank gives the automatic one back.
+    func testRenamedCardKeepsOneLineOfName() throws {
+        XCTAssertEqual(sessionName("  release 打包 \n"), "release 打包")
+        XCTAssertEqual(sessionName("build\r\n  the\napk"), "build the apk")
+        XCTAssertEqual(sessionName(" \n\t "), "")
+        XCTAssertEqual(sessionName(String(repeating: "a", count: 120)).count, 80)
+        XCTAssertEqual(sessionName(String(repeating: "a", count: 79) + "😀👍"), String(repeating: "a", count: 79) + "😀")
+        var journal = SessionJournal()
+        let record = try journal.create(hostID: "one", mode: .tmux)
+        journal.rename(record.id, to: " 日志\ntail ")
+        let renamed = try XCTUnwrap(journal.records.first)
+        XCTAssertEqual(renamed.name, "日志 tail")
+        XCTAssertEqual(try JSONDecoder().decode(SessionRecord.self, from: JSONEncoder().encode(renamed)).name, "日志 tail")
+        journal.rename(record.id, to: "  ")
+        XCTAssertEqual(journal.records.first?.name, "")
     }
     func testInputNeverSurvivesReconnectAndRemainsBounded() {
         var queue = InputQueue()

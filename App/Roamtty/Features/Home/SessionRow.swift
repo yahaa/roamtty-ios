@@ -7,7 +7,7 @@ import RoamttyDesktopCore
 /// answered or runs and a status line with how long it has been at it and what the agent needs (allow a request, or a
 /// follow-up typed right here). A plain terminal has only its name, its folder and a status line of the connection.
 /// Every line is there, empty if need be, and the reply takes one, so all agents' cards share one height (Android
-/// `SessionRow`). Long press for its menu.
+/// `SessionRow`). Long press for its menu: rename, which names the card on this device only, then close.
 struct SessionRow: View {
     @EnvironmentObject var model: AppModel
     let record: SessionRecord
@@ -31,7 +31,9 @@ struct SessionRow: View {
         // The agent's folder while it reports, else the pane's, so a session without hooks or agent says it too.
         let agentPath = sessionListPath(status, username: username)
         let path = agentPath.isEmpty ? sessionListPath(runtime?.paneDirectory ?? "", username: username) : agentPath
-        let name = rowName(status: status, path: path, kind: kind)
+        let automatic = rowName(status: status, path: path, kind: kind)
+        // A name the user gave the card stands in for the automatic one; its badge, host and folder stay.
+        let name = record.name.isEmpty ? automatic : record.name
         let prompt = status?.task ?? ""
         let activity = agentActivity(status)
         let reply = replyPreview(status?.reply ?? "")
@@ -108,14 +110,29 @@ struct SessionRow: View {
         .contentShape(Rectangle())
         .onTapGesture { model.openSession(record) }
         .contextMenu {
-            // Close ends everything it runs, without asking; a tmux session that was already on the server is only detached.
-            Button(role: .destructive) { model.closeSession(record) } label: { Label { Text(record.external ? model.text("断开", "Detach") : model.text("关闭", "Close")) } icon: { Image("ic_delete") } }
-                .accessibilityIdentifier("home-session-close-\(record.id)")
-            // Closing a tmux session waits for the server to end it, which an offline or unanswering host never allows;
-            // force delete removes the card first and ends the session if the host answers.
-            if record.mode == .tmux && !record.external {
-                Button(role: .destructive) { forceDelete = true } label: { Label { Text(model.text("强制删除", "Force delete")) } icon: { Image("ic_delete") } }
-                    .accessibilityIdentifier("home-session-forget-\(record.id)")
+            Section {
+                Button { rename(automatic: automatic, prompt: status == nil ? nil : prompt, path: path, kind: kind, host: host, offline: offline) } label: {
+                    Label { Text(model.text("重命名", "Rename")) } icon: { Image("ic_edit") }
+                }.accessibilityIdentifier("home-session-rename-\(record.id)")
+            }
+            Section {
+                // Close ends everything it runs, without asking; a tmux session that was already on the server is only detached.
+                Button(role: .destructive) { model.closeSession(record) } label: {
+                    Text(record.external ? model.text("断开", "Detach") : model.text("关闭", "Close"))
+                    Text(record.external ? model.text("服务器上的会话保留", "The session stays on the server")
+                         : record.mode == .tmux && !connected ? model.text("登录主机后结束会话", "Signs in to the host to end it")
+                         : model.text("结束会话里运行的程序", "Ends what runs in it"))
+                    Image("ic_close_circle")
+                }.accessibilityIdentifier("home-session-close-\(record.id)")
+                // Closing a tmux session waits for the server to end it, which an offline or unanswering host never allows;
+                // force delete removes the card first and ends the session if the host answers.
+                if record.mode == .tmux && !record.external {
+                    Button(role: .destructive) { forceDelete = true } label: {
+                        Text(model.text("强制删除", "Force delete"))
+                        Text(model.text("先移除卡片，主机恢复后结束", "Removes the card now, ends it once the host is back"))
+                        Image("ic_delete")
+                    }.accessibilityIdentifier("home-session-forget-\(record.id)")
+                }
             }
         }
         .alert(model.text("强制删除会话？", "Force delete this session?"), isPresented: $forceDelete) {
@@ -127,6 +144,20 @@ struct SessionRow: View {
         }
         .onChange(of: status?.state) { state in failure = nil; if state != .idle { replying = false } }
         .accessibilityElement(children: .contain).accessibilityIdentifier("home-session-\(record.id)")
+    }
+
+    /// Opens the rename dialog with what tells this card apart, and one name to offer besides the automatic one: the
+    /// agent's last prompt, or for a plain terminal its folder's name.
+    private func rename(automatic: String, prompt: String?, path: String, kind: CodingAgent?, host: Host?, offline: Bool) {
+        let suggestion: (label: String, value: String)?
+        if let prompt { suggestion = (model.text("提问", "Prompt"), sessionName(prompt)) } else {
+            suggestion = (model.text("目录", "Folder"), path.isEmpty ? "" : sessionListFolder(path))
+        }
+        model.renaming = SessionRenameRequest(
+            id: record.id, current: record.name, automatic: automatic,
+            suggestion: suggestion.flatMap { $0.value.isEmpty || $0.value == automatic ? nil : $0 },
+            agent: kind, hostName: host?.name ?? "", hostID: host?.id ?? "", offline: offline,
+            kind: model.text("终端", "Terminal") + " · " + (record.mode == .tmux ? "tmux" : "SSH"), path: path)
     }
 
     /// An agent's session is named by its folder, the agent's badge before it (the prompt has its own line); others by
@@ -220,7 +251,7 @@ struct SessionRow: View {
 }
 
 /// The host a session runs on: its name on a wash of `Palette.host`, grey around a hollow dot while the host is offline.
-private struct HostChip: View {
+struct HostChip: View {
     let name: String
     let id: String
     let offline: Bool

@@ -28,6 +28,8 @@ import RoamttyTransport
     @Published var sessionFilter: SessionGroup?
     @Published var sheet: AppSheet?
     @Published var drawer = false
+    /// The card being renamed, shown above everything by `RenameSessionOverlay`.
+    @Published var renaming: SessionRenameRequest?
     @Published var error: String?
     @Published var notice: String?
     @Published var incomingFiles: [URL] = []
