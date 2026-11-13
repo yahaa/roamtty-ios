@@ -260,83 +260,107 @@ private final class InlineParser {
     func parseInto(_ src: String, _ out: inout String, _ spans: inout [MdSpan]) {
         let chars = Array(src)
         var i = 0
-        func append(_ text: String) { out += text }
         while i < chars.count {
-            let c = chars[i]
-            if c == "\\", i + 1 < chars.count, "\\`*_{}[]()#+-.!|~<>\"'".contains(chars[i + 1]) {
-                append(String(chars[i + 1])); i += 2; continue
-            }
-            if c == "`" {
-                var ticks = 1
-                while i + ticks < chars.count && chars[i + ticks] == "`" { ticks += 1 }
-                let fence = String(repeating: "`", count: ticks)
-                if let close = src.range(of: fence, range: src.index(src.startIndex, offsetBy: i + ticks)..<src.endIndex) {
-                    let start = out.utf16.count
-                    var inner = String(src[src.index(src.startIndex, offsetBy: i + ticks)..<close.lowerBound])
-                    if inner.count > 2 && inner.hasPrefix(" ") && inner.hasSuffix(" ") { inner = String(inner.dropFirst().dropLast()) }
-                    append(inner)
-                    spans.append(MdSpan(start: start, end: out.utf16.count, style: .code, url: nil))
-                    i = src.distance(from: src.startIndex, to: close.upperBound); continue
-                }
-            }
-            if c == "!", i + 1 < chars.count, chars[i + 1] == "[" {
-                if let close = src.dropFirst(i + 2).firstIndex(of: "]") {
-                    let closeOffset = src.distance(from: src.startIndex, to: close)
-                    if let target = linkTarget(src, closeOffset + 1) {
-                        let start = out.utf16.count
-                        let alt = String(src[src.index(src.startIndex, offsetBy: i + 2)..<close])
-                        append(alt.isEmpty ? "image" : alt)
-                        spans.append(MdSpan(start: start, end: out.utf16.count, style: .image, url: target.0))
-                        i = target.1; continue
-                    }
-                }
-            }
-            if c == "[" {
-                if let close = matchingBracket(chars, i), close > i {
-                    let label = String(chars[(i + 1)..<close])
-                    let inlineTarget = linkTarget(src, close + 1)
-                    var referenceTarget: (String, Int)?
-                    if inlineTarget == nil, close + 1 < chars.count, chars[close + 1] == "[", let end = src.dropFirst(close + 2).firstIndex(of: "]") {
-                        let endOffset = src.distance(from: src.startIndex, to: end)
-                        let key = String(src[src.index(src.startIndex, offsetBy: close + 2)..<end])
-                        if let url = references[(key.isEmpty ? label : key).lowercased()] { referenceTarget = (url, endOffset + 1) }
-                    }
-                    let shortcut = inlineTarget == nil && referenceTarget == nil ? references[label.lowercased()].map { ($0, close + 1) } : nil
-                    if let target = inlineTarget ?? referenceTarget ?? shortcut {
-                        let start = out.utf16.count
-                        parseInto(label, &out, &spans)
-                        spans.append(MdSpan(start: start, end: out.utf16.count, style: .link, url: target.0))
-                        i = target.1; continue
-                    }
-                }
-            }
-            if c == "<", let close = src.dropFirst(i + 1).firstIndex(of: ">") {
-                let inner = String(src[src.index(src.startIndex, offsetBy: i + 1)..<close])
-                let closeOffset = src.distance(from: src.startIndex, to: close)
-                if inner.hasPrefix("http://") || inner.hasPrefix("https://") || inner.hasPrefix("mailto:") {
-                    let start = out.utf16.count
-                    append(inner.hasPrefix("mailto:") ? String(inner.dropFirst(7)) : inner)
-                    spans.append(MdSpan(start: start, end: out.utf16.count, style: .link, url: inner))
-                    i = closeOffset + 1; continue
-                }
-                if inner.range(of: #"^br\s*/?$"#, options: [.regularExpression, .caseInsensitive]) != nil { append("\n"); i = closeOffset + 1; continue }
-                if inner.range(of: #"^/?[A-Za-z][\w-]*(\s[^>]*)?/?$"#, options: .regularExpression) != nil { i = closeOffset + 1; continue }
-            }
-            if c == "h", src.dropFirst(i).hasPrefix("https://") || src.dropFirst(i).hasPrefix("http://"), i == 0 || !chars[i - 1].isLetter && !chars[i - 1].isNumber {
-                var j = i
-                while j < chars.count && !chars[j].isWhitespace && chars[j] != "<" { j += 1 }
-                while j > i && ".,;:!?)'\"".contains(chars[j - 1]) { j -= 1 }
-                let start = out.utf16.count
-                append(String(chars[i..<j]))
-                spans.append(MdSpan(start: start, end: out.utf16.count, style: .link, url: String(chars[i..<j])))
-                i = j; continue
-            }
-            if c == "~", src.dropFirst(i).hasPrefix("~~"), let next = emphasis(chars, i, "~~", .strike, &out, &spans) { i = next; continue }
-            if c == "*" || c == "_", i + 1 < chars.count, chars[i + 1] == c, let next = emphasis(chars, i, String(c) + String(c), .bold, &out, &spans) { i = next; continue }
-            if c == "*" || c == "_", c == "*" || i == 0 || !(chars[i - 1].isLetter || chars[i - 1].isNumber), let next = emphasis(chars, i, String(c), .italic, &out, &spans) { i = next; continue }
-            append(String(c)); i += 1
+            if let next = token(src, chars, i, &out, &spans) { i = next; continue }
+            out.append(chars[i]); i += 1
         }
     }
+
+    /// The inline construct that starts at `i`, appended to `out`: where it ends, nil when `chars[i]` is plain text.
+    private func token(_ src: String, _ chars: [Character], _ i: Int, _ out: inout String, _ spans: inout [MdSpan]) -> Int? {
+        let c = chars[i]
+        switch c {
+        case "\\":
+            guard i + 1 < chars.count, "\\`*_{}[]()#+-.!|~<>\"'".contains(chars[i + 1]) else { return nil }
+            out.append(chars[i + 1])
+            return i + 2
+        case "`": return codeSpan(src, chars, i, &out, &spans)
+        case "!": return image(src, chars, i, &out, &spans)
+        case "[": return link(src, chars, i, &out, &spans)
+        case "<": return angle(src, i, &out, &spans)
+        case "h": return bareURL(src, chars, i, &out, &spans)
+        case "~": return src.dropFirst(i).hasPrefix("~~") ? emphasis(chars, i, "~~", .strike, &out, &spans) : nil
+        case "*", "_":
+            if i + 1 < chars.count, chars[i + 1] == c, let next = emphasis(chars, i, String(c) + String(c), .bold, &out, &spans) { return next }
+            guard c == "*" || i == 0 || !(chars[i - 1].isLetter || chars[i - 1].isNumber) else { return nil }
+            return emphasis(chars, i, String(c), .italic, &out, &spans)
+        default: return nil
+        }
+    }
+
+    private func codeSpan(_ src: String, _ chars: [Character], _ i: Int, _ out: inout String, _ spans: inout [MdSpan]) -> Int? {
+        var ticks = 1
+        while i + ticks < chars.count && chars[i + ticks] == "`" { ticks += 1 }
+        let fence = String(repeating: "`", count: ticks)
+        guard let close = src.range(of: fence, range: src.index(src.startIndex, offsetBy: i + ticks)..<src.endIndex) else { return nil }
+        let start = out.utf16.count
+        var inner = String(src[src.index(src.startIndex, offsetBy: i + ticks)..<close.lowerBound])
+        if inner.count > 2 && inner.hasPrefix(" ") && inner.hasSuffix(" ") { inner = String(inner.dropFirst().dropLast()) }
+        out += inner
+        spans.append(MdSpan(start: start, end: out.utf16.count, style: .code, url: nil))
+        return src.distance(from: src.startIndex, to: close.upperBound)
+    }
+
+    /// `![alt](url)` inside a line: its alt text, marked as an image.
+    private func image(_ src: String, _ chars: [Character], _ i: Int, _ out: inout String, _ spans: inout [MdSpan]) -> Int? {
+        guard i + 1 < chars.count, chars[i + 1] == "[", let close = src.dropFirst(i + 2).firstIndex(of: "]") else { return nil }
+        let closeOffset = src.distance(from: src.startIndex, to: close)
+        guard let target = linkTarget(src, closeOffset + 1) else { return nil }
+        let start = out.utf16.count
+        let alt = String(src[src.index(src.startIndex, offsetBy: i + 2)..<close])
+        out += alt.isEmpty ? "image" : alt
+        spans.append(MdSpan(start: start, end: out.utf16.count, style: .image, url: target.0))
+        return target.1
+    }
+
+    /// `[label](url)`, `[label][reference]` or `[reference]`.
+    private func link(_ src: String, _ chars: [Character], _ i: Int, _ out: inout String, _ spans: inout [MdSpan]) -> Int? {
+        guard let close = matchingBracket(chars, i), close > i else { return nil }
+        let label = String(chars[(i + 1)..<close])
+        let inlineTarget = linkTarget(src, close + 1)
+        var referenceTarget: (String, Int)?
+        if inlineTarget == nil, close + 1 < chars.count, chars[close + 1] == "[", let end = src.dropFirst(close + 2).firstIndex(of: "]") {
+            let endOffset = src.distance(from: src.startIndex, to: end)
+            let key = String(src[src.index(src.startIndex, offsetBy: close + 2)..<end])
+            if let url = references[(key.isEmpty ? label : key).lowercased()] { referenceTarget = (url, endOffset + 1) }
+        }
+        let shortcut = inlineTarget == nil && referenceTarget == nil ? references[label.lowercased()].map { ($0, close + 1) } : nil
+        guard let target = inlineTarget ?? referenceTarget ?? shortcut else { return nil }
+        let start = out.utf16.count
+        parseInto(label, &out, &spans)
+        spans.append(MdSpan(start: start, end: out.utf16.count, style: .link, url: target.0))
+        return target.1
+    }
+
+    /// `<https://…>` and `<mailto:…>` are links, `<br>` a line break, and any other HTML tag is dropped.
+    private func angle(_ src: String, _ i: Int, _ out: inout String, _ spans: inout [MdSpan]) -> Int? {
+        guard let close = src.dropFirst(i + 1).firstIndex(of: ">") else { return nil }
+        let inner = String(src[src.index(src.startIndex, offsetBy: i + 1)..<close])
+        let closeOffset = src.distance(from: src.startIndex, to: close)
+        if inner.hasPrefix("http://") || inner.hasPrefix("https://") || inner.hasPrefix("mailto:") {
+            let start = out.utf16.count
+            out += inner.hasPrefix("mailto:") ? String(inner.dropFirst(7)) : inner
+            spans.append(MdSpan(start: start, end: out.utf16.count, style: .link, url: inner))
+            return closeOffset + 1
+        }
+        if inner.range(of: #"^br\s*/?$"#, options: [.regularExpression, .caseInsensitive]) != nil { out += "\n"; return closeOffset + 1 }
+        if inner.range(of: #"^/?[A-Za-z][\w-]*(\s[^>]*)?/?$"#, options: .regularExpression) != nil { return closeOffset + 1 }
+        return nil
+    }
+
+    /// A bare http(s) URL, up to the whitespace after it and without the sentence punctuation at its end.
+    private func bareURL(_ src: String, _ chars: [Character], _ i: Int, _ out: inout String, _ spans: inout [MdSpan]) -> Int? {
+        guard src.dropFirst(i).hasPrefix("https://") || src.dropFirst(i).hasPrefix("http://"),
+              i == 0 || !chars[i - 1].isLetter && !chars[i - 1].isNumber else { return nil }
+        var j = i
+        while j < chars.count && !chars[j].isWhitespace && chars[j] != "<" { j += 1 }
+        while j > i && ".,;:!?)'\"".contains(chars[j - 1]) { j -= 1 }
+        let start = out.utf16.count
+        out += String(chars[i..<j])
+        spans.append(MdSpan(start: start, end: out.utf16.count, style: .link, url: String(chars[i..<j])))
+        return j
+    }
+
     func linkTarget(_ src: String, _ open: Int) -> (String, Int)? {
         let chars = Array(src)
         guard open < chars.count, chars[open] == "(" else { return nil }

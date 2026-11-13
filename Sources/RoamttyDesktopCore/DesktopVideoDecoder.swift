@@ -167,60 +167,13 @@ public final class DesktopVideoDecoder: DesktopVideoSink, @unchecked Sendable {
         locked { scheduled = false; draining = true }
         var processed = 0
         while true {
-            let flush = locked { () -> Bool in
-                if flushNeeded { flushNeeded = false; return true }; return false
-            }
-            if flush { display?.cancelVideoReadinessNotification(); display?.flush() }
-            let hasWork = locked { pending.first?.avcc != nil }
-            if hasWork, let display, !display.isReadyForMoreVideo {
-                locked { waiting = true; draining = false }
-                display.notifyWhenReadyForVideo { [weak self] in
-                    guard let self else { return }
-                    self.locked { self.waiting = false }
-                    self.kick()
-                }
-                // Reset/overflow may have happened just before waiting was set.
-                let reset = locked { () -> Bool in
-                    if flushNeeded { waiting = false; return true }; return false
-                }
-                if reset { kick() }
-                return
-            }
-            // The next unit in order, once converted; an unconverted one ends the drain until its pass kicks it.
-            let next: (Video, [UInt8], UInt64)? = locked {
-                if flushNeeded { return nil }
-                guard let entry = pending.first, let avcc = entry.avcc else { draining = false; return nil }
-                pending.removeFirst(); pendingBytes -= entry.video.data.count
-                active = true; activeBytes = entry.video.data.count
-                return (entry.video, avcc, generation)
-            }
-            guard let (v, avcc, token) = next else {
+            flushIfNeeded()
+            if parkUntilDisplayReady() { return }
+            guard let (v, avcc, token) = takeConverted() else {
                 if locked({ draining }) { continue }
                 kick(); return
             }
-            let valid = locked { () -> Bool in
-                guard ready, generation == token else { return false }
-                _decoded += 1
-                awaitingRender[v.frame] = token
-                if awaitingRender.count > 120 {
-                    for frame in awaitingRender.keys.sorted().dropLast(120) { awaitingRender.removeValue(forKey: frame) }
-                }
-                return true
-            }
-            if valid {
-                // ACK/decoded must precede even a synchronous display callback. The callback
-                // reports layer enqueue, not physical scan-out, on AVSampleBufferDisplayLayer.
-                let now = UdpLink.monotonicUs()
-                session?.decoded(frame: v.frame, decodedUs: now)
-                if locked({ ready && generation == token }) {
-                    if let display {
-                        display.present(frame: v.frame, keyframe: v.keyframe, width: v.width, height: v.height,
-                                        annexB: v.data, offset: v.offset, avcc: avcc, rendered: { [weak self, frame = v.frame] renderedUs in
-                            self?.didRender(frame: frame, generation: token, renderedUs: renderedUs)
-                        })
-                    } else { didRender(frame: v.frame, generation: token, renderedUs: now) }
-                }
-            }
+            decodeAndPresent(v, avcc, generation: token)
             locked { active = false; activeBytes = 0 }
             processed += 1
             if processed == frameLimit {
@@ -229,6 +182,65 @@ public final class DesktopVideoDecoder: DesktopVideoSink, @unchecked Sendable {
                 return
             }
         }
+    }
+
+    private func flushIfNeeded() {
+        let flush = locked { () -> Bool in
+            if flushNeeded { flushNeeded = false; return true }; return false
+        }
+        if flush { display?.cancelVideoReadinessNotification(); display?.flush() }
+    }
+
+    /// When the display cannot take the next unit yet, the drain ends here and resumes once it can: true then.
+    private func parkUntilDisplayReady() -> Bool {
+        let hasWork = locked { pending.first?.avcc != nil }
+        guard hasWork, let display, !display.isReadyForMoreVideo else { return false }
+        locked { waiting = true; draining = false }
+        display.notifyWhenReadyForVideo { [weak self] in
+            guard let self else { return }
+            self.locked { self.waiting = false }
+            self.kick()
+        }
+        // Reset/overflow may have happened just before waiting was set.
+        let reset = locked { () -> Bool in
+            if flushNeeded { waiting = false; return true }; return false
+        }
+        if reset { kick() }
+        return true
+    }
+
+    /// The next unit in order, once converted; an unconverted one ends the drain until its pass kicks it.
+    private func takeConverted() -> (Video, [UInt8], UInt64)? {
+        locked {
+            if flushNeeded { return nil }
+            guard let entry = pending.first, let avcc = entry.avcc else { draining = false; return nil }
+            pending.removeFirst(); pendingBytes -= entry.video.data.count
+            active = true; activeBytes = entry.video.data.count
+            return (entry.video, avcc, generation)
+        }
+    }
+
+    private func decodeAndPresent(_ v: Video, _ avcc: [UInt8], generation token: UInt64) {
+        let valid = locked { () -> Bool in
+            guard ready, generation == token else { return false }
+            _decoded += 1
+            awaitingRender[v.frame] = token
+            if awaitingRender.count > 120 {
+                for frame in awaitingRender.keys.sorted().dropLast(120) { awaitingRender.removeValue(forKey: frame) }
+            }
+            return true
+        }
+        guard valid else { return }
+        // ACK/decoded must precede even a synchronous display callback. The callback
+        // reports layer enqueue, not physical scan-out, on AVSampleBufferDisplayLayer.
+        let now = UdpLink.monotonicUs()
+        session?.decoded(frame: v.frame, decodedUs: now)
+        guard locked({ ready && generation == token }) else { return }
+        guard let display else { didRender(frame: v.frame, generation: token, renderedUs: now); return }
+        display.present(frame: v.frame, keyframe: v.keyframe, width: v.width, height: v.height,
+                        annexB: v.data, offset: v.offset, avcc: avcc, rendered: { [weak self, frame = v.frame] renderedUs in
+            self?.didRender(frame: frame, generation: token, renderedUs: renderedUs)
+        })
     }
 
     /// The submission-bound `rendered` closure of `present` lands here. On iOS the timestamp
@@ -241,11 +253,13 @@ public final class DesktopVideoDecoder: DesktopVideoSink, @unchecked Sendable {
         }
         if current { session?.rendered(frame: frame, renderedUs: renderedUs) }
     }
+
     public func reset() {
         locked { invalidate() }
         kick()
         session?.needKeyframe()
     }
+
     public func close() {
         detach()
         // Keep the weak display until the serialized flush executes. Queued work captures
