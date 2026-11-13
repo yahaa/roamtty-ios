@@ -110,7 +110,7 @@ extension FileBrowserScreen {
         mutationTask?.cancel()
     }
     func startMutation(label: String, removingSelection: String? = nil,
-                               operation: @escaping (SSHConnection, TransferCancellation) throws -> Void) {
+                       operation: @escaping (SSHConnection, TransferCancellation) throws -> Void) {
         guard mutationID == nil else { return }
         let id = UUID(), token = TransferCancellation(), target = connectionTarget
         mutationID = id; mutationLabel = label; mutationCancellation = token; mutationCancelling = false; actionError = nil
