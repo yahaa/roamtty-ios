@@ -181,47 +181,16 @@ struct ImageInsertStatus: View {
     }
 
     private func card(_ followed: [TransferJob]) -> some View {
-        let total = followed.count
         let current = followed.first { $0.state == .running }
         let done = followed.filter { $0.state != .running }.count
         let outcomes = followed.map(outcome)
         let failed = outcomes.filter { if case .failed = $0 { return true }; return false }.count
-        let running = current != nil
         return VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 14) {
-                badge(running ? "ic_image" : failed > 0 ? "ic_alert" : "ic_check",
-                      background: running ? Palette.raised : failed > 0 ? Palette.danger.opacity(0.18) : Palette.accentPanel,
-                      tint: running ? Palette.foreground : failed > 0 ? Palette.danger : Palette.accent)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(running ? model.text("正在插入图片", "Inserting photos") : failed == total ? model.text("图片插入失败", "Photos not inserted") : model.text("图片插入结果", "Photo results"))
-                        .font(.title3.weight(.semibold))
-                    let subtitle = running ? (total > 1 ? model.text("第 \(min(done + 1, total)) 张，共 \(total) 张", "Photo \(min(done + 1, total)) of \(total)") : nil)
-                        : [total - failed > 0 ? model.text("成功 \(total - failed) 张", "\(total - failed) inserted") : nil,
-                           failed > 0 ? model.text("失败 \(failed) 张", "\(failed) failed") : nil].compactMap { $0 }.joined(separator: " · ")
-                    if let subtitle { Text(subtitle).font(.subheadline).foregroundStyle(Palette.secondary).accessibilityIdentifier("image-insert-count") }
-                }
-            }
-            if let current {
-                let fraction = current.fraction ?? 0
-                ProgressView(value: (Double(done) + fraction) / Double(total)).tint(Palette.accent).padding(.top, 20).accessibilityIdentifier("image-insert-progress")
-                HStack {
-                    Text(current.total == nil ? model.text("正在处理图片…", "Preparing photo…") : model.text("正在上传…", "Uploading…"))
-                    Spacer()
-                    if let bytes = current.total { Text("\(formattedBytes(current.bytes)) / \(formattedBytes(bytes))").monospacedDigit() }
-                }.font(.subheadline).foregroundStyle(Palette.secondary).padding(.top, 12)
-            } else {
-                let results = VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(followed.enumerated()), id: \.element.id) { index, job in
-                        if index > 0 { Divider().padding(.leading, 32) }
-                        row(job, outcomes[index]).accessibilityIdentifier("image-insert-row-\(index)")
-                    }
-                }.padding(.top, 12)
-                // A short list sits in the card as it is; a long one scrolls within about half the screen.
-                ViewThatFits(in: .vertical) { results; ScrollView { results } }.frame(maxHeight: UIScreen.main.bounds.height * 0.52)
-            }
+            cardHeading(total: followed.count, done: done, failed: failed, running: current != nil)
+            if let current { progress(of: current, done: done, total: followed.count) } else { results(followed, outcomes) }
             HStack {
                 Spacer()
-                if running {
+                if current != nil {
                     Button(model.text("取消", "Cancel")) { followed.filter { $0.state == .running }.forEach(transfers.cancel) }
                         .buttonStyle(TextActionStyle()).foregroundStyle(Palette.danger).accessibilityIdentifier("image-insert-cancel")
                 } else {
@@ -235,6 +204,47 @@ struct ImageInsertStatus: View {
         .fixedSize(horizontal: false, vertical: true)
         .transition(.opacity.combined(with: .scale(scale: 0.96)))
         .accessibilityElement(children: .contain).accessibilityIdentifier("image-insert-dialog")
+    }
+
+    /// What the batch is doing, or how it went, with the count under it.
+    private func cardHeading(total: Int, done: Int, failed: Int, running: Bool) -> some View {
+        HStack(spacing: 14) {
+            badge(running ? "ic_image" : failed > 0 ? "ic_alert" : "ic_check",
+                  background: running ? Palette.raised : failed > 0 ? Palette.danger.opacity(0.18) : Palette.accentPanel,
+                  tint: running ? Palette.foreground : failed > 0 ? Palette.danger : Palette.accent)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(running ? model.text("正在插入图片", "Inserting photos") : failed == total ? model.text("图片插入失败", "Photos not inserted") : model.text("图片插入结果", "Photo results"))
+                    .font(.title3.weight(.semibold))
+                let subtitle = running ? (total > 1 ? model.text("第 \(min(done + 1, total)) 张，共 \(total) 张", "Photo \(min(done + 1, total)) of \(total)") : nil)
+                    : [total - failed > 0 ? model.text("成功 \(total - failed) 张", "\(total - failed) inserted") : nil,
+                       failed > 0 ? model.text("失败 \(failed) 张", "\(failed) failed") : nil].compactMap { $0 }.joined(separator: " · ")
+                if let subtitle { Text(subtitle).font(.subheadline).foregroundStyle(Palette.secondary).accessibilityIdentifier("image-insert-count") }
+            }
+        }
+    }
+
+    /// The batch's progress bar, and the bytes of the photo going up now.
+    @ViewBuilder
+    private func progress(of current: TransferJob, done: Int, total: Int) -> some View {
+        let fraction = current.fraction ?? 0
+        ProgressView(value: (Double(done) + fraction) / Double(total)).tint(Palette.accent).padding(.top, 20).accessibilityIdentifier("image-insert-progress")
+        HStack {
+            Text(current.total == nil ? model.text("正在处理图片…", "Preparing photo…") : model.text("正在上传…", "Uploading…"))
+            Spacer()
+            if let bytes = current.total { Text("\(formattedBytes(current.bytes)) / \(formattedBytes(bytes))").monospacedDigit() }
+        }.font(.subheadline).foregroundStyle(Palette.secondary).padding(.top, 12)
+    }
+
+    /// One row per photo once all are done.
+    private func results(_ followed: [TransferJob], _ outcomes: [Outcome]) -> some View {
+        let results = VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(followed.enumerated()), id: \.element.id) { index, job in
+                if index > 0 { Divider().padding(.leading, 32) }
+                row(job, outcomes[index]).accessibilityIdentifier("image-insert-row-\(index)")
+            }
+        }.padding(.top, 12)
+        // A short list sits in the card as it is; a long one scrolls within about half the screen.
+        return ViewThatFits(in: .vertical) { results; ScrollView { results } }.frame(maxHeight: UIScreen.main.bounds.height * 0.52)
     }
 
     private func badge(_ icon: String, background: Color, tint: Color) -> some View {

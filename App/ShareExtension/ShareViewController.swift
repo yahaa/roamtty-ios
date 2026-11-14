@@ -63,73 +63,96 @@ final class ShareViewController: UIViewController {
         let token = ShareInboxCancellation(); cancellation = token
         saveProvider(providers: providers, index: 0, directory: transaction, useGroup: group != nil, cancellation: token)
     }
+    /// Copies the shared items into `directory` one after another, then hands the folder to the app.
     private func saveProvider(providers: [NSItemProvider], index: Int, directory: URL, useGroup: Bool, cancellation: ShareInboxCancellation) {
         guard !cancellation.isCancelled else { return }
-        guard index < providers.count else {
-            do {
-                if useGroup {
-                    try cancellation.publish { try Data().write(to: directory.appendingPathComponent(".ready"), options: .atomic) }
-                } else {
-                    try ShareInboxStore.save(directory: directory, cancellation: cancellation)
-                    try? FileManager.default.removeItem(at: directory)
-                }
-            } catch { failed(error, directory: directory, cancellation: cancellation); return }
-            DispatchQueue.main.async {
-                guard self.cancellation === cancellation, !cancellation.isCancelled else { return }
-                self.spinner.stopAnimating(); self.work = nil; self.extensionContext?.completeRequest(returningItems: nil)
-            }
-            return
-        }
-        let provider = providers[index]
-        func next(_ error: Error?) {
+        guard index < providers.count else { publish(directory, useGroup: useGroup, cancellation: cancellation); return }
+        copy(providers[index], index: index, to: directory, cancellation: cancellation) { error in
             guard !cancellation.isCancelled else { return }
             if let error {
-                failed(error, directory: directory, cancellation: cancellation)
+                self.failed(error, directory: directory, cancellation: cancellation)
             } else {
-                saveProvider(providers: providers, index: index + 1, directory: directory, useGroup: useGroup, cancellation: cancellation)
+                self.saveProvider(providers: providers, index: index + 1, directory: directory, useGroup: useGroup, cancellation: cancellation)
             }
         }
-        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
-                if let error { next(error); return }
-                guard let url = item as? URL else { next(NSError(domain: "RoamttyShare", code: 1, userInfo: [NSLocalizedDescriptionKey: self.text("共享文件无效", "Invalid shared file")])); return }
-                do {
-                    try cancellation.check()
-                    let access = url.startAccessingSecurityScopedResource()
-                    defer { if access { url.stopAccessingSecurityScopedResource() } }
-                    try FileManager.default.copyItem(at: url, to: directory.appendingPathComponent("\(index)-" + url.lastPathComponent))
-                    try cancellation.check()
-                    next(nil)
-                } catch { next(error) }
-            }
-        } else if let type = provider.registeredTypeIdentifiers.first(where: { UTType($0)?.conforms(to: .data) == true && UTType($0)?.conforms(to: .text) != true }) {
-            provider.loadFileRepresentation(forTypeIdentifier: type) { url, error in
-                if let error { next(error); return }
-                guard let url else { next(NSError(domain: "RoamttyShare", code: 2, userInfo: [NSLocalizedDescriptionKey: self.text("无法读取共享文件", "Unable to read shared file")])); return }
-                let baseName = provider.suggestedName ?? url.lastPathComponent
-                let name = baseName.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "\\", with: "_")
-                let ext = (name as NSString).pathExtension.isEmpty ? "." + (UTType(type)?.preferredFilenameExtension ?? "bin") : ""
-                do {
-                    try cancellation.check()
-                    try FileManager.default.copyItem(at: url, to: directory.appendingPathComponent("\(index)-" + name + ext))
-                    try cancellation.check()
-                    next(nil)
-                } catch { next(error) }
-            }
-        } else if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
-            provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { item, error in
-                if let error { next(error); return }
-                let data = (item as? Data) ?? (item as? String).map { Data($0.utf8) }
-                guard let data else { next(NSError(domain: "RoamttyShare", code: 3, userInfo: [NSLocalizedDescriptionKey: self.text("无法读取共享文本", "Unable to read shared text")])); return }
-                do {
-                    try cancellation.check()
-                    try data.write(to: directory.appendingPathComponent("Shared text \(index + 1).txt"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-                    try cancellation.check()
-                    next(nil)
-                } catch { next(error) }
-            }
-        } else { next(NSError(domain: "RoamttyShare", code: 4, userInfo: [NSLocalizedDescriptionKey: text("不支持此共享内容", "Unsupported shared content")])) }
     }
+
+    /// Everything is copied: mark the folder ready for the app (or save it here, without an app group) and finish.
+    private func publish(_ directory: URL, useGroup: Bool, cancellation: ShareInboxCancellation) {
+        do {
+            if useGroup {
+                try cancellation.publish { try Data().write(to: directory.appendingPathComponent(".ready"), options: .atomic) }
+            } else {
+                try ShareInboxStore.save(directory: directory, cancellation: cancellation)
+                try? FileManager.default.removeItem(at: directory)
+            }
+        } catch { failed(error, directory: directory, cancellation: cancellation); return }
+        DispatchQueue.main.async {
+            guard self.cancellation === cancellation, !cancellation.isCancelled else { return }
+            self.spinner.stopAnimating(); self.work = nil; self.extensionContext?.completeRequest(returningItems: nil)
+        }
+    }
+
+    private func shareError(_ code: Int, _ message: String) -> NSError {
+        NSError(domain: "RoamttyShare", code: code, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+
+    /// One shared item into `directory`: a file by its URL, any other data as a file, or text as a .txt.
+    private func copy(_ provider: NSItemProvider, index: Int, to directory: URL, cancellation: ShareInboxCancellation, done: @escaping (Error?) -> Void) {
+        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            copyFile(provider, index: index, to: directory, cancellation: cancellation, done: done)
+        } else if let type = provider.registeredTypeIdentifiers.first(where: { UTType($0)?.conforms(to: .data) == true && UTType($0)?.conforms(to: .text) != true }) {
+            copyData(provider, type: type, index: index, to: directory, cancellation: cancellation, done: done)
+        } else if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
+            copyText(provider, index: index, to: directory, cancellation: cancellation, done: done)
+        } else { done(shareError(4, text("不支持此共享内容", "Unsupported shared content"))) }
+    }
+
+    private func copyFile(_ provider: NSItemProvider, index: Int, to directory: URL, cancellation: ShareInboxCancellation, done: @escaping (Error?) -> Void) {
+        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
+            if let error { done(error); return }
+            guard let url = item as? URL else { done(self.shareError(1, self.text("共享文件无效", "Invalid shared file"))); return }
+            do {
+                try cancellation.check()
+                let access = url.startAccessingSecurityScopedResource()
+                defer { if access { url.stopAccessingSecurityScopedResource() } }
+                try FileManager.default.copyItem(at: url, to: directory.appendingPathComponent("\(index)-" + url.lastPathComponent))
+                try cancellation.check()
+                done(nil)
+            } catch { done(error) }
+        }
+    }
+
+    private func copyData(_ provider: NSItemProvider, type: String, index: Int, to directory: URL, cancellation: ShareInboxCancellation, done: @escaping (Error?) -> Void) {
+        provider.loadFileRepresentation(forTypeIdentifier: type) { url, error in
+            if let error { done(error); return }
+            guard let url else { done(self.shareError(2, self.text("无法读取共享文件", "Unable to read shared file"))); return }
+            let baseName = provider.suggestedName ?? url.lastPathComponent
+            let name = baseName.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "\\", with: "_")
+            let ext = (name as NSString).pathExtension.isEmpty ? "." + (UTType(type)?.preferredFilenameExtension ?? "bin") : ""
+            do {
+                try cancellation.check()
+                try FileManager.default.copyItem(at: url, to: directory.appendingPathComponent("\(index)-" + name + ext))
+                try cancellation.check()
+                done(nil)
+            } catch { done(error) }
+        }
+    }
+
+    private func copyText(_ provider: NSItemProvider, index: Int, to directory: URL, cancellation: ShareInboxCancellation, done: @escaping (Error?) -> Void) {
+        provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { item, error in
+            if let error { done(error); return }
+            let data = (item as? Data) ?? (item as? String).map { Data($0.utf8) }
+            guard let data else { done(self.shareError(3, self.text("无法读取共享文本", "Unable to read shared text"))); return }
+            do {
+                try cancellation.check()
+                try data.write(to: directory.appendingPathComponent("Shared text \(index + 1).txt"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                try cancellation.check()
+                done(nil)
+            } catch { done(error) }
+        }
+    }
+
     private func failed(_ error: Error, directory: URL, cancellation: ShareInboxCancellation) {
         DispatchQueue.main.async {
             guard self.cancellation === cancellation, !cancellation.isCancelled else { return }
