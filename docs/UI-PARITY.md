@@ -25,7 +25,7 @@ The UI reference is the current reachable Android UI in `../roamtty`, especially
 - 常用命令 is the shell-history sheet: title, 点按即执行, refresh, close, search, `❯` rows in the terminal font; a tap closes the sheet and runs the command.
 - Cursor-row keys (Esc / Enter), tap-on-cursor-line keyboard, triple tap paste, swipes and swipe-hold, pinch font size (persisted) are unchanged. A double tap sends Tab and brings ↑ above the pet, ↓ below and ← to its left for 4 s; a line starting with `/` keeps them up. The Enter/Esc key slides left of them when the cursor row falls within their span. After Enter the keyboard hides after 15 s without typing.
 - Tapping a URL opens it (`TerminalUrl`, a port of Android's `TerminalUrl.java`): soft wraps, TUI hard wraps (including a full-width row redrawn by tmux and URLs glued to a label like "PR："), underlined "label (url)" links and scrollback. iOS routes GitHub and other universal links to their app. SwiftTerm does not publish its wrap flag; `SwiftTermTextGrid` reads it through `getText`. `scripts/test-terminal-url.sh` runs Android's URL cases against SwiftTerm 1.13.0. iOS-only: a reading tap away from the cursor line hides the keyboard, since iPhone keyboards have no dismiss key and there is no Back button.
-- Icons are Android's vector drawables, converted by `scripts/import-android-icons.py` into `Assets.xcassets/Icons`. File icons use the generated port of `FileIconTheme.kt` (`Features/Files/FileIcons.swift`).
+- Icons are Android's vector drawables, converted by `scripts/import-android-icons.py` into `Assets.xcassets/Icons`. File icons use the generated port of `FileIconTheme.kt` (`Features/Files/FileIcons.swift`, its tables in `FileIconTables.swift`).
 - UI tests read the phase from an invisible `terminal-phase` element (value: mode and transport). The launch sheet's tmux/SSH, mosh and typed-path controls exist only in Debug UI-test runs; Android has none.
 
 ## Feature map
@@ -46,11 +46,11 @@ The UI reference is the current reachable Android UI in `../roamtty`, especially
 | SSH-only remote folder picker, recent folders, detected default session mode, Claude/Codex/Grok permission hints and command previews | `Features/Sessions/LaunchScreen.swift`, Core `RemoteFolders` and `HostLaunchPolicy` |
 | tmux/mosh detection and explicit installation | `Features/Hosts/PluginsScreen.swift` |
 | Native terminal rendering and keyboard input | `Features/Terminal/Runtime/SessionRuntime.swift`, `Features/Terminal/Rendering/TerminalViews.swift`, SwiftTerm 1.13.0 |
-| Ctrl, arrows, Esc, Tab, function keys, ghost shortcuts and toolbox | `TerminalScreen.swift`, `GhostShortcuts.swift`, Core `TerminalShortcuts` |
+| Ctrl, arrows, Esc, Tab, function keys, ghost shortcuts and toolbox | `TerminalScreen.swift` and `TerminalScreen+Dock.swift`, `GhostShortcuts.swift`, Core `TerminalShortcuts` |
 | Cursor-row keyboard tap, double-tap Tab, triple-tap paste, floating Enter/Esc/slash arrows | `SessionRuntime+Gestures.swift`, `SessionRuntime+Input.swift`, `TerminalInteraction.swift`, `CursorRowButtons.swift` |
 | Scrollback, text selection/copy, paste, pinch font size | Native SwiftTerm/UIKit |
 | Common commands and remote bash/zsh history | `CommandSheet`, Core `ShellHistoryCommands` |
-| Path-aware fuzzy file search, new folder, persistent Name/Size/Modified/Type sorting, hidden files and batch download | `Features/Files/FileBrowserScreen.swift` |
+| Path-aware fuzzy file search, new folder, persistent Name/Size/Modified/Type sorting, hidden files and batch download | `Features/Files/FileBrowserScreen.swift` and its `FileBrowserScreen+*.swift` parts |
 | Syntax highlighting, counted search with wrapping navigation, saved preview font/wrap, Markdown and text fullscreen | `Features/Files/Preview/`, Core Syntax/Markdown parsers |
 | Image zoom and full-screen image preview | `ZoomableImage` |
 | File/folder upload and download with progress/cancel | `Features/Files/FileTransferModel.swift` |

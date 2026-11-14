@@ -1,7 +1,7 @@
 # Remote desktop gestures
 
 How touches on the desktop page become mouse input on the host, after Apple's trackpad.
-The engine is `DesktopGestures` (Sources/RoamttyDesktopCore/DesktopGestures.swift); its unit tests
+The engine is `DesktopGestures` (Sources/RoamttyDesktopCore/DesktopGestures.swift and its `DesktopGestures+*.swift` parts); its unit tests
 (`DesktopGesturesTests`) follow the tables below row by row, and `DesktopGestureUITests` makes every
 gesture with real touches against a live host.
 
