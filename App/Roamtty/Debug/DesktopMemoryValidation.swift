@@ -76,15 +76,32 @@ import RoamttyDesktopCore
         }
         decoder.attach(name: "VideoToolbox validation")
         session.start()
-        let deadline = Date().addingTimeInterval(60)
-        while decoder.decodedFrames < 10 && Date() < deadline {
-            if case .failed = session.phase { break }
-            try await Task.sleep(for: .milliseconds(100))
-        }
-        guard decoder.decodedFrames >= 10 else {
+        guard try await frames(decoder, reach: 10, within: 60, unless: { if case .failed = session.phase { return true }; return false }) else {
             return ["passed": false, "phase": String(describing: session.phase), "log": session.log,
                 "decodedFrames": decoder.decodedFrames]
         }
+        var result = try await streaming(decoder, display, folder: folder)
+        let streamed = result["passed"] as? Bool ?? false
+        let recovery = try await pauseAndRecover(session, decoder, logins)
+        result.merge(recovery) { _, new in new }
+        result["passed"] = streamed && (recovery["passed"] as? Bool ?? false)
+        result["udpActive"] = session.onUdp
+        result["phase"] = String(describing: session.phase)
+        return result
+    }
+
+    /// Waits until `count` frames were decoded; false after `seconds` or once `stop` says so.
+    private static func frames(_ decoder: DesktopVideoDecoder, reach count: Int64, within seconds: TimeInterval, unless stop: () -> Bool = { false }) async throws -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while decoder.decodedFrames < count && Date() < deadline {
+            if stop() { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        return decoder.decodedFrames >= count
+    }
+
+    /// Fifteen seconds of streaming: the memory it takes, and whether a picture really reaches the layer.
+    private static func streaming(_ decoder: DesktopVideoDecoder, _ display: VideoToolboxDisplay, folder: URL) async throws -> [String: Any] {
         let baseline = Diagnostics.footprintMiB() ?? 0
         var footprints: [UInt64] = []
         let framesBefore = decoder.decodedFrames
@@ -101,7 +118,15 @@ import RoamttyDesktopCore
         if #available(iOS 17.4, *) {
             actuallyDisplayed = display.layer.sampleBufferRenderer.displayedPixelBuffer() != nil
         } else { actuallyDisplayed = image != nil }
+        return ["passed": actuallyDisplayed && image != nil && streamingFrames > 10,
+            "actuallyDisplayedPixelBuffer": actuallyDisplayed, "snapshotPixels": [image?.cgImage?.width ?? 0, image?.cgImage?.height ?? 0],
+            "streamingSeconds": 15, "streamingFrames": streamingFrames,
+            "baselineFootprintMiB": baseline, "footprintSamplesMiB": footprints,
+            "peakFootprintMiB": footprints.max() ?? baseline]
+    }
 
+    /// A paused desktop decodes nothing, logs in again when its link drops, and shows frames again once resumed.
+    private static func pauseAndRecover(_ session: DesktopSession, _ decoder: DesktopVideoDecoder, _ logins: Logins) async throws -> [String: Any] {
         session.pause()
         try await Task.sleep(for: .milliseconds(300))
         let pausedAt = decoder.decodedFrames
@@ -114,20 +139,10 @@ import RoamttyDesktopCore
         try await Task.sleep(for: .seconds(2))
         let pausedAfterRecovery = decoder.decodedFrames
         session.resume()
-        let resumeDeadline = Date().addingTimeInterval(15)
-        while decoder.decodedFrames < pausedAfterRecovery + 10 && Date() < resumeDeadline {
-            try await Task.sleep(for: .milliseconds(100))
-        }
-        let resumed = decoder.decodedFrames >= pausedAfterRecovery + 10
-        return ["passed": actuallyDisplayed && image != nil && streamingFrames > 10
-                && pausedAt == pausedAfterRecovery && logins.count > loginsBeforeRecovery && resumed,
-            "actuallyDisplayedPixelBuffer": actuallyDisplayed, "snapshotPixels": [image?.cgImage?.width ?? 0, image?.cgImage?.height ?? 0],
-            "streamingSeconds": 15, "streamingFrames": streamingFrames,
-            "baselineFootprintMiB": baseline, "footprintSamplesMiB": footprints,
-            "peakFootprintMiB": footprints.max() ?? baseline,
+        let resumed = try await frames(decoder, reach: pausedAfterRecovery + 10, within: 15)
+        return ["passed": pausedAt == pausedAfterRecovery && logins.count > loginsBeforeRecovery && resumed,
             "pausedFramesBeforeRecovery": pausedAt, "pausedFramesAfterRecovery": pausedAfterRecovery,
-            "loginCount": logins.count, "resumedFrames": decoder.decodedFrames - pausedAfterRecovery,
-            "udpActive": session.onUdp, "phase": String(describing: session.phase)]
+            "loginCount": logins.count, "resumedFrames": decoder.decodedFrames - pausedAfterRecovery]
     }
 
     nonisolated private static func connectFixture() throws -> SSHConnection {

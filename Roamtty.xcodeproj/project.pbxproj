@@ -2024,6 +2024,26 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "0C1A6AD0AC6F4BD341261786";
 		};
+		"2663A24A1D8741C2D5E0FA55" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Debug/DeviceValidationRunner+Checks.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"9DFEECF0C7E9C99674E31B0E" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "2663A24A1D8741C2D5E0FA55";
+		};
+		"6DBA1DE42AE1DE18CC90431E" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Debug/DeviceValidationRunner.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"C0B98D078F4B23F9FF7317A2" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "6DBA1DE42AE1DE18CC90431E";
+		};
 		"C4719BB7A40C69B4BB90949C" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/Roamtty/Debug/MemoryValidation.swift";
@@ -3365,6 +3385,8 @@
 				"079C6550A89A5AD9361E6147",
 				"3D844E0D227A8063160AC9D1",
 				"5F29D1EC30498895BFD1E919",
+				"9DFEECF0C7E9C99674E31B0E",
+				"C0B98D078F4B23F9FF7317A2",
 				"9107B4B12E6AE7BF68C39086",
 				"44F479433619B4F5A7468B09",
 				"9699B4480291573D8C2E930D",
@@ -4873,6 +4895,8 @@
 				"E73517CFB108CBC79DFA0A3B",
 				"404F0694E3CD88C22A958250",
 				"0C1A6AD0AC6F4BD341261786",
+				"2663A24A1D8741C2D5E0FA55",
+				"6DBA1DE42AE1DE18CC90431E",
 				"C4719BB7A40C69B4BB90949C",
 				"1C0F55BC984A00E2FE1CB0B1",
 				"9B08EBA3F490BF692ECC1135",
