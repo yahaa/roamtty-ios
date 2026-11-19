@@ -65,8 +65,17 @@ struct AboutScreen: View {
         }
     }
     private var openSourcePanel: some View {
-        Panel(title: model.text("开源组件", "Open source")) {
-            Text("SwiftTerm · MIT\nlibssh2 · BSD\nOpenSSL · Apache 2.0\nzlib · zlib license\nRoamtty · Apache 2.0").padding(16).frame(maxWidth: .infinity, alignment: .leading)
+        VStack(spacing: 12) {
+            Panel(title: model.text("Roamtty 许可", "Roamtty license")) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Roamtty · PolyForm Shield 1.0.0")
+                    Text(model.text("源码可见；不得用于提供竞品。", "Source-available; may not be used to provide competing products."))
+                    Link(model.text("完整许可条款", "Full license terms"), destination: URL(string: "https://polyformproject.org/licenses/shield/1.0.0")!)
+                }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Panel(title: model.text("开源组件", "Open source")) {
+                Text("SwiftTerm · MIT\nlibssh2 · BSD\nOpenSSL · Apache 2.0\nzlib · zlib license").padding(16).frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 }
