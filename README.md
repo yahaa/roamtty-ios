@@ -4,6 +4,14 @@ Swift iOS client for Roamtty: saved SSH hosts, monitoring, independent shell/tmu
 
 Behavior reference: Android `yahaa/roamtty` main `5fc87b3` (earlier parity: `bee299d`). The implementation uses SwiftUI, UIKit/SwiftTerm, libssh2, OpenSSL, SQLite, and device-only Keychain. Requires iOS 16 or later.
 
+## License
+
+The original code in this version is source-available under the [PolyForm Shield License 1.0.0](LICENSE). You may use and modify it for permitted purposes, but may not use it to provide products or services that compete with Roamtty, including free competitors. This is not an OSI open-source license.
+
+Third-party code, fonts and artwork retain their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). This change does not revoke existing Apache-2.0 grants for earlier versions. Apache-2.0 versions in Git history remain available under their original terms. See [NOTICE](NOTICE) and the full license for the applicable terms.
+
+本版本自有代码采用 PolyForm Shield License 1.0.0，允许许可范围内的使用和修改，但不得使用这些代码提供与 Roamtty 竞争的产品或服务，免费竞品同样受限制。这是源码可见许可，不属于 OSI 定义的开源许可。第三方许可及旧版本已经授予的 Apache-2.0 权利保持不变。
+
 ## Build on macOS
 
 ```sh

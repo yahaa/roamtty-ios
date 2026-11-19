@@ -1,6 +1,10 @@
 # Third-party notices
 
-Roamtty iOS is copyright 2026 Roamtty contributors, licensed under Apache-2.0. The Android implementation at `yahaa/roamtty` commit `bee299d82249e255be7169d7c9f1d60c4c5f5609` supplies the design, artwork, metrics script, and behavior adapted into Swift. See LICENSE.
+Roamtty iOS original code in this version is copyright 2026 Roamtty contributors, licensed under the PolyForm Shield License 1.0.0. This source-available license restricts competing products; third-party components retain the licenses listed below. The Android implementation at `yahaa/roamtty` commit `bee299d82249e255be7169d7c9f1d60c4c5f5609` supplies the design, artwork, metrics script, and behavior adapted into Swift. See LICENSE.
+
+Required Notice: Copyright 2026 Roamtty contributors
+
+Licensor Line of Business: Remote terminal and remote AI coding client software.
 
 | Component | Version | License |
 | --- | --- | --- |
