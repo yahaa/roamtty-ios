@@ -30,7 +30,7 @@ public struct AgentStatus: Codable, Equatable, Sendable {
 
     /// Agents that run under their `/bin/sh` launcher, which ends the report itself: the pane shows the launcher's
     /// shell while they run, "sh" on Linux but "bash" on macOS, whose `/bin/sh` is bash.
-    private static let launched: Set<String> = ["codex", "grok"]
+    private static let launched: Set<String> = ["codex", "grok", "agy"]
 
     private static func lines(_ output: String?) -> [String]? {
         output?.components(separatedBy: "\n").map { $0.hasSuffix("\r") ? String($0.dropLast()) : $0 }

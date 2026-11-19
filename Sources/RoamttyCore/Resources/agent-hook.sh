@@ -1,13 +1,13 @@
 #!/bin/sh
 # Roamtty: records what an AI coding agent is doing as options of its tmux session, which the app reads.
 # Usage: agent-hook.sh <agent> <event> [tmux session], with the agent's hook JSON on stdin. Never fails the agent.
-# Claude Code and Codex pass the JSON keys this reads in snake_case, Grok in camelCase.
+# Claude Code and Codex pass the JSON keys this reads in snake_case, Grok and Antigravity in camelCase.
 PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/home/linuxbrew/.linuxbrew/bin:/snap/bin"
 agent=$1
 event=$2
 session=$3
-# Grok's hooks are global: only a Grok the app started (through ~/.roamtty/grok) reports.
-[ "$agent" != grok ] || [ "$ROAMTTY_AGENT" = grok ] || exit 0
+# Grok and Antigravity hooks are global: only an agent the app started (through ~/.roamtty/<agent>) reports.
+case "$agent" in grok|agy) [ "$ROAMTTY_AGENT" = "$agent" ] || exit 0 ;; esac
 # A Claude Code session sent to the background (/bg, or the agents view) runs on outside tmux. Its hooks report to the
 # tmux session named in its settings; with older settings, to the pane whose recorded session it resumes.
 [ -n "$TMUX_PANE" ] || [ "$agent" = claude ] || exit 0
@@ -18,7 +18,7 @@ case "$agent:$input" in grok:*'"subagentType"'*) exit 0 ;; esac
 
 # The string value of a JSON key (or of one of "a|b"), cleaned for one line: escapes undone, "|" and control characters gone, shortened.
 field() {
-  printf '%s' "$input" | sed -nE "s/.*\"($1)\"[[:space:]]*:[[:space:]]*\"(([^\"\\\\]|\\\\.)*)\".*/\2/p" | head -n 1 |
+  printf '%s' "$input" | sed -nE "s/(^|.*[^\\\\])\"($1)\"[[:space:]]*:[[:space:]]*\"(([^\"\\\\]|\\\\.)*)\".*/\3/p" | head -n 1 |
     sed -E 's/\\[nrt]/ /g; s/\\u[0-9a-fA-F]{4}//g; s/\\(["\\/])/\1/g' | tr '|' '/' | tr -d '\000-\037' | cut -c1-"${2:-160}"
 }
 
@@ -86,26 +86,48 @@ case "$event" in
     for option in @roamtty_worked @roamtty_reply; do tmux set-option -u -q -t "$TMUX_PANE" "$option" 2>/dev/null; done
     record idle "" "" ;;
   prompt)
+    # Antigravity fires PreInvocation before every model call in a turn; invocationNum > 0 continues the current turn.
+    if [ "$agent" = agy ]; then
+      inv=$(printf '%s' "$input" | sed -nE 's/.*[^\\]"invocationNum"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' | head -n 1)
+      if [ -n "$inv" ] && [ "$inv" != 0 ]; then
+        current=$(get @roamtty_agent)
+        record working "$(printf '%s' "$current" | cut -d '|' -f 4)" "$(printf '%s' "$current" | cut -d '|' -f 5)"
+        exit 0
+      fi
+    fi
     # Claude Code also submits "<task-notification>…" itself when a background task ends: that is no task of the user's.
-    task=$(field prompt 200)
-    case "$task" in "<"*) ;; *) put @roamtty_task "$task" ;; esac
+    task=$(field 'prompt|lastUserInput' 200)
+    prev_task=$(get @roamtty_task)
+    case "$task" in "<"*) ;; *) [ -z "$task" ] || put @roamtty_task "$task" ;; esac
     # A turn starts: the time it began, for how long it worked once it stops. A turn that waited for background work
     # (see stop) goes on when that work ends and wakes the agent.
-    case "$task:$(get @roamtty_agent)" in "<"*:working\|*) ;; *) put @roamtty_turn "$(date +%s)" ;; esac
+    case "$agent:$task:$(get @roamtty_agent)" in
+      *:"<"*:working\|*) ;;
+      agy:*:working\|*\|Background\|*) [ -z "$task" ] || [ "$task" = "$prev_task" ] || put @roamtty_turn "$(date +%s)" ;;
+      *) put @roamtty_turn "$(date +%s)" ;;
+    esac
     for option in @roamtty_worked @roamtty_reply; do tmux set-option -u -q -t "$TMUX_PANE" "$option" 2>/dev/null; done
     record working "" "" ;;
   tool)
     tool=$(field 'tool_name|toolName' 40)
-    detail=$(field command 120)
-    [ -n "$detail" ] || detail=$(field 'file_path|filePath|path' 120)
-    [ -n "$detail" ] || detail=$(field pattern 120)
+    if [ -z "$tool" ] && [ "$agent" = agy ]; then
+      tool=$(printf '%s' "$input" | sed -nE 's/.*[^\\]"toolCall"[[:space:]]*:[[:space:]]*\{.*[^\\]"name"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)".*/\1/p' | head -n 1 | tr '|' '/' | tr -d '\000-\037' | cut -c1-40)
+    fi
+    detail=$(field 'command|CommandLine' 120)
+    [ -n "$detail" ] || detail=$(field 'file_path|filePath|path|Path' 120)
+    [ -n "$detail" ] || detail=$(field 'pattern|query|question' 120)
     [ -n "$detail" ] || detail=$(field url 120)
-    [ -n "$detail" ] || detail=$(field description 120)
+    [ -n "$detail" ] || detail=$(field 'description|Description|toolSummary|Role' 120)
     # Codex edits files with a patch as its command: the file it changes says more.
     case "$tool" in
       apply_patch) detail=$(printf '%s' "$detail" | sed -nE 's/^\*\*\* Begin Patch \*\*\* (Add|Update|Delete) File: ([^ ]+).*/\2/p') ;;
     esac
-    record working "$tool" "$detail" ;;
+    # Antigravity blocks on ask_question until the user picks an answer.
+    if [ "$agent" = agy ] && [ "$tool" = ask_question ]; then
+      record waiting "$tool" "$detail"
+    else
+      record working "$tool" "$detail"
+    fi ;;
   post)
     # The finished tool stays shown while the agent works on, until the next tool, a new prompt or the turn's end:
     # most tools end within a second, too quickly for the app to see them otherwise.
@@ -132,8 +154,21 @@ case "$event" in
         else record waiting "" "$(field message 120)"; fi ;;
     esac ;;
   stop)
-    # The start of the turn's answer, for the session list; all three agents pass it to their Stop hook.
+    # The start of the turn's answer, for the session list; Claude, Codex and Grok pass it directly, Antigravity writes
+    # it to transcriptPath.
     reply=$(field 'last_assistant_message|lastAssistantMessage' 400)
+    if [ -z "$reply" ] && [ "$agent" = agy ]; then
+      tpath=$(field transcriptPath 400)
+      if [ -n "$tpath" ] && [ -r "$tpath" ]; then
+        last_line=$(tail -n 30 "$tpath" 2>/dev/null | grep '"type":"PLANNER_RESPONSE"' | tail -n 1)
+        if [ -n "$last_line" ]; then
+          saved_input=$input
+          input=$last_line
+          reply=$(field content 400)
+          input=$saved_input
+        fi
+      fi
+    fi
     [ -z "$reply" ] || put @roamtty_reply "$reply"
     # Claude Code and Grok list the background work still running (shells, monitors, subagents), which wakes the
     # agent when it ends: the turn is not over yet. The first task says what it waits for.
@@ -143,6 +178,11 @@ case "$event" in
       detail=$(field command 120)
       [ -n "$detail" ] || detail=$(field description 120)
       record working Background "$detail"
+      exit 0
+    fi
+    if [ "$agent" = agy ] && printf '%s' "$input" | grep -qE '"fullyIdle"[[:space:]]*:[[:space:]]*false' &&
+      [ "$(field terminationReason 40)" = NO_TOOL_CALL ]; then
+      record working Background ""
       exit 0
     fi
     # How long the turn worked, in seconds; Claude Code shows it as "Worked for …".

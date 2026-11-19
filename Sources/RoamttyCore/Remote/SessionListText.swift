@@ -14,7 +14,7 @@ public func replyPreview(_ reply: String) -> String {
 }
 
 /// The tools agents run shell commands with.
-private let shellTools: Set<String> = ["Bash", "PowerShell", "run_terminal_command", "shell", "exec_command", "local_shell"]
+private let shellTools: Set<String> = ["Bash", "PowerShell", "run_terminal_command", "run_command", "shell", "exec_command", "local_shell"]
 
 /// What the agent is running, for the session list: a shell command as `Running command`, as Claude Code says it,
 /// another tool by its name and what it works on; empty while it runs nothing.

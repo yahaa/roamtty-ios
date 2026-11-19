@@ -3,19 +3,25 @@ import Foundation
 /// The program currently using the terminal's input area. Titles and old banners
 /// are intentionally excluded because they can outlive the program that set them.
 public enum ScreenApp: String, CaseIterable, Sendable {
-    case claude, codex, grok, gemini, shell
+    case claude, codex, grok, gemini, agy, shell
 
     public init(_ agent: CodingAgent) {
         switch agent {
         case .claude: self = .claude
         case .codex: self = .codex
         case .grok: self = .grok
+        case .agy: self = .agy
         }
     }
 
     private static let geminiModel = NSRegularExpression(literal: #"\bgemini-\d"#, options: .caseInsensitive)
     private static let codexContext = NSRegularExpression(literal: #"\b[Cc]ontext \d+% left|\d+% context left"#)
     private static let rule = NSRegularExpression(literal: #"^\s*─{20,}\s*$"#)
+    private static let agyMarkers = [
+        "Antigravity CLI", "Plan mode: research & plan only", "Auto mode: edits & safe commands",
+        "Accept-edits mode: file edits auto-approved", "esc to cancel", "↑/↓ Navigate · tab Amend",
+        "Requesting permission for:"
+    ]
     private static let claudeFooters = ["shift+tab to cycle", "⏵⏵", "⏸ plan mode", "? for shortcuts", "esc to interrupt"]
 
     /// `cursorRow` is an index into the supplied visible screen rows, not scrollback.
@@ -24,6 +30,7 @@ public enum ScreenApp: String, CaseIterable, Sendable {
         guard !rows.isEmpty else { return .shell }
         let cursor = min(max(cursorRow, 0), rows.count - 1)
         let near = rows[max(cursor - 3, 0)..<min(cursor + 9, rows.count)]
+        if agyPrompt(rows, cursor: cursor) || near.contains(where: { line in agyMarkers.contains(where: line.contains) }) { return .agy }
         if near.contains(where: { matches(geminiModel, $0) || $0.contains("Type your message") }) { return .gemini }
         if near.contains(where: { matches(codexContext, $0) }) { return .codex }
         if near.contains(where: {
@@ -43,10 +50,14 @@ public enum ScreenApp: String, CaseIterable, Sendable {
         expression.firstMatch(in: row, range: NSRange(row.startIndex..., in: row)) != nil
     }
 
-    private static func claudePrompt(_ rows: [String], cursor: Int) -> Bool {
+    private static func claudePrompt(_ rows: [String], cursor: Int) -> Bool { framedPrompt(rows, cursor: cursor, marker: "❯") }
+
+    private static func agyPrompt(_ rows: [String], cursor: Int) -> Bool { framedPrompt(rows, cursor: cursor, marker: ">") }
+
+    private static func framedPrompt(_ rows: [String], cursor: Int, marker: String) -> Bool {
         guard let top = stride(from: cursor, through: max(cursor - 3, 0), by: -1).first(where: { matches(rule, rows[$0]) }),
               top + 1 < rows.count,
-              rows[top + 1].drop(while: { $0.isWhitespace }).hasPrefix("❯") else { return false }
+              rows[top + 1].drop(while: { $0.isWhitespace }).hasPrefix(marker) else { return false }
         let bottom = min(cursor + 6, rows.count - 1)
         guard top + 2 <= bottom else { return false }
         return (top + 2...bottom).contains(where: { matches(rule, rows[$0]) })
@@ -132,6 +143,16 @@ extension ScreenApp {
                 shortcutKeys("Esc²", "回退", "Rewind", "Esc Esc：清空输入或回退", "Esc Esc: clear input or rewind", "pet-escape-twice", "\u{1b}", repeatAfter: 0.12),
                 shortcutKeys("^L", "清屏", "Clear", "Ctrl+L：清屏", "Ctrl+L: clear the screen", "pet-ctrl-l", "\u{0c}"),
                 shortcutKeys("^C", "取消", "Cancel", "Ctrl+C：取消或退出", "Ctrl+C: cancel or quit", "pet-ctrl-c", "\u{03}")
+            ]
+        case .agy:
+            return [
+                shortcutKeys("^O", "详情", "Details", "Ctrl+O：展开或收起轨迹详情", "Ctrl+O: toggle trajectory view", "pet-ctrl-o", "\u{0f}"),
+                shortcutKeys("^R", "产物", "Artifact", "Ctrl+R：查看产物", "Ctrl+R: review artifact", "pet-ctrl-r", "\u{12}"),
+                shortcutKeys("^K", "批准", "Approve", "Ctrl+K：快速批准子代理", "Ctrl+K: approve subagent fast", "pet-ctrl-k", "\u{0b}"),
+                shortcutKeys("⇧Tab", "模式", "Mode", "Shift+Tab：切换模式（默认 / 接受编辑 / 自动 / 计划）", "Shift+Tab: switch mode (default / accept edits / auto / plan)", "pet-shift-tab", "\u{1b}[Z"),
+                shortcutKeys("^C", "取消", "Cancel", "Ctrl+C：清空输入或取消", "Ctrl+C: clear input or cancel", "pet-ctrl-c", "\u{03}"),
+                shortcutKeys("^L", "清屏", "Clear", "Ctrl+L：清屏", "Ctrl+L: clear the screen", "pet-ctrl-l", "\u{0c}"),
+                shortcutKeys("⌥J", "代理", "Agents", "Alt+J：管理子代理", "Alt+J: manage subagent", "pet-alt-j", "\u{1b}j")
             ]
         case .shell:
             return [

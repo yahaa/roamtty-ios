@@ -9,6 +9,7 @@ extension CodingAgent {
         case .claude: return Color(uiColor: UIColor(hex: 0xD97757))
         case .codex: return Color(uiColor: UIColor(hex: 0x6F86FF))
         case .grok: return Palette.foreground
+        case .agy: return Color(uiColor: UIColor(hex: 0x3186FF))
         }
     }
     var iconName: String { "ic_agent_" + command }

@@ -35,7 +35,7 @@ extension LaunchScreen {
 
     func modeLabel(_ mode: AgentMode) -> String {
         switch mode {
-        case .readOnly: return agent == .claude ? model.text("计划", "Plan") : model.text("只读", "Read only")
+        case .readOnly: return (agent == .claude || agent == .agy) ? model.text("计划", "Plan") : model.text("只读", "Read only")
         case .standard: return model.text("普通", "Standard")
         case .yolo: return "YOLO"
         }
@@ -46,7 +46,7 @@ extension LaunchScreen {
         case .standard: return model.text("改文件或运行命令前先问你", "Ask before editing files or running commands")
         case .readOnly:
             switch agent {
-            case .claude: return model.text("先分析并制定计划，批准后开始修改", "Analyze and plan first; make changes after approval")
+            case .claude, .agy: return model.text("先分析并制定计划，批准后开始修改", "Analyze and plan first; make changes after approval")
             case .codex: return model.text("以只读沙箱启动，可在 Agent 中调整权限", "Start in a read-only sandbox; permissions can be adjusted in the agent")
             case .grok: return model.text("只读沙箱；状态与临时目录仍可写", "Read-only sandbox; state and temporary directories remain writable")
             }

@@ -25,26 +25,35 @@ extension AgentStatusTests {
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tool.path)
         }
         deinit { try? FileManager.default.removeItem(at: dir) }
-        func run(_ arguments: [String], json: String, pane: String?, grok: Bool = false) throws {
+        @discardableResult
+        func run(_ arguments: [String], json: String, pane: String?, marker: String? = nil) throws -> String {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/sh")
             process.arguments = arguments
             var environment = ProcessInfo.processInfo.environment
             environment["PATH"] = dir.path + ":" + (environment["PATH"] ?? "/usr/bin:/bin")
             environment.removeValue(forKey: "TMUX_PANE")
+            environment.removeValue(forKey: "ROAMTTY_AGENT")
             if let pane { environment["TMUX_PANE"] = pane }
-            if grok { environment["ROAMTTY_AGENT"] = "grok" }
+            if let marker { environment["ROAMTTY_AGENT"] = marker }
             environment["COLUMNS"] = "20"
             process.environment = environment
-            let input = Pipe()
+            let input = Pipe(), output = Pipe()
             process.standardInput = input
+            process.standardOutput = output
             try process.run()
             input.fileHandleForWriting.write(Data(json.utf8)); try input.fileHandleForWriting.close()
+            let stdout = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
             process.waitUntilExit()
             XCTAssertEqual(process.terminationStatus, 0)
+            return stdout
         }
-        func hook(_ event: String, _ json: String = "{}", agent: String = "claude", grok: Bool = false) throws {
-            try run([script.path, agent, event], json: json, pane: "%1", grok: grok)
+        @discardableResult
+        func hook(_ event: String, _ json: String = "{}", agent: String = "claude", grok: Bool = false) throws -> String {
+            try run([script.path, agent, event], json: json, pane: "%1", marker: grok ? "grok" : nil)
+        }
+        func agyHook(_ event: String, _ json: String = "{}", marker: String? = "agy") throws -> String {
+            try run([script.path, "agy", event], json: json, pane: "%1", marker: marker)
         }
         func option(_ name: String) -> String? { try? String(contentsOf: dir.appendingPathComponent("opt" + name), encoding: .utf8) }
         func reported() -> String {
