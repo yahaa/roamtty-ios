@@ -98,58 +98,11 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
         }
         do {
             while !connection.isStopped {
-                cond.lock()
-                // Hold back while the reader is far behind (libssh2's window then throttles the host).
-                // `read` and `close` signal; the timeout only bounds noticing a dropped connection.
-                while incomingCount >= Self.maxIncoming && !closeRequested && !connection.isStopped {
-                    _ = cond.wait(until: Date().addingTimeInterval(0.25))
-                }
-                let stop = closeRequested || connection.isStopped
-                // A chunk that starts where the last write stopped: an EAGAIN retry hands libssh2 the same bytes.
-                let pending = Array(outgoing[outgoingStart..<min(outgoing.count, outgoingStart + Self.writeChunk)])
-                let sendEOF = pending.isEmpty && eofRequested && !eofSent
-                cond.unlock()
-                if stop { return }
-                var progressed = false
-                if !pending.isEmpty {
-                    let sent = pending.withUnsafeBytes { raw in
-                        connection.writeChannel(channel, 0, raw.bindMemory(to: CChar.self).baseAddress, pending.count)
-                    }
-                    if sent > 0 {
-                        cond.lock(); outgoingStart += sent; Self.compact(&outgoing, start: &outgoingStart); cond.unlock()
-                        progressed = true
-                    } else if sent < 0 && sent != LIBSSH2_ERROR_EAGAIN { throw connection.error(Int32(sent)) }
-                } else if sendEOF {
-                    let result = connection.locked { libssh2_channel_send_eof(channel) }
-                    if result == 0 { cond.lock(); eofSent = true; cond.unlock(); progressed = true } else if result != LIBSSH2_ERROR_EAGAIN { throw connection.error(result) }
-                }
+                guard let turn = nextWrite() else { return }
+                var progressed = try send(turn.pending, eof: turn.sendEOF)
                 for stream in 0...1 {
-                    while true {
-                        cond.lock()
-                        let stop = closeRequested || connection.isStopped
-                        let available = stream == 0 ? Self.maxIncoming - incomingCount : buffer.count
-                        cond.unlock()
-                        if stop { return }
-                        let want = min(buffer.count, available)
-                        if want == 0 { break }
-                        let count = buffer.withUnsafeMutableBytes { raw in
-                            connection.readChannel(channel, Int32(stream), raw.bindMemory(to: CChar.self).baseAddress, want)
-                        }
-                        if count > 0 {
-                            cond.lock()
-                            if stream == 0 {
-                                Self.compact(&incoming, start: &incomingStart)
-                                incoming.append(contentsOf: buffer[0..<count])
-                            } else {
-                                errors.append(contentsOf: buffer[0..<count])
-                                if errors.count > Self.maxErrors { errors.removeFirst(errors.count - Self.maxErrors) }
-                            }
-                            cond.broadcast(); cond.unlock()
-                            progressed = true
-                            if stream == 0 && count == buffer.count { continue }
-                        } else if count < 0 && count != LIBSSH2_ERROR_EAGAIN { throw connection.error(Int32(count)) }
-                        break
-                    }
+                    guard let read = try receive(stream, buffer: &buffer) else { return }
+                    progressed = progressed || read
                 }
                 if connection.locked({ libssh2_channel_eof(channel) }) != 0 {
                     cond.lock(); outputEnded = true; cond.broadcast(); cond.unlock()
@@ -167,6 +120,71 @@ public final class SSHExecStream: DesktopStream, @unchecked Sendable {
             }
         } catch {
             return
+        }
+    }
+
+    /// What this turn writes, once the reader has room again; nil when the stream is closing.
+    private func nextWrite() -> (pending: [UInt8], sendEOF: Bool)? {
+        cond.lock(); defer { cond.unlock() }
+        // Hold back while the reader is far behind (libssh2's window then throttles the host).
+        // `read` and `close` signal; the timeout only bounds noticing a dropped connection.
+        while incomingCount >= Self.maxIncoming && !closeRequested && !connection.isStopped {
+            _ = cond.wait(until: Date().addingTimeInterval(0.25))
+        }
+        if closeRequested || connection.isStopped { return nil }
+        // A chunk that starts where the last write stopped: an EAGAIN retry hands libssh2 the same bytes.
+        let pending = Array(outgoing[outgoingStart..<min(outgoing.count, outgoingStart + Self.writeChunk)])
+        return (pending, pending.isEmpty && eofRequested && !eofSent)
+    }
+
+    /// Writes the chunk, or the end of input once nothing is left to write; true when something went.
+    private func send(_ pending: [UInt8], eof sendEOF: Bool) throws -> Bool {
+        if !pending.isEmpty {
+            let sent = pending.withUnsafeBytes { raw in
+                connection.writeChannel(channel, 0, raw.bindMemory(to: CChar.self).baseAddress, pending.count)
+            }
+            if sent > 0 {
+                cond.lock(); outgoingStart += sent; Self.compact(&outgoing, start: &outgoingStart); cond.unlock()
+                return true
+            }
+            if sent < 0 && sent != LIBSSH2_ERROR_EAGAIN { throw connection.error(Int32(sent)) }
+        } else if sendEOF {
+            let result = connection.locked { libssh2_channel_send_eof(channel) }
+            if result == 0 { cond.lock(); eofSent = true; cond.unlock(); return true }
+            if result != LIBSSH2_ERROR_EAGAIN { throw connection.error(result) }
+        }
+        return false
+    }
+
+    /// Reads what `stream` (0 output, 1 errors) has, as far as the reader has room: true when something
+    /// came, nil when the stream is closing.
+    private func receive(_ stream: Int, buffer: inout [UInt8]) throws -> Bool? {
+        var progressed = false
+        while true {
+            cond.lock()
+            let stop = closeRequested || connection.isStopped
+            let available = stream == 0 ? Self.maxIncoming - incomingCount : buffer.count
+            cond.unlock()
+            if stop { return nil }
+            let want = min(buffer.count, available)
+            if want == 0 { return progressed }
+            let count = buffer.withUnsafeMutableBytes { raw in
+                connection.readChannel(channel, Int32(stream), raw.bindMemory(to: CChar.self).baseAddress, want)
+            }
+            if count < 0 && count != LIBSSH2_ERROR_EAGAIN { throw connection.error(Int32(count)) }
+            guard count > 0 else { return progressed }
+            cond.lock()
+            if stream == 0 {
+                Self.compact(&incoming, start: &incomingStart)
+                incoming.append(contentsOf: buffer[0..<count])
+            } else {
+                errors.append(contentsOf: buffer[0..<count])
+                if errors.count > Self.maxErrors { errors.removeFirst(errors.count - Self.maxErrors) }
+            }
+            cond.broadcast(); cond.unlock()
+            progressed = true
+            // A full buffer of output may have more behind it.
+            guard stream == 0 && count == buffer.count else { return progressed }
         }
     }
 

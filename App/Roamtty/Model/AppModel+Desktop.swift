@@ -81,18 +81,7 @@ extension AppModel {
                 host: host, session: session, prefs: prefs,
                 showStats: settings.desktopShowStats, english: english,
                 onPrefs: { [weak self] p in self?.saveDesktopPrefs(hostID, p) },
-                onEnded: { [weak self] ended in
-                    guard let self, self.desktops[ended.host.id] === ended, !ended.active else { return }
-                    if case .failed = ended.session.phase {
-                        // Keep the failure page until an explicit retry or close, including its error text.
-                        if ended.session.failure == .noDesktop {
-                            self.saveDesktopProbe(ended.host, HostDesktop(desktop: "no", uname: "", pluginVersion: nil))
-                        }
-                    } else {
-                        self.desktops.remove(ended.host.id)
-                    }
-                    self.objectWillChange.send()
-                })
+                onEnded: { [weak self] ended in self?.desktopEnded(ended) })
             desktops.put(controller)
             controller.start()
             watchDesktopNetwork()
@@ -102,6 +91,19 @@ extension AppModel {
             if !show, pipDesktopHostID == host.id { pipDesktopHostID = nil }
             self.error = error.localizedDescription
         }
+    }
+
+    /// A desktop ended: a failed one keeps its page, with the error, until a retry or a close; any other goes.
+    private func desktopEnded(_ ended: DesktopController) {
+        guard desktops[ended.host.id] === ended, !ended.active else { return }
+        if case .failed = ended.session.phase {
+            if ended.session.failure == .noDesktop {
+                saveDesktopProbe(ended.host, HostDesktop(desktop: "no", uname: "", pluginVersion: nil))
+            }
+        } else {
+            desktops.remove(ended.host.id)
+        }
+        objectWillChange.send()
     }
 
     /// A desktop session's settings for `host`, at this screen's size and in the app's language.

@@ -248,11 +248,7 @@ public final class Reassembler {
         }
         let n = f.k + f.m
         if f.k == 0 || n > Fec.maxShards || f.index >= n || f.block >= f.blocks { return nil }
-        let p: Pending
-        if let existing = pending[f.msg] { p = existing } else { p = Pending(flags: f.flags, blocks: f.blocks, firstUs: nowUs); pending[f.msg] = p }
-        if f.flags & UdpWire.FLAG_VIDEO != 0 {
-            for (m, o) in pending where m < f.msg && o.overtakenUs == 0 && o.flags & UdpWire.FLAG_VIDEO != 0 { o.overtakenUs = nowUs }
-        }
+        let p = message(of: f, nowUs: nowUs)
         if p.blocks.count != f.blocks { return nil }
         p.lastUs = nowUs
         let b: Block
@@ -263,27 +259,40 @@ public final class Reassembler {
         if b.shards[f.index] != nil { return nil }
         b.shards[f.index] = f.shard
         p.received += 1
-        if b.shards.lazy.filter({ $0 != nil }).count >= b.k {
-            b.parity = (0..<b.k).contains { b.shards[$0] == nil }
-            guard let data = Fec.decode(b.shards, k: b.k) else { return nil }
-            var joined = [UInt8](); joined.reserveCapacity(b.len)
-            for d in data {
-                let c = Swift.min(d.count, b.len - joined.count)
-                if c <= 0 { break }
-                joined.append(contentsOf: d[0..<c])
-            }
-            if joined.count < b.len { joined.append(contentsOf: repeatElement(0, count: b.len - joined.count)) }
-            b.data = joined
-            b.shards = Array(repeating: nil, count: n)
+        if b.shards.lazy.filter({ $0 != nil }).count >= b.k, !rebuild(b) { return nil }
+        guard p.blocks.allSatisfy({ $0?.data != nil }) else { return nil }
+        pending[f.msg] = nil
+        var out: [UInt8] = []
+        p.blocks.forEach { out.append(contentsOf: $0!.data!) }
+        finish(f.msg, p, outcome: p.blocks.contains { $0!.parity } ? 2 : 1, nowUs: nowUs)
+        return Delivered(msg: f.msg, flags: p.flags, bytes: out)
+    }
+
+    /// The message `f` belongs to, begun if this is its first shard; a video shard also marks the earlier video
+    /// messages still pending as overtaken.
+    private func message(of f: Packet.Frag, nowUs: Int64) -> Pending {
+        let p: Pending
+        if let existing = pending[f.msg] { p = existing } else { p = Pending(flags: f.flags, blocks: f.blocks, firstUs: nowUs); pending[f.msg] = p }
+        if f.flags & UdpWire.FLAG_VIDEO != 0 {
+            for (m, o) in pending where m < f.msg && o.overtakenUs == 0 && o.flags & UdpWire.FLAG_VIDEO != 0 { o.overtakenUs = nowUs }
         }
-        if p.blocks.allSatisfy({ $0?.data != nil }) {
-            pending[f.msg] = nil
-            var out: [UInt8] = []
-            p.blocks.forEach { out.append(contentsOf: $0!.data!) }
-            finish(f.msg, p, outcome: p.blocks.contains { $0!.parity } ? 2 : 1, nowUs: nowUs)
-            return Delivered(msg: f.msg, flags: p.flags, bytes: out)
+        return p
+    }
+
+    /// Puts a block's data together from its shards, with FEC for the missing ones; false when it cannot.
+    private func rebuild(_ b: Block) -> Bool {
+        b.parity = (0..<b.k).contains { b.shards[$0] == nil }
+        guard let data = Fec.decode(b.shards, k: b.k) else { return false }
+        var joined = [UInt8](); joined.reserveCapacity(b.len)
+        for d in data {
+            let c = Swift.min(d.count, b.len - joined.count)
+            if c <= 0 { break }
+            joined.append(contentsOf: d[0..<c])
         }
-        return nil
+        if joined.count < b.len { joined.append(contentsOf: repeatElement(0, count: b.len - joined.count)) }
+        b.data = joined
+        b.shards = Array(repeating: nil, count: b.shards.count)
+        return true
     }
 
     private func finish(_ msg: Int64, _ p: Pending, outcome: Int, nowUs: Int64) {

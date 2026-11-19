@@ -138,6 +138,15 @@ import RoamttyDesktopCore
         session.audio = audio
         page = DesktopPageModel(pointerMode: prefs.pointerMode == "mouse" ? .mouse : .touch,
                                 showStats: showStats, english: english)
+        observeSession()
+        decoder.attach(name: "VideoToolbox")
+        #if DEBUG
+        if environment["ROAMTTY_DESKTOP_AUDIO_PROBE"] == "1" { startAudioProbe() }
+        #endif
+    }
+
+    /// What the session reports comes in on its callback queue; the page reads it on the main actor.
+    private func observeSession() {
         session.onPhase = { [weak self] p in Task { @MainActor in self?.phase = p } }
         session.onLog = { [weak self] l in Task { @MainActor in self?.log = l } }
         session.onStats = { [weak self] s in Task { @MainActor in self?.stats = s } }
@@ -160,20 +169,21 @@ import RoamttyDesktopCore
                 self.onEnded(self)
             }
         }
-        decoder.attach(name: "VideoToolbox")
-        #if DEBUG
-        if environment["ROAMTTY_DESKTOP_AUDIO_PROBE"] == "1" {
-            _ = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-                Task { @MainActor in
-                    guard let self else { return }
-                    let audio = self.audio, level = audio.level
-                    self.audioProbe = "audio rms=\(level.rms) crossings=\(level.crossings) packets=\(audio.packets) dropped=\(audio.dropped) "
-                        + "queued=\(audio.queuedMs) target=\(audio.targetMs) cushions=\(audio.cushions) rate=\(Int((audio.rate * 1000).rounded()))"
-                }
+    }
+
+    #if DEBUG
+    /// Test only: a line a second about the sound, which the live UI test reads.
+    private func startAudioProbe() {
+        _ = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                let audio = self.audio, level = audio.level
+                self.audioProbe = "audio rms=\(level.rms) crossings=\(level.crossings) packets=\(audio.packets) dropped=\(audio.dropped) "
+                    + "queued=\(audio.queuedMs) target=\(audio.targetMs) cushions=\(audio.cushions) rate=\(Int((audio.rate * 1000).rounded()))"
             }
         }
-        #endif
     }
+    #endif
 
     func start() { session.start() }
     func close() { hideTask?.cancel(); shownBy.removeAll(); session.close() }

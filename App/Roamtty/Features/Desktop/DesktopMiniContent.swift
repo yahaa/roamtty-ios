@@ -43,8 +43,8 @@ struct DesktopMiniContent: View {
         let busy: Bool = { if case .failed = controller.phase { return false }; return true }()
         return VStack(spacing: 4) {
             Text(controller.host.name).font(.system(size: 11)).foregroundStyle(Self.inkDim).lineLimit(1)
-            if busy { ProgressView().controlSize(.mini).tint(DesktopKeyboardPanel.accent) }
-            Text(text).font(.system(size: 13)).foregroundStyle(DesktopKeyboardPanel.ink).multilineTextAlignment(.center).lineLimit(2)
+            if busy { ProgressView().controlSize(.mini).tint(DesktopTheme.accent) }
+            Text(text).font(.system(size: 13)).foregroundStyle(DesktopTheme.ink).multilineTextAlignment(.center).lineLimit(2)
         }
         .padding(10).frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(red: 0x1F / 255, green: 0x1F / 255, blue: 0x21 / 255))

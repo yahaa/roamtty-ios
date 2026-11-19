@@ -85,62 +85,84 @@ public struct HostMetrics: Equatable, Sendable {
         return source
     }
 
-    public static func parse(_ text: String) -> HostMetrics {
-        var values: [String: [String]] = [:]
-        for line in text.split(whereSeparator: \.isNewline) {
-            guard let at = line.firstIndex(of: "="), at != line.startIndex else { continue }
-            values[String(line[..<at]).trimmingCharacters(in: .whitespaces), default: []].append(String(line[line.index(after: at)...]).trimmingCharacters(in: .whitespaces))
+    /// The script's `key=value` lines; a key may repeat (one line per disk, process or GPU).
+    private struct Readings {
+        private var values: [String: [String]] = [:]
+
+        init(_ text: String) {
+            for line in text.split(whereSeparator: \.isNewline) {
+                guard let at = line.firstIndex(of: "="), at != line.startIndex else { continue }
+                values[String(line[..<at]).trimmingCharacters(in: .whitespaces), default: []].append(String(line[line.index(after: at)...]).trimmingCharacters(in: .whitespaces))
+            }
         }
+
+        func rows(_ key: String) -> [String] { values[key] ?? [] }
         func one(_ key: String) -> String? { values[key]?.first.flatMap { $0.isEmpty ? nil : $0 } }
         func number(_ key: String) -> Int64? { one(key).flatMap(Int64.init) }
         func bytes(_ kb: String, _ fallback: String? = nil) -> Int64? {
             if let value = number(kb), let scaled = multiply(value, 1024) { return scaled }
             return fallback.flatMap(number)
         }
+    }
+
+    public static func parse(_ text: String) -> HostMetrics {
+        let r = Readings(text)
         var m = HostMetrics()
-        m.hostname = one("hostname"); m.os = one("os"); m.kernel = one("kernel"); m.arch = one("arch")
-        m.cpuModel = one("model")?.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        m.cpus = number("cpus").flatMap { $0 > 0 ? Int(exactly: $0) : nil }
-        m.cpuPercent = cpuPercent(one("cpu1"), one("cpu2")) ?? reading(one("idle")).map { min(100, max(0, 100 - $0)) }
-        let load = fields(one("load") ?? "")
+        m.hostname = r.one("hostname"); m.os = r.one("os"); m.kernel = r.one("kernel"); m.arch = r.one("arch")
+        m.cpuModel = r.one("model")?.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        m.cpus = r.number("cpus").flatMap { $0 > 0 ? Int(exactly: $0) : nil }
+        m.cpuPercent = cpuPercent(r.one("cpu1"), r.one("cpu2")) ?? reading(r.one("idle")).map { min(100, max(0, 100 - $0)) }
+        let load = fields(r.one("load") ?? "")
         m.load = load.prefix(3).compactMap(reading)
         if load.count > 3, load[3].contains("/") { m.tasks = load[3] }
-        m.uptimeSeconds = reading(one("uptime")).flatMap(integer)
-        m.memTotalBytes = bytes("kb_MemTotal", "bytes_MemTotal"); m.memAvailableBytes = bytes("kb_MemAvailable", "bytes_MemAvailable")
-        m.swapTotalBytes = bytes("kb_SwapTotal"); m.swapFreeBytes = bytes("kb_SwapFree")
-        m.disks = (values["disk"] ?? []).compactMap { row in
-            let parts = fields(row, limit: 4)
-            guard parts.count == 4, let total = Int64(parts[0]).flatMap({
-                multiply($0, 1024)
-            }), let used = Int64(parts[1]).flatMap({
-                multiply($0, 1024)
-            }), let available = Int64(parts[2]).flatMap({
-                multiply($0, 1024)
-            }) else { return nil }
-            return Disk(mount: parts[3], totalBytes: total, usedBytes: used, availableBytes: available)
-        }
-        let net = fields(one("net") ?? "").compactMap(Int64.init)
+        m.uptimeSeconds = reading(r.one("uptime")).flatMap(integer)
+        m.memTotalBytes = r.bytes("kb_MemTotal", "bytes_MemTotal"); m.memAvailableBytes = r.bytes("kb_MemAvailable", "bytes_MemAvailable")
+        m.swapTotalBytes = r.bytes("kb_SwapTotal"); m.swapFreeBytes = r.bytes("kb_SwapFree")
+        m.disks = r.rows("disk").compactMap(disk)
+        let net = fields(r.one("net") ?? "").compactMap(Int64.init)
         m.netRxBytes = net.first; if net.count > 1 { m.netTxBytes = net[1] }
-        m.users = number("users").flatMap(Int.init(exactly:))
-        m.processes = (values["proc"] ?? []).compactMap { row in
-            let parts = fields(row, limit: 3)
-            guard parts.count == 3, let cpu = reading(parts[0]), let mem = reading(parts[1]) else { return nil }
-            let name = basename(parts[2]); guard !name.isEmpty else { return nil }
-            return Process(name: name, cpuPercent: cpu, memPercent: mem)
-        }
-        m.gpus = (values["gpu"] ?? []).compactMap(nvidiaGpu)
-        var others = (values["amdgpu"] ?? []).compactMap(amdGpu)
-        others += (values["igpu"] ?? []).compactMap { intelGpu($0, before: values["rc6a"] ?? [], after: values["rc6b"] ?? []) }
-        others += (values["macgpu"] ?? []).compactMap(macGpu)
-        let firstOther = (m.gpus.map(\.index).max() ?? -1) + 1
-        for (offset, var gpu) in others.enumerated() { gpu.index = firstOther + offset; m.gpus.append(gpu) }
-        m.gpuProcesses = (values["gpuproc"] ?? []).compactMap { row in
-            let parts = csv(row)
-            guard parts.count >= 3, let pid = Int64(parts[0]) else { return nil }
-            let name = basename(parts.dropFirst().dropLast().joined(separator: ", ")); guard !name.isEmpty else { return nil }
-            return GpuProcess(pid: pid, name: name, memBytes: mib(parts.last))
-        }.sorted { ($0.memBytes ?? -1) > ($1.memBytes ?? -1) }
+        m.users = r.number("users").flatMap(Int.init(exactly:))
+        m.processes = r.rows("proc").compactMap(process)
+        m.gpus = gpus(r)
+        m.gpuProcesses = r.rows("gpuproc").compactMap(gpuProcess).sorted { ($0.memBytes ?? -1) > ($1.memBytes ?? -1) }
         return m
+    }
+
+    /// `total used available mount`, the sizes in KiB.
+    private static func disk(_ row: String) -> Disk? {
+        let parts = fields(row, limit: 4)
+        guard parts.count == 4,
+              let total = Int64(parts[0]).flatMap({ multiply($0, 1024) }),
+              let used = Int64(parts[1]).flatMap({ multiply($0, 1024) }),
+              let available = Int64(parts[2]).flatMap({ multiply($0, 1024) }) else { return nil }
+        return Disk(mount: parts[3], totalBytes: total, usedBytes: used, availableBytes: available)
+    }
+
+    /// `cpu% mem% command`.
+    private static func process(_ row: String) -> Process? {
+        let parts = fields(row, limit: 3)
+        guard parts.count == 3, let cpu = reading(parts[0]), let mem = reading(parts[1]) else { return nil }
+        let name = basename(parts[2])
+        return name.isEmpty ? nil : Process(name: name, cpuPercent: cpu, memPercent: mem)
+    }
+
+    /// NVIDIA's cards keep their own indexes; the others are numbered after them.
+    private static func gpus(_ r: Readings) -> [Gpu] {
+        var gpus = r.rows("gpu").compactMap(nvidiaGpu)
+        var others = r.rows("amdgpu").compactMap(amdGpu)
+        others += r.rows("igpu").compactMap { intelGpu($0, before: r.rows("rc6a"), after: r.rows("rc6b")) }
+        others += r.rows("macgpu").compactMap(macGpu)
+        let firstOther = (gpus.map(\.index).max() ?? -1) + 1
+        for (offset, var gpu) in others.enumerated() { gpu.index = firstOther + offset; gpus.append(gpu) }
+        return gpus
+    }
+
+    /// `pid, name, memory in MiB`; the name may itself contain commas.
+    private static func gpuProcess(_ row: String) -> GpuProcess? {
+        let parts = csv(row)
+        guard parts.count >= 3, let pid = Int64(parts[0]) else { return nil }
+        let name = basename(parts.dropFirst().dropLast().joined(separator: ", "))
+        return name.isEmpty ? nil : GpuProcess(pid: pid, name: name, memBytes: mib(parts.last))
     }
 
     static func cpuPercent(_ first: String?, _ second: String?) -> Double? {

@@ -46,40 +46,58 @@ public enum TerminalPath {
 
         // TUIs such as coding agents break a long path with a newline and indentation, which carries no soft-wrap
         // flag. Join the pieces the layout says belong together, like a hard-wrapped URL.
-        var joined = Array(text[start..<end]), joinedCells = line.cells(start..<end)
-        var tapped = offset - start
-        var rows = line.lastRow - line.firstRow + 1
-        var first = line, pieceStart = start
-        while pieceStart == indentEnd(first.text) && rows < maxJoinedRows {
-            let y = first.firstRow - 1
-            guard y >= grid.firstRow, continues(reader, y) else { break }
-            let previous = reader.logicalLine(y)
-            let pieceEnd = contentEnd(previous.text)
-            pieceStart = pieceEnd
-            while pieceStart > 0 && isPathCharacter(previous.text[pieceStart - 1]) { pieceStart -= 1 }
-            if pieceStart == pieceEnd { break }
-            joined.insert(contentsOf: previous.text[pieceStart..<pieceEnd], at: 0)
-            joinedCells.insert(contentsOf: previous.cells(pieceStart..<pieceEnd), at: 0)
-            tapped += pieceEnd - pieceStart
-            first = previous; rows += 1
-        }
-        var last = line, pieceEnd = end
-        while pieceEnd == contentEnd(last.text) && rows < maxJoinedRows {
-            let y = last.lastRow
-            guard y + 1 < grid.endRow, continues(reader, y) else { break }
-            let next = reader.logicalLine(y + 1)
-            let pieceStart = indentEnd(next.text)
-            pieceEnd = pieceStart
-            while pieceEnd < next.text.count && isPathCharacter(next.text[pieceEnd]) { pieceEnd += 1 }
-            if pieceEnd == pieceStart { break }
-            joined += next.text[pieceStart..<pieceEnd]
-            joinedCells += next.cells(pieceStart..<pieceEnd)
-            last = next; rows += 1
-        }
-        if joined.count == end - start { return alone }
-        guard let whole = parse(joined, tapped: tapped, cells: joinedCells) else { return alone }
+        var joined = JoinedRun(text: Array(text[start..<end]), cells: line.cells(start..<end), tapped: offset - start,
+                               rows: line.lastRow - line.firstRow + 1)
+        joined.extendBackward(from: line, start: start, reader)
+        joined.extendForward(from: line, end: end, reader)
+        if joined.text.count == end - start { return alone }
+        guard let whole = parse(joined.text, tapped: joined.tapped, cells: joined.cells) else { return alone }
         guard let alone, alone.candidates != whole.candidates else { return whole }
         return TerminalPathLink(candidates: whole.candidates + alone.candidates, spans: whole.spans)
+    }
+
+    /// A run of path characters that grows over the rows a TUI broke it across.
+    private struct JoinedRun {
+        var text: [Character]
+        var cells: [TerminalLinkSpan.Cell]
+        /// The tapped character's index in `text`.
+        var tapped: Int
+        var rows: Int
+
+        /// Prepends the pieces on the rows above, while the run starts its line right after the indentation.
+        mutating func extendBackward(from line: TerminalUrl.LogicalLine, start: Int, _ reader: TerminalUrl.Reader) {
+            var first = line, pieceStart = start
+            while pieceStart == indentEnd(first.text) && rows < maxJoinedRows {
+                let y = first.firstRow - 1
+                guard y >= reader.grid.firstRow, continues(reader, y) else { break }
+                let previous = reader.logicalLine(y)
+                let pieceEnd = contentEnd(previous.text)
+                pieceStart = pieceEnd
+                while pieceStart > 0 && isPathCharacter(previous.text[pieceStart - 1]) { pieceStart -= 1 }
+                if pieceStart == pieceEnd { break }
+                text.insert(contentsOf: previous.text[pieceStart..<pieceEnd], at: 0)
+                cells.insert(contentsOf: previous.cells(pieceStart..<pieceEnd), at: 0)
+                tapped += pieceEnd - pieceStart
+                first = previous; rows += 1
+            }
+        }
+
+        /// Appends the pieces on the rows below, while the run ends its line.
+        mutating func extendForward(from line: TerminalUrl.LogicalLine, end: Int, _ reader: TerminalUrl.Reader) {
+            var last = line, pieceEnd = end
+            while pieceEnd == contentEnd(last.text) && rows < maxJoinedRows {
+                let y = last.lastRow
+                guard y + 1 < reader.grid.endRow, continues(reader, y) else { break }
+                let next = reader.logicalLine(y + 1)
+                let pieceStart = indentEnd(next.text)
+                pieceEnd = pieceStart
+                while pieceEnd < next.text.count && isPathCharacter(next.text[pieceEnd]) { pieceEnd += 1 }
+                if pieceEnd == pieceStart { break }
+                text += next.text[pieceStart..<pieceEnd]
+                cells += next.cells(pieceStart..<pieceEnd)
+                last = next; rows += 1
+            }
+        }
     }
 
     /// A path, its line and its rows from a run of path characters, if the tapped character belongs to it.

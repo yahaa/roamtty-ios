@@ -57,49 +57,57 @@ public final class DesktopPluginInstaller {
         if run(#"mkdir -p "$HOME/.roamtty/bin" "$HOME/.roamtty/desktop""#, 15) != 0 { return .failed(.host, detail: "mkdir") }
         onStep(.hostDownload)
         let hostStatus = run(build.app ? Self.hostAppScript(build) : Self.hostDownloadScript(build), 60)
-        if hostStatus != 0 && build.app {
-            onStep(.phoneDownload)
-            let zip: Data
-            do { zip = try fetch(build.url) } catch { return .failed(.download, detail: "\(error)") }
-            let got = PluginManifest.sha256Hex(zip)
-            if got != build.sha256 { return .failed(.checksum, detail: got) }
-            onStep(.upload)
-            let part = ".roamtty/bin/.roamtty-desktop-\(UUID().uuidString).zip"
-            do { try remote.upload(zip, to: part) } catch { return .failed(.host, detail: "\(error)") }
-            onStep(.verify)
-            if run(Self.placeAppScript("$HOME/\(part)", sha: build.sha256), 30) != 0 { return .failed(.checksum) }
-        } else if hostStatus != 0 {
-            onStep(.phoneDownload)
-            let packed: Data
-            do { packed = try fetch(build.url) } catch { return .failed(.download, detail: "\(error)") }
-            let binary: [UInt8]
-            do { binary = try Gzip.decompress(Array(packed)) } catch { return .failed(.checksum, detail: "gzip") }
-            let got = PluginManifest.sha256Hex(Data(binary))
-            if got != build.sha256 { return .failed(.checksum, detail: got) }
-            onStep(.upload)
-            let part = ".roamtty/bin/.roamtty-desktop-\(UUID().uuidString).part"
-            do { try remote.upload(Data(binary), to: part) } catch { return .failed(.host, detail: "\(error)") }
-            onStep(.verify)
-            if run(Self.placeScript("$HOME/\(part)", sha: build.sha256), 15) != 0 { return .failed(.checksum) }
-        }
-        if let url = build.openh264Url {
-            onStep(.encoderHost)
-            if run(#"exec 2>&1; "$HOME/.roamtty/bin/roamtty-desktop" install"#, 30) != 0 {
-                onStep(.encoderPhone)
-                let packed: Data
-                do { packed = try fetch(url) } catch { return .failed(.encoder, detail: "\(error)") }
-                let part = ".roamtty/desktop/openh264-\(UUID().uuidString).bz2"
-                do { try remote.upload(packed, to: part) } catch { return .failed(.host, detail: "\(error)") }
-                // The plugin unpacks it and loads only Cisco's own build (it checks the hash).
-                let status = run(#"exec 2>&1; f="$HOME/"# + part + #""; "$HOME/.roamtty/bin/roamtty-desktop" install --openh264 "$f"; s=$?; rm -f "$f"; exit $s"#, 30)
-                if status != 0 { return .failed(.encoder) }
-            }
-        }
+        if hostStatus != 0, let failed = build.app ? uploadApp(build) : uploadBinary(build) { return failed }
+        if let url = build.openh264Url, let failed = installEncoder(url) { return failed }
         onStep(.register)
         // macOS: (re)load the LaunchAgent; it runs in the GUI session, where TCC permissions apply.
         if build.app && !registerAgent() { return .failed(.host, detail: "agent") }
         onStep(.done)
         return .installed
+    }
+
+    /// The host could not download the macOS app: the phone does, and uploads the archive. Nil once it is in place.
+    private func uploadApp(_ build: Build) -> Result? {
+        onStep(.phoneDownload)
+        let zip: Data
+        do { zip = try fetch(build.url) } catch { return .failed(.download, detail: "\(error)") }
+        let got = PluginManifest.sha256Hex(zip)
+        if got != build.sha256 { return .failed(.checksum, detail: got) }
+        onStep(.upload)
+        let part = ".roamtty/bin/.roamtty-desktop-\(UUID().uuidString).zip"
+        do { try remote.upload(zip, to: part) } catch { return .failed(.host, detail: "\(error)") }
+        onStep(.verify)
+        return run(Self.placeAppScript("$HOME/\(part)", sha: build.sha256), 30) == 0 ? nil : .failed(.checksum)
+    }
+
+    /// The host could not download the binary: the phone does, unpacks it and uploads it. Nil once it is in place.
+    private func uploadBinary(_ build: Build) -> Result? {
+        onStep(.phoneDownload)
+        let packed: Data
+        do { packed = try fetch(build.url) } catch { return .failed(.download, detail: "\(error)") }
+        let binary: [UInt8]
+        do { binary = try Gzip.decompress(Array(packed)) } catch { return .failed(.checksum, detail: "gzip") }
+        let got = PluginManifest.sha256Hex(Data(binary))
+        if got != build.sha256 { return .failed(.checksum, detail: got) }
+        onStep(.upload)
+        let part = ".roamtty/bin/.roamtty-desktop-\(UUID().uuidString).part"
+        do { try remote.upload(Data(binary), to: part) } catch { return .failed(.host, detail: "\(error)") }
+        onStep(.verify)
+        return run(Self.placeScript("$HOME/\(part)", sha: build.sha256), 15) == 0 ? nil : .failed(.checksum)
+    }
+
+    /// Lets the plugin fetch Cisco's OpenH264; when the host cannot, the phone downloads and uploads it. Nil once done.
+    private func installEncoder(_ url: String) -> Result? {
+        onStep(.encoderHost)
+        if run(#"exec 2>&1; "$HOME/.roamtty/bin/roamtty-desktop" install"#, 30) == 0 { return nil }
+        onStep(.encoderPhone)
+        let packed: Data
+        do { packed = try fetch(url) } catch { return .failed(.encoder, detail: "\(error)") }
+        let part = ".roamtty/desktop/openh264-\(UUID().uuidString).bz2"
+        do { try remote.upload(packed, to: part) } catch { return .failed(.host, detail: "\(error)") }
+        // The plugin unpacks it and loads only Cisco's own build (it checks the hash).
+        let status = run(#"exec 2>&1; f="$HOME/"# + part + #""; "$HOME/.roamtty/bin/roamtty-desktop" install --openh264 "$f"; s=$?; rm -f "$f"; exit $s"#, 30)
+        return status == 0 ? nil : .failed(.encoder)
     }
 
     /// macOS: reloads the installed plugin's LaunchAgent in the GUI session; false when it did not come up.

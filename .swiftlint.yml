@@ -48,14 +48,14 @@ line_length:
 
 # Ceilings for the longest existing state machines and view builders; new code should stay well below them.
 function_body_length:
-  warning: 120
+  warning: 50
 type_body_length:
-  warning: 750
+  warning: 300
 file_length:
-  warning: 1000
+  warning: 400
   ignore_comment_only_lines: true
 cyclomatic_complexity:
-  warning: 30
+  warning: 12
   ignores_case_statements: true
 function_parameter_count:
   warning: 9

@@ -239,48 +239,60 @@ public struct RemoteFileContent: Equatable, Sendable {
     /// Strict Unicode decoding drops only a valid incomplete final character of a bounded prefix.
     public func decodeText() -> String? {
         let bytes = Array(data)
-        var scalars = String.UnicodeScalarView()
-        if bytes.starts(with: [0xff, 0xfe]) || bytes.starts(with: [0xfe, 0xff]) {
-            let little = bytes[0] == 0xff
-            func unit(_ i: Int) -> UInt32 { little ? UInt32(bytes[i]) | UInt32(bytes[i + 1]) << 8 : UInt32(bytes[i]) << 8 | UInt32(bytes[i + 1]) }
-            var i = 2
-            while i < bytes.count {
-                guard i + 1 < bytes.count else { if truncated { break }; return nil }
-                let first = unit(i); i += 2
-                var value = first
-                if (0xd800...0xdbff).contains(first) {
-                    guard i + 1 < bytes.count else { if truncated { break }; return nil }
-                    let second = unit(i)
-                    guard (0xdc00...0xdfff).contains(second) else { return nil }
-                    value = 0x10000 + ((first - 0xd800) << 10) + second - 0xdc00; i += 2
-                } else if (0xdc00...0xdfff).contains(first) { return nil }
-                guard let scalar = Unicode.Scalar(value) else { return nil }; scalars.append(scalar)
-            }
-        } else {
-            var i = bytes.starts(with: [0xef, 0xbb, 0xbf]) ? 3 : 0
-            while i < bytes.count {
-                let lead = bytes[i], width: Int, mask: UInt8
-                switch lead {
-                case 0...0x7f: width = 1; mask = 0x7f
-                case 0xc2...0xdf: width = 2; mask = 0x1f
-                case 0xe0...0xef: width = 3; mask = 0x0f
-                case 0xf0...0xf4: width = 4; mask = 0x07
-                default: return nil
-                }
-                var value = UInt32(lead & mask)
-                let available = min(width, bytes.count - i)
-                for j in 1..<available {
-                    let byte = bytes[i + j]
-                    guard (0x80...0xbf).contains(byte) else { return nil }
-                    if j == 1 && ((lead == 0xe0 && byte < 0xa0) || (lead == 0xed && byte > 0x9f) || (lead == 0xf0 && byte < 0x90) || (lead == 0xf4 && byte > 0x8f)) { return nil }
-                    value = value << 6 | UInt32(byte & 0x3f)
-                }
-                guard available == width else { if truncated { break }; return nil }
-                guard let scalar = Unicode.Scalar(value) else { return nil }; scalars.append(scalar); i += width
-            }
-        }
+        let utf16 = bytes.starts(with: [0xff, 0xfe]) || bytes.starts(with: [0xfe, 0xff])
+        guard let scalars = utf16 ? decodeUTF16(bytes) : decodeUTF8(bytes) else { return nil }
         guard !scalars.contains(where: { ($0.value < 32 && ![9, 10, 12, 13].contains($0.value)) || $0.value == 127 }) else { return nil }
         return String(scalars)
+    }
+
+    /// UTF-16 after its byte order mark; nil for an unpaired surrogate or, unless truncated, a cut-off unit.
+    private func decodeUTF16(_ bytes: [UInt8]) -> String.UnicodeScalarView? {
+        var scalars = String.UnicodeScalarView()
+        let little = bytes[0] == 0xff
+        func unit(_ i: Int) -> UInt32 { little ? UInt32(bytes[i]) | UInt32(bytes[i + 1]) << 8 : UInt32(bytes[i]) << 8 | UInt32(bytes[i + 1]) }
+        var i = 2
+        while i < bytes.count {
+            guard i + 1 < bytes.count else { return truncated ? scalars : nil }
+            let first = unit(i); i += 2
+            var value = first
+            if (0xd800...0xdbff).contains(first) {
+                guard i + 1 < bytes.count else { return truncated ? scalars : nil }
+                let second = unit(i)
+                guard (0xdc00...0xdfff).contains(second) else { return nil }
+                value = 0x10000 + ((first - 0xd800) << 10) + second - 0xdc00; i += 2
+            } else if (0xdc00...0xdfff).contains(first) { return nil }
+            guard let scalar = Unicode.Scalar(value) else { return nil }
+            scalars.append(scalar)
+        }
+        return scalars
+    }
+
+    /// UTF-8, with or without a byte order mark; nil for an invalid sequence or, unless truncated, a cut-off one.
+    private func decodeUTF8(_ bytes: [UInt8]) -> String.UnicodeScalarView? {
+        var scalars = String.UnicodeScalarView()
+        var i = bytes.starts(with: [0xef, 0xbb, 0xbf]) ? 3 : 0
+        while i < bytes.count {
+            let lead = bytes[i], width: Int, mask: UInt8
+            switch lead {
+            case 0...0x7f: width = 1; mask = 0x7f
+            case 0xc2...0xdf: width = 2; mask = 0x1f
+            case 0xe0...0xef: width = 3; mask = 0x0f
+            case 0xf0...0xf4: width = 4; mask = 0x07
+            default: return nil
+            }
+            var value = UInt32(lead & mask)
+            let available = min(width, bytes.count - i)
+            for j in 1..<available {
+                let byte = bytes[i + j]
+                guard (0x80...0xbf).contains(byte) else { return nil }
+                if j == 1 && ((lead == 0xe0 && byte < 0xa0) || (lead == 0xed && byte > 0x9f) || (lead == 0xf0 && byte < 0x90) || (lead == 0xf4 && byte > 0x8f)) { return nil }
+                value = value << 6 | UInt32(byte & 0x3f)
+            }
+            guard available == width else { return truncated ? scalars : nil }
+            guard let scalar = Unicode.Scalar(value) else { return nil }
+            scalars.append(scalar); i += width
+        }
+        return scalars
     }
 }
 

@@ -16,12 +16,9 @@ struct DesktopKeyboardPanel: View {
     var alwaysBar = false
     var onDismiss: () -> Void
 
-    static let panelColor = Color(red: 28/255, green: 28/255, blue: 30/255)
-    static let ink = Color(red: 242/255, green: 242/255, blue: 247/255)
-    static let accent = Color(red: 1, green: 159/255, blue: 10/255)
-    private var panelColor: Color { Self.panelColor }
-    private var ink: Color { Self.ink }
-    private var accent: Color { Self.accent }
+    private var panelColor: Color { DesktopTheme.panel }
+    private var ink: Color { DesktopTheme.ink }
+    private var accent: Color { DesktopTheme.accent }
     private var page: DesktopPageModel { controller.page }
 
     var body: some View {

@@ -1,0 +1,4 @@
+# The check scripts are one list of assertions each, run top to bottom; they keep the ceiling the whole project
+# had before production code moved to 50 lines a function (the root .swiftlint.yml).
+function_body_length:
+  warning: 120

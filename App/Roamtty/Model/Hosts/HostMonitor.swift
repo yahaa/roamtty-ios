@@ -43,26 +43,7 @@ import RoamttyTransport
                     self.states[host.id] = HostMonitorState(phase: .connected)
                     // The page's own probe skips logins that need typing; this one rides the login just made.
                     if !probedDesktop { probedDesktop = true; self.onConnected?(host) }
-                    var series = self.series[host.id] ?? HostMetricSeries()
-                    series.resetNetworkBaseline()
-                    while current() {
-                        let result = try await ssh.run(RemoteCommands.shell(HostMetrics.script), timeout: 10, cancellation: cancellation)
-                        guard current() else { return }
-                        let value = HostMetrics.parse(result.text)
-                        // The collectors ran but returned nothing usable: the host refused the queries. A lost login
-                        // (timeout, dropped connection) throws instead and reconnects, keeping the last sample.
-                        guard result.status == 0, value.cpuPercent != nil || value.memPercent != nil || !value.disks.isEmpty else {
-                            self.metrics.removeValue(forKey: host.id); series.resetNetworkBaseline(); self.series[host.id] = series
-                            self.states[host.id] = HostMonitorState(phase: .connected, samplingFailed: true)
-                            return
-                        }
-                        series.observe(value, timestamp: ProcessInfo.processInfo.systemUptime)
-                        self.metrics[host.id] = value
-                        self.series[host.id] = series
-                        self.states[host.id] = HostMonitorState(phase: .connected, sampled: true)
-                        retry = 0
-                        try await Task.sleep(for: .seconds(3))
-                    }
+                    guard try await self.sample(host, over: ssh, cancellation: cancellation, retry: &retry, current: current) else { return }
                 } catch {
                     guard current() else { return }
                     // A channel can observe cancellation after another channel detected a dead socket.
@@ -81,6 +62,31 @@ import RoamttyTransport
         }
         jobs[host.id] = TrackedTask(token: token, task: task, cancellation: cancellation)
     }
+    /// Samples the host every three seconds while `current`. False once the collectors ran but returned nothing
+    /// usable: the host refused the queries. A lost login (timeout, dropped connection) throws instead, and the
+    /// caller reconnects, keeping the last sample.
+    private func sample(_ host: Host, over ssh: SSHConnection, cancellation: TransferCancellation, retry: inout Int, current: () -> Bool) async throws -> Bool {
+        var series = self.series[host.id] ?? HostMetricSeries()
+        series.resetNetworkBaseline()
+        while current() {
+            let result = try await ssh.run(RemoteCommands.shell(HostMetrics.script), timeout: 10, cancellation: cancellation)
+            guard current() else { return true }
+            let value = HostMetrics.parse(result.text)
+            guard result.status == 0, value.cpuPercent != nil || value.memPercent != nil || !value.disks.isEmpty else {
+                metrics.removeValue(forKey: host.id); series.resetNetworkBaseline(); self.series[host.id] = series
+                states[host.id] = HostMonitorState(phase: .connected, samplingFailed: true)
+                return false
+            }
+            series.observe(value, timestamp: ProcessInfo.processInfo.systemUptime)
+            metrics[host.id] = value
+            self.series[host.id] = series
+            states[host.id] = HostMonitorState(phase: .connected, sampled: true)
+            retry = 0
+            try await Task.sleep(for: .seconds(3))
+        }
+        return true
+    }
+
     func stop(_ hostID: String) {
         jobs.removeValue(forKey: hostID)?.cancel()
         if states[hostID]?.phase.active == true { states[hostID] = HostMonitorState(phase: .disconnected) }

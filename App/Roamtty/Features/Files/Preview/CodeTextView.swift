@@ -25,58 +25,65 @@ struct CodeTextView: UIViewRepresentable {
         let coordinator = context.coordinator
         // The highlighted text is built once per document and look; a search only repaints its matches.
         let key = "\(document.lineCount)-\(document.maxColumns)-\(fontName)-\(fontSize)-\(wrap)-\(scheme)"
-        if coordinator.key != key || coordinator.document != document.lines {
-            coordinator.key = key
-            coordinator.document = document.lines
-            coordinator.sourceMatches = []; coordinator.matches = []
-            let font = FontCatalog.shared.font(selection: fontName, size: fontSize)
-            let output = NSMutableAttributedString()
-            let digits = String(document.lineCount).count
-            var rowOffsets: [Int] = []
-            var marked: NSRange?
-            for line in document.lines {
-                let number = String(repeating: " ", count: max(0, digits - String(line.number).count)) + "\(line.number)  "
-                let lineStart = output.length
-                output.append(NSAttributedString(string: number, attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel]))
-                let offset = output.length
-                rowOffsets.append(offset)
-                output.append(NSAttributedString(string: line.text + "\n", attributes: [.font: font, .foregroundColor: UIColor.label]))
-                if markedLine > 0 && line.number == markedLine && marked == nil { marked = NSRange(location: lineStart, length: output.length - lineStart) }
-                for index in stride(from: 0, to: line.spans.count - 2, by: 3) {
-                    let start = line.spans[index], end = line.spans[index + 1]
-                    guard start >= 0, end <= line.text.utf16.count, end > start else { continue }
-                    output.addAttribute(.foregroundColor, value: tokenColor(TokenType(rawValue: line.spans[index + 2])), range: NSRange(location: offset + start, length: end - start))
-                }
-            }
-            coordinator.rowOffsets = rowOffsets
-            coordinator.marked = marked
-            if let marked { output.addAttribute(.backgroundColor, value: Self.markColor, range: marked) }
-            view.attributedText = output
-            if let marked { Self.scroll(view, toMark: marked, lineHeight: font.lineHeight, attempts: 10) }
-            view.textContainer.widthTracksTextView = wrap
-            view.textContainer.size = CGSize(width: wrap ? max(1, view.bounds.width - 20) : max(1000, CGFloat(document.maxColumns + digits + 4) * font.pointSize * 0.65),
-                height: .greatestFiniteMagnitude)
-        }
-        if coordinator.sourceMatches != matches {
-            coordinator.sourceMatches = matches
-            let storage = view.textStorage
-            storage.beginEditing()
-            for range in coordinator.matches where NSMaxRange(range) <= storage.length { storage.removeAttribute(.backgroundColor, range: range) }
-            if let marked = coordinator.marked, NSMaxRange(marked) <= storage.length { storage.addAttribute(.backgroundColor, value: Self.markColor, range: marked) }
-            coordinator.matches = []
-            for found in matches where coordinator.rowOffsets.indices.contains(found.row) {
-                let range = NSRange(location: coordinator.rowOffsets[found.row] + found.start, length: found.end - found.start)
-                guard NSMaxRange(range) <= storage.length else { continue }
-                coordinator.matches.append(range)
-                storage.addAttribute(.backgroundColor, value: UIColor.systemYellow.withAlphaComponent(0.25), range: range)
-            }
-            storage.endEditing()
-        }
+        if coordinator.key != key || coordinator.document != document.lines { showDocument(in: view, coordinator, key: key) }
+        if coordinator.sourceMatches != matches { paintMatches(in: view, coordinator) }
         if coordinator.lastMatch != match || coordinator.lastQuery != query {
             coordinator.lastMatch = match; coordinator.lastQuery = query
             if !coordinator.matches.isEmpty { let range = coordinator.matches[match % coordinator.matches.count]; view.selectedRange = range; view.scrollRangeToVisible(range) }
         }
     }
+
+    /// Builds the highlighted text with its line numbers, and scrolls to the marked line.
+    private func showDocument(in view: UITextView, _ coordinator: Coordinator, key: String) {
+        coordinator.key = key
+        coordinator.document = document.lines
+        coordinator.sourceMatches = []; coordinator.matches = []
+        let font = FontCatalog.shared.font(selection: fontName, size: fontSize)
+        let output = NSMutableAttributedString()
+        let digits = String(document.lineCount).count
+        var rowOffsets: [Int] = []
+        var marked: NSRange?
+        for line in document.lines {
+            let number = String(repeating: " ", count: max(0, digits - String(line.number).count)) + "\(line.number)  "
+            let lineStart = output.length
+            output.append(NSAttributedString(string: number, attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel]))
+            let offset = output.length
+            rowOffsets.append(offset)
+            output.append(NSAttributedString(string: line.text + "\n", attributes: [.font: font, .foregroundColor: UIColor.label]))
+            if markedLine > 0 && line.number == markedLine && marked == nil { marked = NSRange(location: lineStart, length: output.length - lineStart) }
+            for index in stride(from: 0, to: line.spans.count - 2, by: 3) {
+                let start = line.spans[index], end = line.spans[index + 1]
+                guard start >= 0, end <= line.text.utf16.count, end > start else { continue }
+                output.addAttribute(.foregroundColor, value: tokenColor(TokenType(rawValue: line.spans[index + 2])), range: NSRange(location: offset + start, length: end - start))
+            }
+        }
+        coordinator.rowOffsets = rowOffsets
+        coordinator.marked = marked
+        if let marked { output.addAttribute(.backgroundColor, value: Self.markColor, range: marked) }
+        view.attributedText = output
+        if let marked { Self.scroll(view, toMark: marked, lineHeight: font.lineHeight, attempts: 10) }
+        view.textContainer.widthTracksTextView = wrap
+        view.textContainer.size = CGSize(width: wrap ? max(1, view.bounds.width - 20) : max(1000, CGFloat(document.maxColumns + digits + 4) * font.pointSize * 0.65),
+            height: .greatestFiniteMagnitude)
+    }
+
+    /// Marks the search's matches, in place of the last search's.
+    private func paintMatches(in view: UITextView, _ coordinator: Coordinator) {
+        coordinator.sourceMatches = matches
+        let storage = view.textStorage
+        storage.beginEditing()
+        for range in coordinator.matches where NSMaxRange(range) <= storage.length { storage.removeAttribute(.backgroundColor, range: range) }
+        if let marked = coordinator.marked, NSMaxRange(marked) <= storage.length { storage.addAttribute(.backgroundColor, value: Self.markColor, range: marked) }
+        coordinator.matches = []
+        for found in matches where coordinator.rowOffsets.indices.contains(found.row) {
+            let range = NSRange(location: coordinator.rowOffsets[found.row] + found.start, length: found.end - found.start)
+            guard NSMaxRange(range) <= storage.length else { continue }
+            coordinator.matches.append(range)
+            storage.addAttribute(.backgroundColor, value: UIColor.systemYellow.withAlphaComponent(0.25), range: range)
+        }
+        storage.endEditing()
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator() }
     private static let markColor = UIColor.tintColor.withAlphaComponent(0.16)
     /// Puts the marked line a few lines below the top, once the view has its size.

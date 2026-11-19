@@ -64,18 +64,10 @@ extension GraphicsContext {
         translateBy(x: pivot.x, y: pivot.y); scaleBy(x: x, y: y); translateBy(x: -pivot.x, y: -pivot.y)
     }
 
-    /// The ghost on its 26-unit grid, holding a keyboard and a wrench painted `accent`.
-    func drawGhost(accent: Color, pose: GhostPose) {
-        let line = StrokeStyle(lineWidth: 1.3, lineCap: .round, lineJoin: .round)
-        func oval(_ x: Double, _ y: Double, _ w: Double, _ h: Double) -> Path { Path(ellipseIn: CGRect(x: x, y: y, width: w, height: h)) }
-        func circle(_ c: CGPoint, _ r: Double) -> Path { oval(c.x - r, c.y - r, 2 * r, 2 * r) }
-        func rounded(_ x: Double, _ y: Double, _ w: Double, _ h: Double, _ r: Double) -> Path {
-            Path(roundedRect: CGRect(x: x, y: y, width: w, height: h), cornerRadius: r)
-        }
-        // Wrench behind the paw, swinging around the grip.
+    /// The wrench behind the right paw, swinging around its grip.
+    private func drawWrench(accent: Color, wave: Double, grip: CGPoint) {
         var wrench = self
-        let grip = CGPoint(x: 19.6, y: 14.2)
-        wrench.rotate(pose.wave, around: grip)
+        wrench.rotate(wave, around: grip)
         let handle = Path { $0.move(to: grip); $0.addLine(to: CGPoint(x: 22.4, y: 7.6)) }
         wrench.stroke(handle, with: .color(GhostInk.ink), style: StrokeStyle(lineWidth: 2.8, lineCap: .round))
         wrench.stroke(handle, with: .color(accent), style: StrokeStyle(lineWidth: 1.4, lineCap: .round))
@@ -83,6 +75,26 @@ extension GraphicsContext {
         let head = Path { $0.addArc(center: CGPoint(x: 23.2, y: 5.4), radius: 2.1, startAngle: .degrees(-22), endAngle: .degrees(248), clockwise: false) }
         wrench.stroke(head, with: .color(GhostInk.ink), style: StrokeStyle(lineWidth: 3, lineCap: .round))
         wrench.stroke(head, with: .color(GhostInk.metal), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+    }
+
+    /// The little keyboard the left paw holds in front of the body, tipping a bit as the wrench waves.
+    private func drawKeyboard(accent: Color, wave: Double, paw: CGPoint) {
+        var board = self
+        board.rotate(-10 + wave / 8, around: paw)
+        let left = paw.x - 2.2, top = paw.y + 0.2
+        board.fill(rounded(left, top, 7.2, 4.4, 0.9), with: .color(GhostInk.keyboard))
+        board.stroke(rounded(left, top, 7.2, 4.4, 0.9), with: .color(GhostInk.ink), lineWidth: 1.1)
+        for row in 0..<2 { for col in 0..<4 {
+            board.fill(rounded(left + 0.8 + Double(col) * 1.45, top + 0.75 + Double(row) * 1.25, 0.95, 0.8, 0.25), with: .color(accent))
+        } }
+        board.fill(rounded(left + 1.9, top + 3.25, 3.2, 0.6, 0.3), with: .color(accent))
+    }
+
+    /// The ghost on its 26-unit grid, holding a keyboard and a wrench painted `accent`.
+    func drawGhost(accent: Color, pose: GhostPose) {
+        let line = StrokeStyle(lineWidth: 1.3, lineCap: .round, lineJoin: .round)
+        let grip = CGPoint(x: 19.6, y: 14.2)
+        drawWrench(accent: accent, wave: pose.wave, grip: grip)
         // Dome head, straight sides and a hem that ripples as it floats.
         let body = Path { path in
             path.move(to: CGPoint(x: 4, y: 20.4))
@@ -100,15 +112,7 @@ extension GraphicsContext {
         stroke(body, with: .color(GhostInk.ink), style: line)
         // The left paw holds a little keyboard in front of the body, tipping a bit as the wrench waves.
         let paw = CGPoint(x: 3.9, y: 14.6 - pose.wave / 40)
-        var board = self
-        board.rotate(-10 + pose.wave / 8, around: paw)
-        let left = paw.x - 2.2, top = paw.y + 0.2
-        board.fill(rounded(left, top, 7.2, 4.4, 0.9), with: .color(GhostInk.keyboard))
-        board.stroke(rounded(left, top, 7.2, 4.4, 0.9), with: .color(GhostInk.ink), lineWidth: 1.1)
-        for row in 0..<2 { for col in 0..<4 {
-            board.fill(rounded(left + 0.8 + Double(col) * 1.45, top + 0.75 + Double(row) * 1.25, 0.95, 0.8, 0.25), with: .color(accent))
-        } }
-        board.fill(rounded(left + 1.9, top + 3.25, 3.2, 0.6, 0.3), with: .color(accent))
+        drawKeyboard(accent: accent, wave: pose.wave, paw: paw)
         // The left paw holds the keyboard; the right paw grips the wrench.
         for (center, radius) in [(paw, 1.7), (grip, 1.8)] {
             fill(circle(center, radius), with: .color(GhostInk.body))
@@ -191,4 +195,10 @@ struct RoamttyLogoArt: View {
             }
         }
     }
+}
+
+private func oval(_ x: Double, _ y: Double, _ w: Double, _ h: Double) -> Path { Path(ellipseIn: CGRect(x: x, y: y, width: w, height: h)) }
+private func circle(_ c: CGPoint, _ r: Double) -> Path { oval(c.x - r, c.y - r, 2 * r, 2 * r) }
+private func rounded(_ x: Double, _ y: Double, _ w: Double, _ h: Double, _ r: Double) -> Path {
+    Path(roundedRect: CGRect(x: x, y: y, width: w, height: h), cornerRadius: r)
 }

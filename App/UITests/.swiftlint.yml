@@ -1,0 +1,8 @@
+# Tests read top to bottom as one scenario: a step-by-step test may be longer than production code, where
+# `function_body_length` is 50 and `cyclomatic_complexity` 12 (the root .swiftlint.yml). Files and types keep
+# the root's limits.
+function_body_length:
+  warning: 90
+cyclomatic_complexity:
+  warning: 20
+  ignores_case_statements: true

@@ -77,9 +77,8 @@ import RoamttyTransport
         let text = environment.text
         func stillWanted() -> Bool { environment.foreground && !Task.isCancelled && isCurrent(attempt) }
         if host.auth == .password && credentials.password == nil {
-            guard asking else { throw RoamError.cancelled }
-            let answer = await ask(title: host.name, message: originalTarget + text("密码仅用于本次连接", "Password is used for this connection"), labels: [text("密码", "Password")], echo: [false], owner: owner)
-            guard let password = answer?.first else { throw RoamError.cancelled }
+            let password = try await typed(asking, title: host.name, message: originalTarget + text("密码仅用于本次连接", "Password is used for this connection"),
+                                           label: text("密码", "Password"), owner: owner)
             guard stillWanted() else { throw RoamError.cancelled }
             credentials.password = Data(password.utf8)
         }
@@ -89,17 +88,22 @@ import RoamttyTransport
                 "The original session's private key credentials have expired. Restore the original host and import its key before reconnecting."))
         }
         if host.auth == .key && credentials.passphrase == nil, let key = credentials.privateKey, PrivateKeys.needsPassphrase(key) {
-            guard asking else { throw RoamError.cancelled }
-            let answer = await ask(title: host.name,
+            let passphrase = try await typed(asking, title: host.name,
                 message: originalTarget + text("私钥已加密时请输入口令；未加密可留空。口令仅保存在内存。", "Enter the key passphrase, or leave it blank for an unencrypted key. Passphrases stay in memory only."),
-                labels: [text("私钥口令", "Key passphrase")], echo: [false], owner: owner)
-            guard let passphrase = answer?.first else { throw RoamError.cancelled }
+                label: text("私钥口令", "Key passphrase"), owner: owner)
             guard stillWanted() else { throw RoamError.cancelled }
             credentials.passphrase = passphrase.isEmpty ? nil : passphrase
         }
         guard stillWanted() else { throw RoamError.cancelled }
         if useSavedCredentials { cache.store(credentials, for: host.id) }
         return credentials
+    }
+
+    /// One secret typed by the user; cancelled when asking is not allowed or the user backs out.
+    private func typed(_ asking: Bool, title: String, message: String, label: String, owner: String?) async throws -> String {
+        guard asking else { throw RoamError.cancelled }
+        guard let answer = await ask(title: title, message: message, labels: [label], echo: [false], owner: owner)?.first else { throw RoamError.cancelled }
+        return answer
     }
 
     // MARK: Questions for the user

@@ -7,6 +7,8 @@ import RoamttyTransport
 
 /// One terminal session: its view, its transport (SSH or mosh) and what the screens show of it.
 /// This file holds the session's lifecycle; the rest lives in extensions:
+/// - `SessionRuntime+Connection`: the worker that connects and carries the terminal over mosh or SSH
+/// - `SessionRuntime+Startup`: when a new connection counts as connected, and the start command
 /// - `SessionRuntime+Agent`: the agent status poll and the actions on tmux and the agent
 /// - `SessionRuntime+Input`: keys, paste, the keyboard and the cursor-row controls
 /// - `SessionRuntime+Gestures`: taps, swipes, scrolling, flings and pinch-to-zoom
@@ -16,7 +18,7 @@ import RoamttyTransport
 
     @Published var record: SessionRecord
     let host: Host
-    private(set) var loginSnapshot: SessionLoginSnapshot
+    var loginSnapshot: SessionLoginSnapshot
     @Published var phase: ConnectionPhase = .connecting
     @Published var message: String?
     @Published var transportName = "SSH"
@@ -67,35 +69,35 @@ import RoamttyTransport
 
     // MARK: Connection
 
-    private(set) var ssh: SSHConnection?
-    private(set) var mosh: MoshTransport?
+    var ssh: SSHConnection?
+    var mosh: MoshTransport?
     /// Moves on with every connect and close, so callbacks of an earlier connection drop out.
-    private(set) var generation = UUID()
+    var generation = UUID()
     var columns = 80
     var rows = 24
     let lifetimeCancellation = TransferCancellation()
-    private var worker: Task<Void, Never>?
-    private var configuredFont: String?
-    private var configuredSize: Double?
-    private var configuredFontRevision: Int?
-    private var configuredScheme: ColorScheme?
-    private var startupSent = false
-    private var startupAttempt = UUID()
-    private var startupGate: TerminalStartupGate?
-    private var startupCommand: String?
-    private var startupTask: Task<Void, Never>?
-    private var startupTimeoutTask: Task<Void, Never>?
-    private var startupCancellation: TransferCancellation?
+    var worker: Task<Void, Never>?
+    var configuredFont: String?
+    var configuredSize: Double?
+    var configuredFontRevision: Int?
+    var configuredScheme: ColorScheme?
+    var startupSent = false
+    var startupAttempt = UUID()
+    var startupGate: TerminalStartupGate?
+    var startupCommand: String?
+    var startupTask: Task<Void, Never>?
+    var startupTimeoutTask: Task<Void, Never>?
+    var startupCancellation: TransferCancellation?
     /// The mouse mode the host asked for, kept by xterm's rules; see `TerminalMouseTracking`.
-    private var mouseTracking = TerminalMouseTracking()
+    var mouseTracking = TerminalMouseTracking()
     /// Shown as the 提示 card once the SSH fallback connects (Android `moshFallback` → `inputWarning`).
-    private var fallbackNotice: String?
+    var fallbackNotice: String?
     var agentPoll: Task<Void, Never>?
     /// Logs in again for the SSH connection a mosh terminal keeps for its side work (the status poll, the tmux
     /// actions), once that one dropped while mosh carried on. Set by the app, which owns logins.
     var reopenSideConnection: (() async throws -> SSHConnection)?
-    private var sideReconnect: Task<SSHConnection?, Never>?
-    private var sideReconnectAt: Date?
+    var sideReconnect: Task<SSHConnection?, Never>?
+    var sideReconnectAt: Date?
     static let moshFallbackNotice = "mosh 无法连接（可能未放行 UDP 60000–61000），已改用 SSH。 / Mosh unavailable (UDP 60000–61000 may be blocked), so this session uses SSH."
     static let tmuxNotReadyMessage = "tmux 未在 8 秒内准备就绪，请重连 / tmux was not ready within 8 seconds; reconnect"
 
@@ -198,186 +200,6 @@ import RoamttyTransport
         queueCursorRefresh()
     }
     func clearLoginCredentials() { loginSnapshot.clear() }
-
-    // MARK: Connecting
-
-    func connect(ssh: SSHConnection, credentials: Credentials, preferMosh: Bool, directory: String, agent: AgentLaunch?) {
-        loginSnapshot = SessionLoginSnapshot(host: host, credentials: credentials)
-        self.ssh = ssh; currentDirectory = directory; phase = .connecting; end = nil
-        if let agent { launchedAgent = agent.agent }
-        let hooks = agent.flatMap { $0.reportsStatus ? $0.agent : nil }
-        let token = generation
-        // Once mosh carries the terminal, SSH only does side work: its drop must not stop a terminal that still works.
-        ssh.onPhase = { [weak self] value in
-            DispatchQueue.main.async { guard self?.generation == token, self?.mosh == nil else { return }; self?.phase = value == .connected && self?.startupSent == false ? .connecting : value }
-        }
-        let mode = record.mode, name = record.remoteName, existing = record.external, cols = columns, rows = rows
-        let hookSession = mode == .tmux ? name : nil
-        let startup: String? = agent?.commandLine(session: hookSession) ?? StartDirectory.command(directory)
-        let lifetime = lifetimeCancellation
-        worker = Task { [weak self] in
-            do {
-                try await performInBackground {
-                    try ssh.connect()
-                    // The hook script and the agent's hook file go on the host before it starts; a failure only costs the status.
-                    if let hooks { SessionRemote.installAgentHooks(ssh, agent: hooks, session: hookSession, cancellation: lifetime) }
-                    if preferMosh {
-                        do {
-                            let previous = mode == .tmux ? try SessionRemote.tmuxClients(ssh, name: name, cancellation: lifetime) : []
-                            let attempt = UUID()
-                            let mosh = try ssh.startMosh(mode: mode, remoteName: name, existing: existing)
-                            DispatchQueue.main.sync {
-                                guard self?.generation == token else { mosh.close(); return }
-                                self?.mosh = mosh; self?.transportName = "mosh"
-                                self?.beginStartup(startup, ssh: ssh, mode: mode, name: name, previousClients: previous, token: token, attempt: attempt, afterFirstContact: true)
-                            }
-                            try mosh.run(columns: cols, rows: rows, firstContactTimeout: 8, silenceTimeout: mode == .shell ? 43_740 : 840, stallTimeout: mode == .shell ? nil : 10,
-                                         log: { Diagnostics.shared.log("mosh", $0) }) { data in
-                                DispatchQueue.main.sync { self?.receive(data, token: token, attempt: attempt) }
-                            }
-                            return
-                        } catch {
-                            let canFallback = DispatchQueue.main.sync { () -> Bool in
-                                guard let self, self.generation == token, !self.startupSent else { return false }
-                                self.cancelStartup(); self.mosh?.close(); self.mosh = nil; self.transportName = "SSH"; self.fallbackNotice = Self.moshFallbackNotice
-                                return true
-                            }
-                            // Commitment and fallback are one main-thread transaction, so no
-                            // readiness callback can authorize input between those decisions.
-                            guard canFallback else { throw error }
-                        }
-                    }
-                    guard !lifetime.isCancelled else { throw RoamError.cancelled }
-                    let previous = mode == .tmux ? try SessionRemote.tmuxClients(ssh, name: name, cancellation: lifetime) : []
-                    let attempt = UUID()
-                    try ssh.openTerminal(mode: mode, remoteName: name, existing: existing, columns: cols, rows: rows)
-                    DispatchQueue.main.sync {
-                        guard self?.generation == token else { return }
-                        self?.beginStartup(startup, ssh: ssh, mode: mode, name: name, previousClients: previous, token: token, attempt: attempt, afterFirstContact: false)
-                    }
-                    try ssh.runTerminal { data in DispatchQueue.main.sync { self?.receive(data, token: token, attempt: attempt) } }
-                }
-                guard self?.generation == token else { return }
-                self?.cancelStartup(); self?.end = .ended; self?.phase = .disconnected
-            } catch { guard self?.generation == token else { return }; self?.cancelStartup(); self?.fail(error) }
-        }
-    }
-    /// The SSH connection for side work, logged in again when it dropped under a working mosh terminal; nil when
-    /// there is none. A failed login waits `sideReconnectInterval` before the next try.
-    func sideConnection() async -> SSHConnection? {
-        if let ssh, ssh.isConnected { return ssh }
-        guard mosh != nil, phase == .connected, let reopenSideConnection else { return nil }
-        if let sideReconnect { return await sideReconnect.value }
-        if let sideReconnectAt, Date().timeIntervalSince(sideReconnectAt) < Self.sideReconnectInterval { return nil }
-        sideReconnectAt = Date()
-        let token = generation
-        let task = Task { [weak self] () -> SSHConnection? in
-            guard let connection = try? await reopenSideConnection() else { return nil }
-            guard let self, self.generation == token, self.mosh != nil else { connection.disconnectInBackground(); return nil }
-            let previous = self.ssh; self.ssh = connection; self.sideReconnectAt = nil
-            previous?.disconnectInBackground()
-            return connection
-        }
-        sideReconnect = task
-        let connection = await task.value
-        if generation == token { sideReconnect = nil }
-        return connection
-    }
-    static let sideReconnectInterval: TimeInterval = 30
-    private func receive(_ data: Data, token: UUID, attempt: UUID) {
-        guard generation == token, startupAttempt == attempt else { return }
-        if let view = terminalView as? AccessibleTerminalView { view.feedKeepingPlace(Array(data)[...]) } else { terminalView.feed(byteArray: Array(data)[...]) }
-        mouseTracking.consume(data); restoreMouseTracking()
-        queueCursorRefresh()
-        if !startupSent {
-            startupGate?.sawOutput = true
-            if let ssh { waitForStartup(ssh: ssh, name: record.remoteName, token: token, attempt: attempt) }
-            finishStartup(token: token, attempt: attempt)
-        }
-    }
-    /// SwiftTerm drops tracking when an encoding mode is reset, as mosh does on every resize; swipes then stop
-    /// reaching tmux. Put the mode the host asked for back.
-    private func restoreMouseTracking() {
-        guard mouseTracking.atBoundary else { return }
-        let terminal = terminalView.getTerminal()
-        let current: Int?
-        switch terminal.mouseMode {
-        case .off: current = nil
-        case .x10: current = 9
-        case .vt200: current = 1000
-        case .buttonEventTracking: current = 1002
-        case .anyEvent: current = 1003
-        }
-        guard current != mouseTracking.mode, let mode = mouseTracking.mode ?? current else { return }
-        terminalView.feed(text: "\u{1b}[?\(mode)" + (mouseTracking.mode == nil ? "l" : "h"))
-    }
-
-    // MARK: Startup: the session counts as connected once tmux (or the shell) is ready and the start command went
-
-    private func beginStartup(_ command: String?, ssh: SSHConnection, mode: SessionMode, name: String, previousClients: Set<String>, token: UUID, attempt: UUID, afterFirstContact: Bool) {
-        cancelStartup()
-        startupAttempt = attempt; startupCommand = command
-        startupGate = TerminalStartupGate(needsTmuxClient: mode == .tmux, requiresOutput: afterFirstContact || mode == .tmux, previousClients: previousClients)
-        if !afterFirstContact { waitForStartup(ssh: ssh, name: name, token: token, attempt: attempt) }
-        finishStartup(token: token, attempt: attempt)
-    }
-    private func finishStartup(token: UUID, attempt: UUID) {
-        guard generation == token, startupAttempt == attempt, !startupSent, startupGate?.ready == true else { return }
-        if let startupCommand {
-            let input = Data((startupCommand + "\r").utf8)
-            guard mosh?.write(input) ?? ssh?.write(input) ?? false else {
-                close(); fail(RoamError.transport("启动命令未发送 / Startup command was not accepted")); return
-            }
-        }
-        // Acceptance is irreversible: any later transport failure must not replay startup input.
-        startupSent = true; phase = .connected; end = nil
-        // Messages from earlier attempts go; the fallback notice of this one stays to be read.
-        message = fallbackNotice; fallbackNotice = nil
-        startAgentStatusPolling()
-        startupTask?.cancel(); startupTask = nil; startupCancellation?.cancel(); startupCancellation = nil
-        startupTimeoutTask?.cancel(); startupTimeoutTask = nil
-    }
-    private func waitForStartup(ssh: SSHConnection, name: String, token: UUID, attempt: UUID) {
-        guard startupTask == nil, startupGate?.needsTmuxClient == true else { return }
-        let cancellation = TransferCancellation(), deadline = ProcessInfo.processInfo.systemUptime + 8
-        startupCancellation = cancellation
-        startupTimeoutTask = Task { [weak self] in
-            do {
-                try await Task.sleep(for: .seconds(8))
-                guard let self, self.generation == token, self.startupAttempt == attempt, !self.startupSent else { return }
-                self.close(); self.fail(RoamError.transport(Self.tmuxNotReadyMessage))
-            } catch { }
-        }
-        startupTask = Task { [weak self] in
-            await withTaskCancellationHandler(operation: {
-                do {
-                    while ProcessInfo.processInfo.systemUptime < deadline {
-                        try Task.checkCancellation()
-                        guard let self, self.generation == token, self.startupAttempt == attempt else { return }
-                        if self.startupGate?.sawNewClient != true {
-                            let remaining = min(2, deadline - ProcessInfo.processInfo.systemUptime)
-                            guard remaining > 0 else { throw RoamError.timeout }
-                            let clients = try await performInBackground { try SessionRemote.tmuxClients(ssh, name: name, cancellation: cancellation, timeout: remaining) }
-                            guard self.generation == token, self.startupAttempt == attempt else { return }
-                            self.startupGate?.observe(clients: clients)
-                        }
-                        self.finishStartup(token: token, attempt: attempt)
-                        if self.startupSent { return }
-                        try await Task.sleep(for: .milliseconds(50))
-                    }
-                    throw RoamError.transport(Self.tmuxNotReadyMessage)
-                } catch {
-                    guard !Task.isCancelled, let self, self.generation == token, self.startupAttempt == attempt else { return }
-                    self.close(); self.fail(error)
-                }
-            }, onCancel: { cancellation.cancel() })
-        }
-    }
-    private func cancelStartup() {
-        startupAttempt = UUID(); startupTask?.cancel(); startupTask = nil; startupCancellation?.cancel(); startupCancellation = nil
-        startupTimeoutTask?.cancel(); startupTimeoutTask = nil
-        startupGate = nil; startupCommand = nil
-    }
 
     // MARK: Failing and closing
 
