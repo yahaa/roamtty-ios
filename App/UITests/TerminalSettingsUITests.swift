@@ -210,6 +210,14 @@ final class TerminalSettingsUITests: RoamttyLiveUITestCase {
         pick("launch-agent-mode", "普通")
         XCTAssertFalse(app.descendants(matching: .any)["launch-yolo-warning"].firstMatch.exists)
         XCTAssertEqual(preview.label, "grok")
+        pick("launch-agent", "Antigravity"); pick("launch-agent-mode", "计划")
+        XCTAssertEqual(preview.label, "agy --mode plan")
+        XCTAssertTrue(app.staticTexts["launch-permission-hint"].label.contains("批准"))
+        pick("launch-agent-mode", "YOLO")
+        XCTAssertTrue(app.descendants(matching: .any)["launch-yolo-warning"].firstMatch.exists)
+        XCTAssertEqual(preview.label, "agy --dangerously-skip-permissions")
+        pick("launch-agent-mode", "普通")
+        XCTAssertEqual(preview.label, "agy")
 
         let launch = app.buttons["launch-session"]
         let directory = app.textFields["launch-directory"]

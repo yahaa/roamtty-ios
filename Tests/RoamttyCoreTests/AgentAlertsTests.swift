@@ -64,8 +64,10 @@ final class AgentAlertsTests: XCTestCase {
 
     func testTheNotificationSaysWhoWhatAndWhere() {
         XCTAssertEqual(AgentAlerts.title(.waiting, agent: .claude, english: false), "Claude 等你确认")
+        XCTAssertEqual(AgentAlerts.title(.waiting, agent: .agy, english: false), "Antigravity 等你确认")
         XCTAssertEqual(AgentAlerts.title(.done, agent: nil, english: false), "Agent 已完成")
         XCTAssertEqual(AgentAlerts.title(.done, agent: .codex, english: true), "Codex finished")
+        XCTAssertEqual(AgentAlerts.title(.done, agent: .agy, english: true), "Antigravity finished")
         XCTAssertEqual(AgentAlerts.text(.waiting, host: "dev", status: waiting, english: false), "dev · ./gradlew lint")
         XCTAssertEqual(AgentAlerts.text(.waiting, host: "dev", status: status(.waiting, tool: "AskUserQuestion"), english: false), "dev · AskUserQuestion")
         XCTAssertEqual(AgentAlerts.text(.done, host: "macbook", status: done, english: false), "macbook · 12 分钟 · All 48 passed")

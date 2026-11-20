@@ -53,8 +53,8 @@ extension SessionRuntime {
         return directory
     }
 
-    /// Answers the agent's request for permission with its default choice (Enter: "Yes" in Claude Code, Codex and
-    /// Grok). Asks the host first, so a request already answered on another screen gets no stray Enter.
+    /// Answers the agent's request for permission with its default choice (Enter: "Yes" in Claude Code, Codex, Grok and
+    /// Antigravity). Asks the host first, so a request already answered on another screen gets no stray Enter.
     func approveAgent() async -> Bool {
         guard phase == .connected, await pollAgentStatus()?.state == .waiting else { return false }
         return send("\r")

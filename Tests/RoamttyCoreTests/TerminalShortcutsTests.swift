@@ -73,6 +73,45 @@ final class TerminalShortcutsTests: XCTestCase {
             """), .gemini)
     }
 
+    func testAndroidAntigravityCliScreens() {
+        // Wide default prompt between rules.
+        XCTAssertEqual(detect("""
+                  ▄▀▀▄        Antigravity CLI 1.5.12
+                 ▀▀▀▀▀▀       user@example.com
+                ▀▀▀▀▀▀▀▀      Gemini 4 Neon (XHigh)
+               ▄▀▀    ▀▀▄     ~/work/roamtty
+              ▄▀▀      ▀▀▄
+            \(rule)
+            > <cursor>
+            \(rule)
+            ? for shortcuts                                         Gemini 4 Neon · xhigh
+            """), .agy)
+        // Narrow phone-wide screen in plan mode.
+        XCTAssertEqual(detect("""
+            ──────────────────────────────────────────
+            > Plan mode: research & plan only (shi...<cursor>
+            ──────────────────────────────────────────
+            ? for shortcuts                       plan
+            """), .agy)
+        // Permission prompt while running a tool.
+        XCTAssertEqual(detect("""
+            Requesting permission for:
+               rm -f /tmp/test
+            Run this command?
+            > 1. Yes, run command<cursor>
+              2. No, cancel
+              ↑/↓ Navigate · tab Amend · ctrl+g edit/expand command
+            esc to cancel                                           Gemini 4 Neon · xhigh
+            """), .agy)
+        // Even with a hyphenated Gemini model selected, agy's framed prompt stays AGY.
+        XCTAssertEqual(detect("""
+            \(rule)
+            > <cursor>
+            \(rule)
+            ? for shortcuts                                        gemini-2.5-pro · xhigh
+            """), .agy)
+    }
+
     func testAndroidShellAfterAgentExitRejectsStaleBannerAndPrompt() {
         XCTAssertEqual(detect("""
              ▐▛███▛█   Claude Code v2.1.292
@@ -126,7 +165,7 @@ final class TerminalShortcutsTests: XCTestCase {
     }
 
     func testSessionAgentPicksItsTable() {
-        XCTAssertEqual(CodingAgent.allCases.map(ScreenApp.init), [.claude, .codex, .grok])
+        XCTAssertEqual(CodingAgent.allCases.map(ScreenApp.init), [.claude, .codex, .grok, .agy])
     }
 
     func testAgentTablesPreserveAndroidOrderHintsAndWireBytes() {
@@ -149,7 +188,11 @@ final class TerminalShortcutsTests: XCTestCase {
             (.gemini, ["^T", "^O", "^Y", "⇧Tab", "Esc²", "^L", "^C"],
              ["任务", "展开", "YOLO", "模式", "回退", "清屏", "取消"],
              ["Tasks", "More", "YOLO", "Mode", "Rewind", "Clear", "Cancel"],
-             [[20], [15], [25], [27, 91, 90], [27], [12], [3]])
+             [[20], [15], [25], [27, 91, 90], [27], [12], [3]]),
+            (.agy, ["^O", "^R", "^K", "⇧Tab", "^C", "^L", "⌥J"],
+             ["详情", "产物", "批准", "模式", "取消", "清屏", "代理"],
+             ["Details", "Artifact", "Approve", "Mode", "Cancel", "Clear", "Agents"],
+             [[15], [18], [11], [27, 91, 90], [3], [12], [27, 106]])
         ]
         for (app, labels, chinese, english, bytes) in fixtures {
             let items = app.shortcuts
@@ -203,12 +246,22 @@ final class TerminalShortcutsTests: XCTestCase {
             (.claude, "Ctrl+O：展开完整对话记录", "Ctrl+O: expand the full transcript"),
             (.codex, "Ctrl+O：复制最后一条回复", "Ctrl+O: copy the last reply"),
             (.grok, "Ctrl+O：开关自动批准", "Ctrl+O: toggle auto-approve"),
-            (.gemini, "Ctrl+O：显示更多内容", "Ctrl+O: show more lines")
+            (.gemini, "Ctrl+O：显示更多内容", "Ctrl+O: show more lines"),
+            (.agy, "Ctrl+O：展开或收起轨迹详情", "Ctrl+O: toggle trajectory view")
         ]
         for (app, chinese, english) in descriptions {
             let item = app.shortcuts.first { $0.tag == "pet-ctrl-o" }!
             XCTAssertEqual(item.description(english: false), chinese)
             XCTAssertEqual(item.description(english: true), english)
+        }
+        func hasChinese(_ text: String) -> Bool { text.unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) } }
+        for app in ScreenApp.allCases {
+            XCTAssertFalse(app.shortcuts.isEmpty, app.rawValue)
+            for item in app.shortcuts {
+                XCTAssertFalse(item.descriptionEn.isEmpty)
+                XCTAssertFalse(hasChinese(item.hintEn), item.hintEn)
+                XCTAssertFalse(hasChinese(item.descriptionEn), item.descriptionEn)
+            }
         }
     }
 }

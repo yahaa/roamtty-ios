@@ -23,11 +23,13 @@ final class AgentStatusTests: XCTestCase {
     func testAnAgentThatLeftLeavesNothing() {
         XCTAssertNil(AgentStatus.parse("zsh|working|1000|claude|Bash|x|task\n1042"))
         XCTAssertNil(AgentStatus.parse("-bash|idle|1000|claude|||task\n1042"))
-        // Codex and Grok run under their launcher.
+        // Codex, Grok and Antigravity run under their launcher.
         XCTAssertEqual(AgentStatus.parse("sh|idle|1000|codex|||task\n1042")?.state, .idle)
         // On macOS /bin/sh is bash, so the launcher shows as "bash".
         XCTAssertEqual(AgentStatus.parse("bash|idle|1000|codex|||task\n1042")?.state, .idle)
         XCTAssertEqual(AgentStatus.parse("bash|working|1000|grok|||task\n1042")?.state, .working)
+        XCTAssertEqual(AgentStatus.parse("sh|working|1000|agy|run_command|ls|task\n1042")?.state, .working)
+        XCTAssertEqual(AgentStatus.parse("bash|idle|1000|agy|||task\n1042")?.state, .idle)
     }
 
     func testNoReportsOrUnknownStatesMeanNoStatus() {
@@ -73,8 +75,22 @@ final class AgentStatusTests: XCTestCase {
         let launcher = AgentHooks.grokLauncher
         XCTAssertTrue(launcher.contains("\"StopCancelled\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"sh ~/.roamtty/agent-hook.sh grok stop\"}]}]"))
         XCTAssertTrue(launcher.contains("export ROAMTTY_AGENT=grok\ngrok \"$@\"\n"))
-        XCTAssertTrue(AgentHooks.script.contains("[ \"$ROAMTTY_AGENT\" = grok ]"))
+        XCTAssertTrue(AgentHooks.script.contains("case \"$agent\" in grok|agy) [ \"$ROAMTTY_AGENT\" = \"$agent\" ] || exit 0 ;; esac"))
         XCTAssertTrue(AgentHooks.script.hasPrefix("#!/bin/sh"))
+    }
+
+    func testAgyLauncherInstallsPluginAndReportsStartAndEnd() {
+        let (name, launcher, executable) = AgentHooks.hostFile(.agy)
+        XCTAssertEqual(name, "agy")
+        XCTAssertTrue(executable)
+        XCTAssertTrue(launcher.hasPrefix("#!/bin/sh\n"))
+        XCTAssertTrue(launcher.contains("dir=\"$HOME/.gemini/config/plugins/roamtty\""))
+        XCTAssertTrue(launcher.contains("\"PreInvocation\":[{\"type\":\"command\",\"command\":\"sh ~/.roamtty/agent-hook.sh agy prompt\"}]"))
+        XCTAssertTrue(launcher.contains("\"PreToolUse\":[{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"sh ~/.roamtty/agent-hook.sh agy tool\"}]}]"))
+        XCTAssertTrue(launcher.contains("\"PostToolUse\":[{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"sh ~/.roamtty/agent-hook.sh agy post\"}]}]"))
+        XCTAssertTrue(launcher.contains("\"Stop\":[{\"type\":\"command\",\"command\":\"sh ~/.roamtty/agent-hook.sh agy stop\"}]"))
+        XCTAssertTrue(launcher.contains("export ROAMTTY_AGENT=agy\nsh ~/.roamtty/agent-hook.sh agy start </dev/null\nagy \"$@\"\n"))
+        XCTAssertTrue(launcher.contains("status=$?\nsh ~/.roamtty/agent-hook.sh agy end </dev/null\nexit $status\n"))
     }
 
     func testAgentsStartWithTheirHooks() {
@@ -84,17 +100,23 @@ final class AgentStatusTests: XCTestCase {
         XCTAssertEqual(AgentLaunch(agent: .codex, directory: "/srv/it's $(x) dir").commandLine, "cd -- '/srv/it'\\''s $(x) dir' && ~/.roamtty/codex")
         XCTAssertEqual(AgentLaunch(agent: .codex, directory: "/a", mode: .readOnly).commandLine, "cd -- '/a' && ~/.roamtty/codex --sandbox read-only")
         XCTAssertEqual(AgentLaunch(agent: .grok, directory: "/a", mode: .yolo).commandLine, "cd -- '/a' && ~/.roamtty/grok --always-approve")
+        XCTAssertEqual(AgentLaunch(agent: .agy, directory: "/a", mode: .readOnly).commandLine, "cd -- '/a' && ~/.roamtty/agy --mode plan")
+        XCTAssertEqual(AgentLaunch(agent: .agy, directory: "~", mode: .yolo).commandLine, "~/.roamtty/agy --dangerously-skip-permissions")
         XCTAssertEqual(AgentHooks.hostFile(.claude).name, "claude-hooks.json")
         XCTAssertTrue(AgentHooks.hostFile(.codex).executable)
+        XCTAssertTrue(AgentHooks.hostFile(.agy).executable)
     }
 
     func testRestoredSessionsTellTheirAgentByTitle() {
         XCTAssertEqual(CodingAgent.fromTitle(AgentLaunch(agent: .grok, directory: "/srv/roamtty").title), .grok)
+        XCTAssertEqual(CodingAgent.fromTitle(AgentLaunch(agent: .agy, directory: "/srv/roamtty").title), .agy)
+        XCTAssertEqual(CodingAgent.fromTitle("Antigravity CLI · roamtty"), .agy)
         XCTAssertEqual(CodingAgent.fromTitle("Codex · roamtty"), .codex)
         XCTAssertEqual(CodingAgent.fromTitle("Claude Code · roamtty"), .claude)
         XCTAssertNil(CodingAgent.fromTitle("部署脚本"))
         XCTAssertNil(CodingAgent.fromTitle("Grokking notes"))
         XCTAssertEqual(CodingAgent.fromCommand("claude"), .claude)
+        XCTAssertEqual(CodingAgent.fromCommand("agy"), .agy)
         XCTAssertNil(CodingAgent.fromCommand("gemini"))
     }
 
@@ -103,6 +125,7 @@ final class AgentStatusTests: XCTestCase {
         func with(_ change: (inout AgentStatus) -> Void) -> AgentStatus { var copy = working; change(&copy); return copy }
         XCTAssertEqual(agentActivity(working), "Running make test")
         XCTAssertEqual(agentActivity(with { $0.tool = "run_terminal_command"; $0.detail = "sleep 6" }), "Running sleep 6")
+        XCTAssertEqual(agentActivity(with { $0.agent = "agy"; $0.tool = "run_command"; $0.detail = "./gradlew test" }), "Running ./gradlew test")
         XCTAssertEqual(agentActivity(with { $0.tool = "Read"; $0.detail = "src/a.kt" }), "Read src/a.kt")
         XCTAssertEqual(agentActivity(with { $0.tool = "WebSearch"; $0.detail = "" }), "WebSearch")
         XCTAssertEqual(agentActivity(with { $0.state = .waiting; $0.tool = ""; $0.detail = "Claude needs your permission to use Bash" }), "Claude needs your permission to use Bash")

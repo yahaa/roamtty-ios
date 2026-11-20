@@ -38,12 +38,12 @@ The UI reference is the current reachable Android UI in `../roamtty`, especially
 | Changed fingerprint blocks connection | Transport pin store plus explicit `FingerprintReview`; as on Android, 移除旧记录并重连 reconnects at once and shows the new fingerprint |
 | mosh first-contact timeout falls back to SSH | `SessionRuntime` shows Android's 提示 card ("mosh 无法连接（可能未放行 UDP 60000–61000），已改用 SSH。") once the fallback connects |
 | Host online state and latency | `Services/ReachabilityProbe.swift`: online only once sshd's identification arrives (our own goes first); latency is DNS + TCP connect |
-| AI agent state on the session list (Claude Code, Codex, Grok hooks) | Core `AgentStatus`/`AgentHooks` (hook script, Claude settings, Codex/Grok launchers in `~/.roamtty`), `SessionRuntime` status poll, approve and follow-up |
+| AI agent state on the session list (Claude Code, Codex, Grok, Antigravity hooks) | Core `AgentStatus`/`AgentHooks` (hook script, Claude settings, Codex/Grok/Antigravity launchers in `~/.roamtty`), `SessionRuntime` status poll, approve and follow-up |
 | Passphrase prompts only for encrypted keys | Core `PrivateKeys.needsPassphrase` |
 | CPU/memory/disk gauges, 40-sample CPU/memory/GPU charts, network throughput, swap, load, processes and GPU details | `Features/Hosts/HostDetailScreen.swift`, `MetricsPanel.swift`, Core `HostMetricSeries`, real `HostMetrics.script` results |
 | Monitor connection state, retry and bounded reconnection | `AppModel.monitorStates`, `HostMonitorRetry`, host monitor status panel |
 | Close (ends tmux on the server), force delete, restart sessions | `AppModel.closeSession`, `forceDeleteSession`, `restartSession` |
-| SSH-only remote folder picker, recent folders, detected default session mode, Claude/Codex/Grok permission hints and command previews | `Features/Sessions/LaunchScreen.swift`, Core `RemoteFolders` and `HostLaunchPolicy` |
+| SSH-only remote folder picker, recent folders, detected default session mode, Claude/Codex/Grok/Antigravity permission hints and command previews | `Features/Sessions/LaunchScreen.swift`, Core `RemoteFolders` and `HostLaunchPolicy` |
 | tmux/mosh detection and explicit installation | `Features/Hosts/PluginsScreen.swift` |
 | Native terminal rendering and keyboard input | `Features/Terminal/Runtime/SessionRuntime.swift`, `Features/Terminal/Rendering/TerminalViews.swift`, SwiftTerm 1.13.0 |
 | Ctrl, arrows, Esc, Tab, function keys, ghost shortcuts and toolbox | `TerminalScreen.swift` and `TerminalScreen+Dock.swift`, `GhostShortcuts.swift`, Core `TerminalShortcuts` |
@@ -78,7 +78,7 @@ Vertical drags follow Android's scroll routing: mouse-tracked programs such as t
 
 The toolbox is centered on the upper golden section (38.2%) of the current safe viewport, clamped four points from its top/bottom and eight points from its trailing edge. The collapsed ghost moves away from the cursor-row button when necessary. It fades after five seconds and wakes on an initial workspace touch without consuming that touch. A native 48-point button owns tap/hold and accessibility activation; its decorative image floats independently of the hit target. A floating dock collapses on outside touch; an explicitly pinned dock reserves a 48-point terminal column, or 96 points in landscape without a software keyboard when at least 320 points of control height remain.
 
-Holding the ghost reads the current cursor-local terminal rows to detect Claude, Codex, Grok, Gemini or a shell. The exact Android shortcut tables and left-facing arc geometry live in Core. Releasing between items pins the ring for taps; four seconds of inactivity hides both the ring and ghost. An outside tap dismisses a pinned ring without sending input. Fn opens its submenu after a 350 ms hover or a tap, and returning over the ghost returns to the main ring.
+Holding the ghost reads the current cursor-local terminal rows to detect Claude, Codex, Grok, Gemini, Antigravity or a shell. The exact Android shortcut tables and left-facing arc geometry live in Core. Releasing between items pins the ring for taps; four seconds of inactivity hides both the ring and ghost. An outside tap dismisses a pinned ring without sending input. Fn opens its submenu after a 350 ms hover or a tap, and returning over the ghost returns to the main ring.
 
 Native, toolbox, triple-tap and command-editor text paste share one guarded path. A multiline paste into a program without bracketed paste prompts before sending. Paste is limited to 128 KiB, removes terminal control bytes while preserving Tab and line endings, converts CRLF/LF to CR, and enqueues the entire text with its bracket delimiters atomically. Confirmation holds the chosen text rather than rereading a changed clipboard.
 

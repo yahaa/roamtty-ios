@@ -2,7 +2,7 @@ import Foundation
 import CNative
 
 /// Hooks of the coding agents that report to `AgentStatus` through a script kept on the host. Claude Code reads its
-/// hooks from `--settings`; Codex and Grok start through a launcher in the same folder that adds theirs.
+/// hooks from `--settings`; Codex, Grok and Antigravity start through a launcher in the same folder that adds theirs.
 public enum AgentHooks {
     /// Where the script and the agents' hook files live on the host; the shell expands the home.
     public static let scriptPath = "~/.roamtty/agent-hook.sh"
@@ -30,6 +30,7 @@ public enum AgentHooks {
             return ("claude-hooks.json", claudeSettings, false)
         case .codex: return ("codex", codexLauncher, true)
         case .grok: return ("grok", grokLauncher, true)
+        case .agy: return ("agy", agyLauncher, true)
         }
     }
 
@@ -138,5 +139,29 @@ public enum AgentHooks {
             "grok \"$@\""
         ]
         return (lines + launcherEnd(.grok)).joined(separator: "\n") + "\n"
+    }
+
+    /// `~/.roamtty/agy`: Antigravity CLI loads global hooks from plugins under `~/.gemini/config/plugins/`, so this
+    /// writes a small `roamtty` plugin whose hooks act only for an `agy` started here (`script` checks `ROAMTTY_AGENT`),
+    /// reports the initial idle state (Antigravity fires `SessionStart` only on the first prompt), then runs `agy`.
+    public static var agyLauncher: String {
+        let plugin = "{\"name\":\"roamtty\",\"displayName\":\"Roamtty\",\"version\":\"1.0.0\"," +
+            "\"description\":\"Reports Antigravity CLI status to Roamtty.\"}"
+        let hooks = "{\"roamtty\":{" +
+            "\"PreInvocation\":[{\"type\":\"command\",\"command\":\"\(hookCommand(.agy, "prompt"))\"}]," +
+            "\"PreToolUse\":[{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"\(hookCommand(.agy, "tool"))\"}]}]," +
+            "\"PostToolUse\":[{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"\(hookCommand(.agy, "post"))\"}]}]," +
+            "\"Stop\":[{\"type\":\"command\",\"command\":\"\(hookCommand(.agy, "stop"))\"}]" +
+            "}}"
+        let lines = [
+            "#!/bin/sh",
+            "# Roamtty: starts Antigravity CLI with hooks that report its state to agent-hook.sh.",
+            "dir=\"$HOME/.gemini/config/plugins/roamtty\"",
+            "mkdir -p \"$dir\" && printf '%s\\n' '\(plugin)' > \"$dir/plugin.json\" && printf '%s\\n' '\(hooks)' > \"$dir/hooks.json\"",
+            "export ROAMTTY_AGENT=agy",
+            "\(hookCommand(.agy, "start")) </dev/null",
+            "agy \"$@\""
+        ]
+        return (lines + launcherEnd(.agy)).joined(separator: "\n") + "\n"
     }
 }

@@ -2,21 +2,34 @@
 import Foundation
 
 public enum CodingAgent: String, Codable, CaseIterable, Identifiable, Sendable {
-    case claude = "CLAUDE", codex = "CODEX", grok = "GROK"
+    case claude = "CLAUDE", codex = "CODEX", grok = "GROK", agy = "AGY"
     public var id: String { rawValue }
-    public var label: String { self == .claude ? "Claude Code" : shortLabel }
+    public var label: String {
+        switch self {
+        case .claude: return "Claude Code"
+        case .agy: return "Antigravity CLI"
+        case .codex, .grok: return shortLabel
+        }
+    }
     public var shortLabel: String {
         switch self {
         case .claude: return "Claude"
         case .codex: return "Codex"
         case .grok: return "Grok"
+        case .agy: return "Antigravity"
         }
     }
     public var command: String { rawValue.lowercased() }
-    public var readOnlyFlag: String { self == .claude ? "--permission-mode plan" : "--sandbox read-only" }
+    public var readOnlyFlag: String {
+        switch self {
+        case .claude: return "--permission-mode plan"
+        case .agy: return "--mode plan"
+        case .codex, .grok: return "--sandbox read-only"
+        }
+    }
     public var yoloFlag: String {
         switch self {
-        case .claude: return "--dangerously-skip-permissions"
+        case .claude, .agy: return "--dangerously-skip-permissions"
         case .codex: return "--dangerously-bypass-approvals-and-sandbox"
         case .grok: return "--always-approve"
         }

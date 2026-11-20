@@ -72,10 +72,11 @@ final class LandscapePagesUITests: RoamttyLiveUITestCase {
         XCTAssertTrue(add.waitForExistence(timeout: 8)); add.tap()
         let close = app.buttons["new-session-close"]
         assertInBar(close, "new session")
-        let terminal = app.buttons["new-session-pick-terminal"], claude = app.buttons["new-session-pick-claude"]
+        let terminal = app.buttons["new-session-pick-terminal"], claude = app.buttons["new-session-pick-claude"], agy = app.buttons["new-session-pick-agy"]
         XCTAssertTrue(terminal.waitForExistence(timeout: 3))
+        XCTAssertTrue(agy.waitForExistence(timeout: 3))
         if claude.exists {
-            XCTAssertNotEqual(terminal.frame.minX, claude.frame.minX, "The choices are laid out as two columns")
+            XCTAssertNotEqual(agy.frame.minX, claude.frame.minX, "The choices are laid out as two columns")
         }
         XCTAssertTrue(terminal.isHittable, "Every choice is in view without scrolling")
         shot("new-session")

@@ -8,11 +8,17 @@ final class RemoteCommandsTests: XCTestCase {
         XCTAssertEqual(AgentLaunch(agent: .claude, directory: "~/work dir/", mode: .yolo).commandLine,
             "cd -- ~/'work dir' && claude --dangerously-skip-permissions --settings ~/.roamtty/claude-hooks.json")
         XCTAssertEqual(AgentLaunch(agent: .grok, directory: "~").commandLine, "~/.roamtty/grok")
+        XCTAssertEqual(AgentLaunch(agent: .agy, directory: "/a", mode: .standard).agentCommand, "agy")
+        XCTAssertEqual(AgentLaunch(agent: .agy, directory: "/a", mode: .readOnly).commandLine, "cd -- '/a' && ~/.roamtty/agy --mode plan")
+        XCTAssertEqual(AgentLaunch(agent: .agy, directory: "~", mode: .yolo).commandLine, "~/.roamtty/agy --dangerously-skip-permissions")
         XCTAssertEqual(AgentLaunch(agent: .codex, directory: "/work/demo/").title, "Codex · demo")
         XCTAssertEqual(AgentLaunch(agent: .claude, directory: "/").title, "Claude · /")
+        XCTAssertEqual(AgentLaunch(agent: .agy, directory: "/home/v/roamtty").title, "Antigravity · roamtty")
         XCTAssertFalse(StartDirectory.isSupported("/work\u{1b}[31m"))
         XCTAssertEqual(StartDirectory.remember(recent: ["/a/", "/b", "~"], directory: "/b/"), ["/b", "/a"])
         XCTAssertEqual(CodingAgent.from(nil), .codex)
+        XCTAssertEqual(CodingAgent.from("AGY"), .agy)
+        XCTAssertEqual(CodingAgent.fromCommand("agy"), .agy)
         XCTAssertEqual(AgentMode.from("YOLO"), .yolo)
     }
 

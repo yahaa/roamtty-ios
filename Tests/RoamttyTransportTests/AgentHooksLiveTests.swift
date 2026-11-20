@@ -73,4 +73,58 @@ final class AgentHooksLiveTests: XCTestCase {
         XCTAssertEqual(try sh(ssh, RemoteCommands.killTmux(name)).0, 0)
         XCTAssertNotEqual(try sh(ssh, "tmux has-session -t =\(name) 2>/dev/null").0, 0)
     }
+
+    func testAgyLauncherAndHooksReportThroughTmux() throws {
+        let ssh = try connect(); defer { ssh.disconnect() }
+        guard try sh(ssh, "command -v tmux").0 == 0 else { throw XCTSkip("tmux is not installed on the fixture") }
+        let name = "roamtty-" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased()
+        let tx = "/tmp/roamtty-agy-tx-" + name + ".jsonl"
+        defer {
+            _ = try? sh(ssh, RemoteCommands.killTmux(name))
+            _ = try? sh(ssh, "rm -f " + RemoteCommands.shellQuote(tx))
+        }
+
+        let agyFile = AgentHooks.hostFile(.agy)
+        for (file, content, executable) in [(AgentHooks.scriptName, AgentHooks.script, false), (agyFile.name, agyFile.content, agyFile.executable)] {
+            let command = try XCTUnwrap(RemoteCommands.writeHostFile(file, executable: executable))
+            XCTAssertEqual(try ssh.exec(command, input: Data(content.utf8), timeout: 10).status, 0)
+        }
+        XCTAssertEqual(try sh(ssh, "test -x \"$HOME/.roamtty/agy\"").0, 0)
+
+        // Pane running sh (as ~/.roamtty/agy does) must still parse as an active Antigravity agent.
+        XCTAssertEqual(try sh(ssh, "cd /tmp && tmux new-session -d -s \(name) -x 80 -y 24 'sh -c \"sleep 600\"' && sleep 0.5").0, 0)
+        let pane = try sh(ssh, "tmux display-message -p -t \(name) '#{pane_id}'").1.trimmingCharacters(in: .whitespacesAndNewlines)
+        func agyHook(_ event: String, _ json: String = "{}") throws {
+            let cmd = "printf '%s' " + RemoteCommands.shellQuote(json) + " | ROAMTTY_AGENT=agy TMUX_PANE='\(pane)' sh \"$HOME/.roamtty/agent-hook.sh\" agy \(event)"
+            XCTAssertEqual(try sh(ssh, cmd).0, 0)
+        }
+
+        try agyHook("start")
+        let started = try XCTUnwrap(AgentStatus.parse(String(decoding: try ssh.exec(RemoteCommands.agentStatus(name), input: Data(), timeout: 10).output, as: UTF8.self)))
+        XCTAssertEqual(started.state, .idle)
+        XCTAssertEqual(started.agent, "agy")
+
+        try agyHook("prompt", #"{"invocationNum":0,"lastUserInput":"support agy"}"#)
+        try agyHook("tool", #"{"toolCall":{"args":{"CommandLine":"swift test"},"id":"c1","name":"run_command"}}"#)
+        let working = try XCTUnwrap(AgentStatus.parse(String(decoding: try ssh.exec(RemoteCommands.agentStatus(name), input: Data(), timeout: 10).output, as: UTF8.self)))
+        XCTAssertEqual(working.state, .working)
+        XCTAssertEqual(working.agent, "agy")
+        XCTAssertEqual(working.task, "support agy")
+        XCTAssertEqual(agentActivity(working), "Running swift test")
+
+        try agyHook("tool", #"{"toolCall":{"name":"ask_question","args":{"questions":[{"question":"Ship it?"}]}}}"#)
+        let waiting = try XCTUnwrap(AgentStatus.parse(String(decoding: try ssh.exec(RemoteCommands.agentStatus(name), input: Data(), timeout: 10).output, as: UTF8.self)))
+        XCTAssertEqual(waiting.state, .waiting)
+        XCTAssertEqual(agentActivity(waiting), "ask_question Ship it?")
+
+        XCTAssertEqual(try sh(ssh, "printf '%s\\n' '{\"step_index\":1,\"type\":\"PLANNER_RESPONSE\",\"content\":\"**Shipped** agy support.\"}' > " + RemoteCommands.shellQuote(tx)).0, 0)
+        try agyHook("stop", #"{"fullyIdle":true,"terminationReason":"NO_TOOL_CALL","transcriptPath":"\#(tx)"}"#)
+        let done = try XCTUnwrap(AgentStatus.parse(String(decoding: try ssh.exec(RemoteCommands.agentStatus(name), input: Data(), timeout: 10).output, as: UTF8.self)))
+        XCTAssertEqual(done.state, .idle)
+        XCTAssertEqual(replyPreview(done.reply), "Shipped agy support.")
+        XCTAssertNotNil(done.workedSeconds)
+
+        try agyHook("end")
+        XCTAssertNil(AgentStatus.parse(String(decoding: try ssh.exec(RemoteCommands.agentStatus(name), input: Data(), timeout: 10).output, as: UTF8.self)))
+    }
 }
