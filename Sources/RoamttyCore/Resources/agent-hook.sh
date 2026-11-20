@@ -22,6 +22,61 @@ field() {
     sed -E 's/\\[nrt]/ /g; s/\\u[0-9a-fA-F]{4}//g; s/\\(["\\/])/\1/g' | tr '|' '/' | tr -d '\000-\037' | cut -c1-"${2:-160}"
 }
 
+# Antigravity nests the tool name at top-level toolCall.name regardless of property order; ignore "name" inside args or siblings.
+agy_tool_name() {
+  printf '%s' "$input" | awk '
+    BEGIN { depth = 0; tc = 0; in_str = 0; tok = ""; want = ""; cap = 0 }
+    {
+      n = split($0, p, "\"")
+      for (k = 1; k <= n; k++) {
+        seg = p[k]
+        if (in_str) {
+          if (cap && length(str) < 80) str = str substr(seg, 1, 80)
+          if (k < n) {
+            bs = 0; len = length(seg)
+            if (len > 0 && substr(seg, len, 1) == "\\") {
+              for (j = len; j >= 1 && substr(seg, j, 1) == "\\"; j--) bs++
+            }
+            if (bs % 2 == 1) {
+              if (cap && length(str) < 80) str = str "\""
+            } else {
+              in_str = 0
+              if (want == "name") { print str; exit }
+              tok = cap ? str : ""
+              want = ""
+            }
+          }
+        } else {
+          gsub(/[ \t\r\n]+/, "", seg)
+          m = length(seg)
+          for (i = 1; i <= m; i++) {
+            c = substr(seg, i, 1)
+            if (c == ":") {
+              if (tc == 0 && depth == 1 && tok == "toolCall") want = "tc"
+              else if (tc > 0 && depth == tc && tok == "name") want = "name"
+              else want = ""
+              tok = ""
+            } else if (c == "{") {
+              depth++
+              if (want == "tc") tc = depth
+              want = ""; tok = ""
+            } else if (c == "}") {
+              if (tc > 0 && depth == tc) exit
+              depth--; want = ""; tok = ""
+            } else {
+              want = ""; tok = ""
+            }
+          }
+          if (k < n) {
+            in_str = 1; str = ""
+            cap = (want == "name" || (tc == 0 && depth == 1) || (tc > 0 && depth == tc))
+          }
+        }
+      }
+    }
+  ' | head -n 1 | sed -E 's/\\[nrt]/ /g; s/\\u[0-9a-fA-F]{4}//g; s/\\(["\\/])/\1/g' | tr '|' '/' | tr -d '\000-\037' | cut -c1-40
+}
+
 get() { tmux show-options -qv -t "$TMUX_PANE" "$1" 2>/dev/null; }
 put() { tmux set-option -q -t "$TMUX_PANE" "$1" "$2" 2>/dev/null; }
 
@@ -88,7 +143,7 @@ case "$event" in
   prompt)
     # Antigravity fires PreInvocation before every model call in a turn; invocationNum > 0 continues the current turn.
     if [ "$agent" = agy ]; then
-      inv=$(printf '%s' "$input" | sed -nE 's/.*[^\\]"invocationNum"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' | head -n 1)
+      inv=$(printf '%s' "$input" | sed -nE 's/(^|.*[^\\])"invocationNum"[[:space:]]*:[[:space:]]*([0-9]+).*/\2/p' | head -n 1)
       if [ -n "$inv" ] && [ "$inv" != 0 ]; then
         current=$(get @roamtty_agent)
         record working "$(printf '%s' "$current" | cut -d '|' -f 4)" "$(printf '%s' "$current" | cut -d '|' -f 5)"
@@ -111,7 +166,7 @@ case "$event" in
   tool)
     tool=$(field 'tool_name|toolName' 40)
     if [ -z "$tool" ] && [ "$agent" = agy ]; then
-      tool=$(printf '%s' "$input" | sed -nE 's/.*[^\\]"toolCall"[[:space:]]*:[[:space:]]*\{.*[^\\]"name"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)".*/\1/p' | head -n 1 | tr '|' '/' | tr -d '\000-\037' | cut -c1-40)
+      tool=$(agy_tool_name)
     fi
     detail=$(field 'command|CommandLine' 120)
     [ -n "$detail" ] || detail=$(field 'file_path|filePath|path|Path' 120)

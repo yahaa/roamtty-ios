@@ -43,6 +43,35 @@ extension AgentStatusTests {
         XCTAssertEqual(fixture.reported(), "working|ask_question|Which option?")
     }
 
+    func testAgyHooksExtractToolCallNameRegardlessOfPropertyOrder() throws {
+        let fixture = try HookFixture()
+        // Compact payloads with toolCall.name first (Google's PreToolUse doc order) and last.
+        XCTAssertEqual(try fixture.agyHook("tool", #"{"toolCall":{"name":"run_command","args":{"CommandLine":"swift test"}}}"#), "")
+        XCTAssertEqual(fixture.reported(), "working|run_command|swift test")
+        XCTAssertEqual(try fixture.agyHook("tool", #"{"toolCall":{"args":{"CommandLine":"make check"},"id":"c1","name":"run_command"}}"#), "")
+        XCTAssertEqual(fixture.reported(), "working|run_command|make check")
+
+        XCTAssertEqual(try fixture.agyHook("tool", #"{"toolCall":{"name":"ask_question","args":{}}}"#), "")
+        XCTAssertEqual(fixture.reported(), "waiting|ask_question|")
+        XCTAssertEqual(try fixture.agyHook("tool", #"{"toolCall":{"name":"ask_question","args":{"questions":[{"question":"Ship it?"}]}}}"#), "")
+        XCTAssertEqual(fixture.reported(), "waiting|ask_question|Ship it?")
+        XCTAssertEqual(try fixture.agyHook("tool", #"{"toolCall":{"args":{"questions":[{"question":"Deploy?"}]},"id":"c2","name":"ask_question"}}"#), "")
+        XCTAssertEqual(fixture.reported(), "waiting|ask_question|Deploy?")
+
+        // Nested "name" inside args and sibling "name" outside toolCall must not shadow toolCall.name.
+        XCTAssertEqual(try fixture.agyHook("tool", #"{"toolCall":{"name":"swarm","args":{"action":"add","name":"worker-1"}}}"#), "")
+        XCTAssertEqual(fixture.reported(), "working|swarm|")
+        XCTAssertEqual(try fixture.agyHook("tool", #"{"toolCall":{"args":{"action":"add","name":"worker-1"},"id":"c3","name":"swarm"}}"#), "")
+        XCTAssertEqual(fixture.reported(), "working|swarm|")
+        XCTAssertEqual(try fixture.agyHook("tool", #"{"plugin":{"name":"roamtty"},"toolCall":{"name":"run_command","args":{"CommandLine":"ls"}},"extra":{"name":"ignored"}}"#), "")
+        XCTAssertEqual(fixture.reported(), "working|run_command|ls")
+
+        // Multi-line pretty-printed PreToolUse JSON also resolves toolCall.name.
+        let pretty = "{\n  \"toolCall\": {\n    \"name\": \"ask_question\",\n    \"args\": {}\n  }\n}"
+        XCTAssertEqual(try fixture.agyHook("tool", pretty), "")
+        XCTAssertEqual(fixture.reported(), "waiting|ask_question|")
+    }
+
     func testAgyHooksReadTranscriptAndKeepBackgroundWork() throws {
         let fixture = try HookFixture()
         let transcript = fixture.dir.appendingPathComponent("transcript_full.jsonl")

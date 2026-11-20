@@ -112,7 +112,7 @@ final class AgentHooksLiveTests: XCTestCase {
         XCTAssertEqual(working.task, "support agy")
         XCTAssertEqual(agentActivity(working), "Running swift test")
 
-        try agyHook("tool", #"{"toolCall":{"args":{"questions":[{"question":"Ship it?"}]},"id":"c2","name":"ask_question"}}"#)
+        try agyHook("tool", #"{"toolCall":{"name":"ask_question","args":{"questions":[{"question":"Ship it?"}]}}}"#)
         let waiting = try XCTUnwrap(AgentStatus.parse(String(decoding: try ssh.exec(RemoteCommands.agentStatus(name), input: Data(), timeout: 10).output, as: UTF8.self)))
         XCTAssertEqual(waiting.state, .waiting)
         XCTAssertEqual(agentActivity(waiting), "ask_question Ship it?")
