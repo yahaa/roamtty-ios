@@ -91,19 +91,41 @@ struct TerminalScreen: View {
                 if dockAvailable && !reserved { floatingControls(in: page.size, twoColumns: twoColumns) }
             }
             if connected && !editor && isAgentSession {
+                let insets = safeAreaInsets(for: page)
+                let ringTrailing = reserved ? max(insets.trailing, twoColumns ? 96 : 48) + 4 : insets.trailing + 8
                 TerminalContextRing(percent: runtime.agentUsage?.contextPercent) {
                     _ = runtime.terminalView.resignFirstResponder()
                     collapseIfFloating()
                     runtime.refreshAgentUsage(force: true)
                     usageSheet = true
                 }
-                .padding(.top, page.safeAreaInsets.top + 6)
-                .padding(.trailing, page.safeAreaInsets.trailing + (reserved ? (twoColumns ? 100 : 52) : 8))
+                .padding(.top, insets.top + 6)
+                .padding(.trailing, ringTrailing)
                 .frame(width: page.size.width, height: page.size.height, alignment: .topTrailing)
             }
             if let desktop = pipDesktop { desktopWindow(desktop, page: page, landscape: landscape, reserved: reserved, twoColumns: twoColumns) }
             ImageInsertStatus(transfers: model.files, jobs: $imageJobs, topInset: page.safeAreaInsets.top).frame(width: page.size.width, height: page.size.height)
         }
+    }
+
+    /// The terminal's `GeometryReader` ignores `.container` safe area so it draws edge-to-edge under the status bar
+    /// and camera housing, zeroing `page.safeAreaInsets`; read the hosting window's safe area instead (falling back
+    /// to the active window before the terminal view attaches).
+    func safeAreaInsets(for page: GeometryProxy) -> EdgeInsets {
+        let window = (runtime.terminalView.window ?? Self.activeWindow)?.safeAreaInsets ?? .zero
+        return EdgeInsets(
+            top: max(window.top, page.safeAreaInsets.top),
+            leading: max(window.left, page.safeAreaInsets.leading),
+            bottom: max(window.bottom, page.safeAreaInsets.bottom),
+            trailing: max(window.right, page.safeAreaInsets.trailing)
+        )
+    }
+
+    private static var activeWindow: UIWindow? {
+        let windows = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+        return windows.first(where: \.isKeyWindow) ?? windows.first
     }
 
     /// The terminal with its notice over it, and the text editor's bar below while it is open.
