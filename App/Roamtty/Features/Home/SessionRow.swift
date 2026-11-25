@@ -53,7 +53,7 @@ struct SessionRow: View {
                             if let host { HostChip(name: host.name, id: host.id, offline: offline).padding(.leading, 2)
                                 .accessibilityIdentifier("home-session-host-\(record.id)") }
                         }
-                        folderLine(path)
+                        folderLine(path, contextPercent: kind != nil ? runtime?.agentUsage?.contextPercent : nil, fade: fade)
                         if !prompt.isEmpty {
                             (Text(model.text("你: ", "You: ")).foregroundColor(Palette.secondary.opacity(0.7)) + Text(prompt))
                                 .font(.system(size: 13)).foregroundStyle(Palette.secondary).lineLimit(1).accessibilityIdentifier("home-session-prompt-\(record.id)")
@@ -174,11 +174,13 @@ struct SessionRow: View {
 
     /// Where it runs, behind a folder mark; cut in the middle, so both where it starts and the folder's own name stay.
     /// Without a folder the line stays, empty, so every card of a kind is as tall as the next.
-    private func folderLine(_ path: String) -> some View {
+    private func folderLine(_ path: String, contextPercent: Int?, fade: Double) -> some View {
         HStack(spacing: 5) {
             if !path.isEmpty { AppIcon("ic_folder", size: 12).accessibilityLabel(model.text("工作目录", "Working directory")) }
             Text(path.isEmpty ? " " : path).font(.system(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.middle)
                 .accessibilityIdentifier(path.isEmpty ? "" : "home-session-location-\(record.id)")
+            Spacer(minLength: 4)
+            if let contextPercent { SessionContextMicroRing(percent: contextPercent).opacity(fade) }
         }.foregroundStyle(Palette.secondary.opacity(0.75))
     }
 

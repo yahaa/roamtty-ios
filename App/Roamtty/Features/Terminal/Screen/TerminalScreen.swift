@@ -17,6 +17,7 @@ struct TerminalScreen: View {
     @State var toolbox = TerminalToolboxState()
     @State var keyboardVisible = false
     @State var commandSheet = false
+    @State var usageSheet = false
     @State var fileAction: TerminalFileAction?
     /// A file a tapped path names, shown in the preview at its line.
     @State var tappedFile: TappedTerminalFile?
@@ -42,7 +43,8 @@ struct TerminalScreen: View {
     @State var pipKeyboardPage: DesktopKeyboardPage = .ime
     @State var pipIMEFocused = false
     var connected: Bool { runtime.phase == .connected }
-    var dockAvailable: Bool { connected && !editor && !commandSheet }
+    var isAgentSession: Bool { runtime.activeAgentKind != nil }
+    var dockAvailable: Bool { connected && !editor && !commandSheet && !usageSheet }
     /// A double tap or a line starting with `/` brings arrow keys around the pet, while its ring is closed.
     var petArrowsShown: Bool { dockAvailable && !toolbox.dockVisible && !toolbox.ringOpen && (petArrowsUntil > now || runtime.slashCommandLine) }
     var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
@@ -87,6 +89,17 @@ struct TerminalScreen: View {
             // The dock and the pet step aside from the cursor row, so they follow it without the page.
             CursorRowReader(cursor: runtime.cursorRow) {
                 if dockAvailable && !reserved { floatingControls(in: page.size, twoColumns: twoColumns) }
+            }
+            if connected && !editor && isAgentSession {
+                TerminalContextRing(percent: runtime.agentUsage?.contextPercent) {
+                    _ = runtime.terminalView.resignFirstResponder()
+                    collapseIfFloating()
+                    runtime.refreshAgentUsage(force: true)
+                    usageSheet = true
+                }
+                .padding(.top, page.safeAreaInsets.top + 6)
+                .padding(.trailing, page.safeAreaInsets.trailing + (reserved ? (twoColumns ? 100 : 52) : 8))
+                .frame(width: page.size.width, height: page.size.height, alignment: .topTrailing)
             }
             if let desktop = pipDesktop { desktopWindow(desktop, page: page, landscape: landscape, reserved: reserved, twoColumns: twoColumns) }
             ImageInsertStatus(transfers: model.files, jobs: $imageJobs, topInset: page.safeAreaInsets.top).frame(width: page.size.width, height: page.size.height)
@@ -218,8 +231,9 @@ struct TerminalScreen: View {
             Text(runtime.record.mode == .tmux ? model.text("正在运行的程序会被结束，然后在同一目录重新启动。", "The running program is ended, then started again in the same folder.")
                  : model.text("当前 shell 会结束并重新连接。", "The current shell ends and reconnects."))
         }
-        .modifier(TerminalPasteConfirmation(runtime: runtime, enabled: !commandSheet))
+        .modifier(TerminalPasteConfirmation(runtime: runtime, enabled: !commandSheet && !usageSheet))
         .sheet(isPresented: $commandSheet) { CommandSheet(runtime: runtime).environmentObject(model) }
+        .sheet(isPresented: $usageSheet) { AgentUsageSheet(runtime: runtime).environmentObject(model) }
         .sheet(item: $fileAction, onDismiss: {
             // The root launch sheet must wait until its child picker has gone.
             if let launchAfterFiles { self.launchAfterFiles = nil; model.sheet = launchAfterFiles }

@@ -155,6 +155,7 @@ extension HostDetailScreen {
                 }
                 summary(metrics)
             }
+            HostAiUsageSection(host: host)
         }
     }
     private func identityLine(_ host: Host, _ metrics: HostMetrics?) -> String {

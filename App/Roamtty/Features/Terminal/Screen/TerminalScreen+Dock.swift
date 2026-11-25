@@ -57,10 +57,12 @@ extension TerminalScreen {
         dockButton("ic_cloud_upload", model.text("上传文件", "Upload files"), id: "upload-file", enabled: connected) { fileAction = .upload }
         dockButton("ic_cloud_download", model.text("下载文件", "Download files"), id: "download-file", enabled: connected) { fileAction = .download }
         dockButton("ic_image", model.text("插入图片", "Insert image"), id: "select-image", enabled: connected) { photoPicker = true }
-        dockButton("ic_commands", model.text("常用命令", "Common commands"), id: "common-commands", enabled: connected) { _ = runtime.terminalView.resignFirstResponder(); commandSheet = true }
+        if !isAgentSession {
+            dockButton("ic_commands", model.text("常用命令", "Common commands"), id: "common-commands", enabled: connected) { _ = runtime.terminalView.resignFirstResponder(); commandSheet = true }
+        }
         settingsMenu
     }
-    var dockControlCount: Int { 5 + (showDesktopDock ? 1 : 0) }
+    var dockControlCount: Int { 4 + (isAgentSession ? 0 : 1) + (showDesktopDock ? 1 : 0) }
     var collapseButton: some View {
         Button {
             runtime.controlArmed = false; runtime.shiftArmed = false

@@ -85,7 +85,11 @@ if [ -z "$in_pane" ] && [ -n "$session" ]; then
   TMUX_PANE="=$session:"
 elif [ -n "$in_pane" ]; then
   # Kept past the session's end: a background session that resumed it still reports by it.
-  [ "$agent" != claude ] || put @roamtty_session "$(field session_id 64)"
+  sid=$(field 'session_id|sessionId|conversationId' 64)
+  if [ "$agent" = claude ]; then put @roamtty_session "$sid"
+  elif [ -n "$sid" ]; then put @roamtty_session "$sid"; fi
+  tpath=$(field 'transcript_path|transcriptPath' 400)
+  [ -z "$tpath" ] || put @roamtty_transcript "$tpath"
 else
   # The session a background Claude Code resumed is in its command line ("--resume …/<id>.jsonl"); the hook may run
   # under a shell or two below it.
@@ -245,7 +249,7 @@ case "$event" in
     case "$turn" in ''|*[!0-9]*) ;; *) put @roamtty_worked "$(( $(date +%s) - turn ))" ;; esac
     record idle "" "" ;;
   end)
-    for option in @roamtty_agent @roamtty_task @roamtty_turn @roamtty_worked @roamtty_reply @roamtty_owner; do
+    for option in @roamtty_agent @roamtty_task @roamtty_turn @roamtty_worked @roamtty_reply @roamtty_owner @roamtty_transcript; do
       tmux set-option -u -q -t "$TMUX_PANE" "$option" 2>/dev/null
     done ;;
 esac
