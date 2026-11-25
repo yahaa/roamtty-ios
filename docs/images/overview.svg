@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 320" width="920" height="320" role="img" aria-label="Roamtty iOS overview: iPhone connects directly via encrypted SSH, mosh, and UDP to your server">
+  <defs>
+    <style>
+      .sans { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .title { font-size: 17px; font-weight: 700; fill: #F2F4F7; }
+      .sub { font-size: 12px; font-weight: 500; fill: #9CA3AF; }
+      .chip { font-size: 12.5px; font-weight: 600; fill: #E5E7EB; }
+      .pill { font-size: 12px; font-weight: 600; }
+      .foot { font-size: 12px; font-weight: 500; fill: #9CA3AF; }
+    </style>
+    <marker id="arr-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 1 1.5 L 8.5 5 L 1 8.5 z" fill="#7AA2F7"/>
+    </marker>
+    <marker id="arr-peach" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 1 1.5 L 8.5 5 L 1 8.5 z" fill="#E6A17E"/>
+    </marker>
+  </defs>
+
+  <!-- Canvas -->
+  <rect x="1" y="1" width="918" height="318" rx="16" fill="#1A1C20" stroke="#2E323A" stroke-width="1.5"/>
+
+  <!-- Left Card: iPhone / Roamtty -->
+  <rect x="32" y="30" width="236" height="222" rx="14" fill="#23262C" stroke="#353A45" stroke-width="1.2"/>
+  <rect x="52" y="48" width="26" height="38" rx="5" fill="#2C3038" stroke="#E6A17E" stroke-width="1.8"/>
+  <line x1="61" y1="80" x2="69" y2="80" stroke="#E6A17E" stroke-width="1.8" stroke-linecap="round"/>
+  <text x="90" y="64" class="sans title">Roamtty iOS</text>
+  <text x="90" y="81" class="sans sub">iOS 16+ · SwiftUI</text>
+
+  <rect x="50" y="102" width="200" height="36" rx="8" fill="#2B2F37" stroke="#3B404D" stroke-width="1"/>
+  <circle cx="66" cy="120" r="4" fill="#E6A17E"/>
+  <text x="79" y="124.5" class="sans chip">Touch Terminal</text>
+
+  <rect x="50" y="148" width="200" height="36" rx="8" fill="#2B2F37" stroke="#3B404D" stroke-width="1"/>
+  <circle cx="66" cy="166" r="4" fill="#7AA2F7"/>
+  <text x="79" y="170.5" class="sans chip">Remote Desktop</text>
+
+  <rect x="50" y="194" width="200" height="36" rx="8" fill="#2B2F37" stroke="#3B404D" stroke-width="1"/>
+  <circle cx="66" cy="212" r="4" fill="#6BBF8A"/>
+  <text x="79" y="216.5" class="sans chip">Keychain Vault</text>
+
+  <!-- Center: Direct Encrypted Tunnel -->
+  <g transform="translate(372, 46)">
+    <rect x="0" y="7" width="12" height="9" rx="2" fill="none" stroke="#6BBF8A" stroke-width="1.6"/>
+    <path d="M 3 7 V 4.5 A 3 3 0 0 1 9 4.5 V 7" fill="none" stroke="#6BBF8A" stroke-width="1.6"/>
+    <text x="20" y="15" class="sans pill" fill="#6BBF8A">End-to-End Encrypted</text>
+  </g>
+
+  <line x1="286" y1="114" x2="606" y2="114" stroke="#7AA2F7" stroke-width="2" marker-start="url(#arr-blue)" marker-end="url(#arr-blue)"/>
+  <rect x="376" y="96" width="140" height="34" rx="17" fill="#1F283B" stroke="#7AA2F7" stroke-width="1.2"/>
+  <text x="446" y="117" text-anchor="middle" class="mono pill" fill="#A9C3FF">SSH / SFTP</text>
+
+  <line x1="286" y1="176" x2="606" y2="176" stroke="#E6A17E" stroke-width="2" stroke-dasharray="6 4" marker-start="url(#arr-peach)" marker-end="url(#arr-peach)"/>
+  <rect x="364" y="158" width="164" height="34" rx="17" fill="#332721" stroke="#E6A17E" stroke-width="1.2"/>
+  <text x="446" y="179" text-anchor="middle" class="mono pill" fill="#F3C3A8">mosh / UDP</text>
+
+  <rect x="370" y="216" width="152" height="28" rx="14" fill="#1F2E26" stroke="#39664C" stroke-width="1"/>
+  <text x="446" y="234" text-anchor="middle" class="sans pill" fill="#8CD9A8">Direct · No Cloud</text>
+
+  <!-- Right Card: Your Server -->
+  <rect x="624" y="30" width="264" height="222" rx="14" fill="#23262C" stroke="#353A45" stroke-width="1.2"/>
+  <g transform="translate(644, 50)">
+    <rect x="0" y="0" width="32" height="14" rx="3" fill="#2C3038" stroke="#7AA2F7" stroke-width="1.6"/>
+    <circle cx="7" cy="7" r="2" fill="#6BBF8A"/>
+    <rect x="0" y="19" width="32" height="14" rx="3" fill="#2C3038" stroke="#7AA2F7" stroke-width="1.6"/>
+    <circle cx="7" cy="26" r="2" fill="#E6A17E"/>
+  </g>
+  <text x="688" y="64" class="sans title">Your Server</text>
+  <text x="688" y="81" class="sans sub">Linux · macOS · Windows</text>
+
+  <rect x="642" y="102" width="108" height="58" rx="9" fill="#2B2F37" stroke="#3B404D" stroke-width="1"/>
+  <circle cx="656" cy="119" r="3.5" fill="#6BBF8A"/>
+  <text x="666" y="123" class="sans chip">tmux</text>
+  <text x="656" y="145" class="sans sub">psmux · Persist</text>
+
+  <rect x="762" y="102" width="108" height="58" rx="9" fill="#2B2F37" stroke="#3B404D" stroke-width="1"/>
+  <circle cx="776" cy="119" r="3.5" fill="#E6A17E"/>
+  <text x="786" y="123" class="sans chip">AI Agents</text>
+  <text x="776" y="145" class="sans sub">Coding CLIs</text>
+
+  <rect x="642" y="172" width="108" height="58" rx="9" fill="#2B2F37" stroke="#3B404D" stroke-width="1"/>
+  <circle cx="656" cy="189" r="3.5" fill="#7AA2F7"/>
+  <text x="666" y="193" class="sans chip">SFTP</text>
+  <text x="656" y="215" class="sans sub">Files · Monitor</text>
+
+  <rect x="762" y="172" width="108" height="58" rx="9" fill="#2B2F37" stroke="#3B404D" stroke-width="1"/>
+  <circle cx="776" cy="189" r="3.5" fill="#E9C46A"/>
+  <text x="786" y="193" class="sans chip">Desktop</text>
+  <text x="776" y="215" class="sans sub">H.264 · Opus</text>
+
+  <!-- Bottom Strip -->
+  <line x1="32" y1="272" x2="888" y2="272" stroke="#2A2E36" stroke-width="1"/>
+  <g transform="translate(155, 296)">
+    <circle cx="0" cy="-4" r="3.5" fill="#6BBF8A"/>
+    <text x="12" y="0" class="sans foot">Zero Accounts &amp; Telemetry</text>
+  </g>
+  <g transform="translate(388, 296)">
+    <circle cx="0" cy="-4" r="3.5" fill="#E6A17E"/>
+    <text x="12" y="0" class="sans foot">Sessions Survive Background</text>
+  </g>
+  <g transform="translate(632, 296)">
+    <circle cx="0" cy="-4" r="3.5" fill="#7AA2F7"/>
+    <text x="12" y="0" class="sans foot">Works Over Tailscale</text>
+  </g>
+</svg>
