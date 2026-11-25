@@ -41,6 +41,8 @@ struct SessionRow: View {
         // An offline host's card keeps what it last showed, its marks faded, so it reads as a record rather than live.
         let offline = model.hostOffline(record) && !phase.active
         let fade = offline ? 0.55 : 1
+        let usage = kind != nil ? runtime?.agentUsage : nil
+        let showUsageFooter = usage.map { $0.contextPercent != nil || $0.sessionTotalTokens > 0 } ?? false
         VStack(alignment: .leading, spacing: 0) {
             if divider { Rectangle().fill(Palette.foreground.opacity(0.07)).frame(height: 1).padding(.leading, 14) }
             VStack(alignment: .leading, spacing: 0) {
@@ -53,7 +55,7 @@ struct SessionRow: View {
                             if let host { HostChip(name: host.name, id: host.id, offline: offline).padding(.leading, 2)
                                 .accessibilityIdentifier("home-session-host-\(record.id)") }
                         }
-                        folderLine(path, contextPercent: kind != nil ? runtime?.agentUsage?.contextPercent : nil, fade: fade)
+                        folderLine(path)
                         if !prompt.isEmpty {
                             (Text(model.text("你: ", "You: ")).foregroundColor(Palette.secondary.opacity(0.7)) + Text(prompt))
                                 .font(.system(size: 13)).foregroundStyle(Palette.secondary).lineLimit(1).accessibilityIdentifier("home-session-prompt-\(record.id)")
@@ -101,9 +103,11 @@ struct SessionRow: View {
                     }
                 // As tall as its icon buttons (36 points to touch), with or without them.
                 }.frame(minHeight: 36).padding(.top, 8)
+                if showUsageFooter, let usage { SessionUsageFooter(usage: usage).opacity(fade) }
                 if replying { followUpField(kind: kind, runtime: runtime) }
                 if let failure { Text(failure).font(.system(size: 12)).foregroundStyle(Palette.danger).lineLimit(2).padding(.top, 6) }
-            }.padding(.horizontal, 14).padding(.vertical, 12)
+            }.padding(.horizontal, 14).padding(.top, 12).padding(.bottom, showUsageFooter ? 9 : 12)
+            if let pct = usage?.contextPercent { SessionContextBottomBar(percent: pct).opacity(fade) }
         }
         .overlay(alignment: .leading) { if waiting { Rectangle().fill(Palette.warning).frame(width: 3) } }
         .foregroundStyle(Palette.foreground)
@@ -174,13 +178,11 @@ struct SessionRow: View {
 
     /// Where it runs, behind a folder mark; cut in the middle, so both where it starts and the folder's own name stay.
     /// Without a folder the line stays, empty, so every card of a kind is as tall as the next.
-    private func folderLine(_ path: String, contextPercent: Int?, fade: Double) -> some View {
+    private func folderLine(_ path: String) -> some View {
         HStack(spacing: 5) {
             if !path.isEmpty { AppIcon("ic_folder", size: 12).accessibilityLabel(model.text("工作目录", "Working directory")) }
             Text(path.isEmpty ? " " : path).font(.system(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.middle)
                 .accessibilityIdentifier(path.isEmpty ? "" : "home-session-location-\(record.id)")
-            Spacer(minLength: 4)
-            if let contextPercent { SessionContextMicroRing(percent: contextPercent).opacity(fade) }
         }.foregroundStyle(Palette.secondary.opacity(0.75))
     }
 
@@ -267,5 +269,68 @@ struct HostChip: View {
         .padding(.leading, 6).padding(.trailing, 8).padding(.vertical, 2)
         .background(offline ? Palette.foreground.opacity(0.06) : tint.opacity(0.14), in: Capsule())
         .frame(maxWidth: 140).fixedSize()
+    }
+}
+
+/// Quiet monospace footer directly above the 2pt bottom-edge progress bar on an AI Agent card (Option B1).
+private struct SessionUsageFooter: View {
+    @EnvironmentObject var model: AppModel
+    let usage: AgentSessionUsage
+
+    var body: some View {
+        let pct = usage.contextPercent
+        let used = usage.contextUsed
+        let limit = usage.contextLimit.flatMap { $0 > 0 ? $0 : nil }
+        let total = usage.sessionTotalTokens
+        let pctColor: Color = pct.map {
+            $0 >= 90 ? Palette.danger : $0 >= 75 ? Palette.warning : Palette.secondary.opacity(0.84)
+        } ?? Palette.secondary.opacity(0.84)
+        VStack(spacing: 0) {
+            Rectangle().fill(Palette.foreground.opacity(0.045)).frame(height: 1)
+            HStack(spacing: 6) {
+                HStack(spacing: 5) {
+                    if let used, let limit {
+                        Text("\(AgentUsage.formatTokens(used)) / \(AgentUsage.formatTokens(limit))")
+                        if total > 0 {
+                            Text("·").foregroundStyle(Palette.secondary.opacity(0.45))
+                            Text(model.text("累计 \(AgentUsage.formatTokens(total))", "Total \(AgentUsage.formatTokens(total))"))
+                        }
+                    } else if total > 0 {
+                        Text(model.text("累计 \(AgentUsage.formatTokens(total)) tokens", "Total \(AgentUsage.formatTokens(total)) tokens"))
+                    }
+                }
+                .foregroundStyle(Palette.secondary.opacity(0.68)).lineLimit(1)
+                Spacer(minLength: 6)
+                if let pct {
+                    Text("\(pct)%").fontWeight(.semibold).foregroundStyle(pctColor).lineLimit(1)
+                }
+            }
+            .font(.system(size: 10.5, design: .monospaced)).monospacedDigit()
+            .padding(.top, 5)
+        }
+        .padding(.top, 6)
+        .accessibilityIdentifier("session-usage-footer")
+    }
+}
+
+/// Flush 2pt bottom-edge context progress hairline across an AI Agent session card (Option B1).
+private struct SessionContextBottomBar: View {
+    let percent: Int
+
+    var body: some View {
+        let fraction = CGFloat(min(100, max(0, percent))) / 100.0
+        let fill: Color = percent >= 90 ? Palette.danger : percent >= 75 ? Palette.warning.opacity(0.90) : Palette.secondary.opacity(0.38)
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Rectangle().fill(Palette.foreground.opacity(0.055))
+                if fraction > 0 {
+                    Rectangle().fill(fill)
+                        .frame(width: geo.size.width * fraction)
+                        .clipShape(RoundedRectangle(cornerRadius: 2))
+                }
+            }
+        }
+        .frame(height: 2)
+        .accessibilityIdentifier("session-context-bar")
     }
 }

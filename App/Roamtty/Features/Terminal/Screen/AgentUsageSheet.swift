@@ -32,27 +32,6 @@ enum UsagePalette {
     }
 }
 
-/// Quiet 11pt hollow micro-ring + tabular percentage on line 2 of an AI Agent session card.
-struct SessionContextMicroRing: View {
-    let percent: Int
-
-    var body: some View {
-        let tone = UsagePalette.contextColor(percent)
-        HStack(spacing: 4) {
-            ZStack {
-                Circle().stroke(Palette.foreground.opacity(0.10), lineWidth: 1.9)
-                Circle()
-                    .trim(from: 0, to: CGFloat(min(100, max(0, percent))) / 100.0)
-                    .stroke(tone, style: StrokeStyle(lineWidth: 1.9, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-            }.frame(width: 11, height: 11)
-            Text("\(percent)%")
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .monospacedDigit().foregroundStyle(tone).lineLimit(1)
-        }.fixedSize().accessibilityIdentifier("session-context-ring")
-    }
-}
-
 /// Always-on 38pt frosted circular context progress ring anchored at the terminal's top-right corner
 /// (co-axial with the 48pt right-edge dock below). Single tap entry to `AgentUsageSheet`.
 struct TerminalContextRing: View {
