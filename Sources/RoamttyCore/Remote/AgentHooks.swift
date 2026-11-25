@@ -69,9 +69,11 @@ public enum AgentHooks {
     public static func claudeSettings(session: String?) -> String {
         let events = [("SessionStart", "start"), ("UserPromptSubmit", "prompt"), ("PreToolUse", "tool"), ("PostToolUse", "post"),
                       ("Notification", "notify"), ("Stop", "stop"), ("SessionEnd", "end")]
-        return "{\"hooks\":{" + events.map { event, action in
+        let hooks = events.map { event, action in
             "\"\(event)\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"\(hookCommand(.claude, action, session: session))\"}]}]"
-        }.joined(separator: ",") + "}}"
+        }.joined(separator: ",")
+        let statusLine = "\"statusLine\":{\"type\":\"command\",\"command\":\"\(hookCommand(.claude, "statusline"))\"}"
+        return "{\"hooks\":{\(hooks)},\(statusLine)}"
     }
 
     /// Codex events, their key in Codex's hook state, and what the script makes of them.

@@ -13,6 +13,44 @@ case "$agent" in grok|agy) [ "$ROAMTTY_AGENT" = "$agent" ] || exit 0 ;; esac
 [ -n "$TMUX_PANE" ] || [ "$agent" = claude ] || exit 0
 in_pane=${TMUX_PANE:+1}
 input=$(cat 2>/dev/null)
+# Claude Code statusLine hook receives official 5h/7d rate_limits JSON; cache for Roamtty and forward user statusLine if set.
+if [ "$agent" = claude ] && [ "$event" = statusline ]; then
+  if command -v python3 >/dev/null 2>&1; then
+    user_cmd=$(printf '%s' "$input" | python3 -c '
+import json, os, sys, time
+try:
+    data = json.loads(sys.stdin.read() or "{}")
+except Exception:
+    data = {}
+rl = data.get("rate_limits") if isinstance(data, dict) else None
+if isinstance(rl, dict):
+    out = {"updated_at": int(time.time())}
+    for k in ("five_hour", "seven_day"):
+        w = rl.get(k)
+        if isinstance(w, dict) and w.get("used_percentage") is not None:
+            out[k] = {"used_percentage": float(w["used_percentage"]), "resets_at": w.get("resets_at")}
+    if "five_hour" in out or "seven_day" in out:
+        d = os.path.expanduser("~/.roamtty")
+        os.makedirs(d, exist_ok=True)
+        tmp = os.path.join(d, f".quota-claude.{os.getpid()}.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(out, f)
+        os.replace(tmp, os.path.join(d, "quota-claude.json"))
+try:
+    cfg = json.load(open(os.path.expanduser("~/.claude/settings.json"), encoding="utf-8"))
+    sl = cfg.get("statusLine") if isinstance(cfg, dict) else None
+    cmd = sl.get("command", "") if isinstance(sl, dict) else ""
+    if isinstance(cmd, str) and cmd.strip() and "agent-hook.sh" not in cmd:
+        print(cmd)
+except Exception:
+    pass
+' 2>/dev/null)
+    if [ -n "$user_cmd" ]; then
+      printf '%s' "$input" | sh -c "$user_cmd" 2>/dev/null || true
+    fi
+  fi
+  exit 0
+fi
 # A Grok subagent's events are not its session's.
 case "$agent:$input" in grok:*'"subagentType"'*) exit 0 ;; esac
 

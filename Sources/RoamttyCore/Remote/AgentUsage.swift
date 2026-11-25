@@ -15,10 +15,59 @@ public struct QuotaWindow: Codable, Equatable, Sendable {
     public var usedRounded: Int { max(0, min(100, 100 - remainingRounded)) }
 }
 
-/// Live context-window, quota and cumulative token telemetry for one AI agent session.
+/// Normalized reasoning / thinking effort tier reported by coding agents.
+public enum ReasoningEffort: String, Codable, Equatable, Sendable {
+    case minimal, low, medium, high, xhigh, max
+
+    public var bars: Int {
+        switch self {
+        case .minimal, .low: return 1
+        case .medium: return 2
+        case .high: return 3
+        case .xhigh, .max: return 4
+        }
+    }
+
+    public var zhLabel: String {
+        switch self {
+        case .minimal: return "极低"
+        case .low: return "低"
+        case .medium: return "中等"
+        case .high: return "高"
+        case .xhigh: return "极高"
+        case .max: return "最大"
+        }
+    }
+
+    public var enShort: String {
+        switch self {
+        case .minimal: return "Min"
+        case .low: return "Low"
+        case .medium: return "Med"
+        case .high: return "High"
+        case .xhigh: return "XHigh"
+        case .max: return "Max"
+        }
+    }
+
+    public static func fromRaw(_ raw: String?) -> ReasoningEffort? {
+        switch raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "minimal", "min": return .minimal
+        case "low": return .low
+        case "medium", "med": return .medium
+        case "high": return .high
+        case "xhigh", "extra_high", "extra-high", "very_high": return .xhigh
+        case "max": return .max
+        default: return nil
+        }
+    }
+}
+
+/// Live context-window, quota, reasoning-effort and cumulative token telemetry for one AI agent session.
 public struct AgentSessionUsage: Codable, Equatable, Sendable {
     public var agent: CodingAgent?
     public var model: String
+    public var effort: String
     public var contextUsed: Int64?
     public var contextLimit: Int64?
     public var contextCacheRead: Int64
@@ -32,14 +81,14 @@ public struct AgentSessionUsage: Codable, Equatable, Sendable {
     public var quota7d: QuotaWindow?
 
     public init(
-        agent: CodingAgent? = nil, model: String = "",
+        agent: CodingAgent? = nil, model: String = "", effort: String = "",
         contextUsed: Int64? = nil, contextLimit: Int64? = nil,
         contextCacheRead: Int64 = 0, contextCacheCreate: Int64 = 0, contextTurn: Int64 = 0,
         sessionInput: Int64 = 0, sessionOutput: Int64 = 0,
         sessionCacheRead: Int64 = 0, sessionCacheCreate: Int64 = 0,
         quota5h: QuotaWindow? = nil, quota7d: QuotaWindow? = nil
     ) {
-        self.agent = agent; self.model = model
+        self.agent = agent; self.model = model; self.effort = effort
         self.contextUsed = contextUsed; self.contextLimit = contextLimit
         self.contextCacheRead = contextCacheRead; self.contextCacheCreate = contextCacheCreate; self.contextTurn = contextTurn
         self.sessionInput = sessionInput; self.sessionOutput = sessionOutput
@@ -67,6 +116,7 @@ public struct AgentSessionUsage: Codable, Equatable, Sendable {
 
     public var hasAnyData: Bool { contextPercent != nil || sessionTotalTokens > 0 || quota5h != nil || quota7d != nil }
     public var formattedModel: String { AgentUsage.formatModelName(model) }
+    public var reasoningEffort: ReasoningEffort? { ReasoningEffort.fromRaw(effort) }
 }
 
 /// Time window for machine-wide AI token statistics on the host detail screen.
@@ -180,6 +230,7 @@ public enum AgentUsage {
         let parsed = AgentSessionUsage(
             agent: CodingAgent.fromCommand(kv["agent"]),
             model: kv["model"] ?? "",
+            effort: kv["effort"] ?? "",
             contextUsed: kv["ctx_used"].flatMap(Int64.init),
             contextLimit: kv["ctx_limit"].flatMap(Int64.init),
             contextCacheRead: kv["ctx_cache_read"].flatMap(Int64.init) ?? 0,
@@ -192,7 +243,7 @@ public enum AgentUsage {
             quota5h: q5h,
             quota7d: q7d
         )
-        return (parsed.hasAnyData || !parsed.model.isEmpty) ? parsed : nil
+        return (parsed.hasAnyData || !parsed.model.isEmpty || !parsed.effort.isEmpty) ? parsed : nil
     }
 
     public static func parseHost(_ output: String, requestedRange: HostUsageRange) -> HostAiUsage {
@@ -235,7 +286,11 @@ public enum AgentUsage {
     }
 
     public static func formatModelName(_ raw: String) -> String {
-        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        for suffix in ["-minimal", "-low", "-medium", "-high", "-xhigh", "-max"] where s.lowercased().hasSuffix(suffix) {
+            s = String(s.dropLast(suffix.count))
+            break
+        }
         guard !s.isEmpty else { return "" }
         let lower = s.lowercased()
         if lower.hasPrefix("claude-") {
@@ -246,6 +301,12 @@ public enum AgentUsage {
                 let ver = parts.dropFirst().prefix { part in part.allSatisfy { $0.isNumber || $0 == "." } }.joined(separator: ".")
                 return ver.isEmpty ? family : "\(family) \(ver)"
             }
+        }
+        if lower.hasPrefix("gemini-") {
+            return lower.split(separator: "-").map { part in
+                let token = String(part)
+                return token.prefix(1).uppercased() + token.dropFirst()
+            }.joined(separator: " ")
         }
         return s
     }

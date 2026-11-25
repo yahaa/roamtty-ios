@@ -6,6 +6,7 @@ final class AgentUsageTests: XCTestCase {
         let raw = """
         agent=codex
         model=gpt-5.4
+        effort=xhigh
         ctx_used=164000
         ctx_limit=200000
         ctx_cache_read=104000
@@ -23,6 +24,8 @@ final class AgentUsageTests: XCTestCase {
         let u = AgentUsage.parseSession(raw)
         XCTAssertEqual(u?.agent, .codex)
         XCTAssertEqual(u?.formattedModel, "gpt-5.4")
+        XCTAssertEqual(u?.reasoningEffort, .xhigh)
+        XCTAssertEqual(u?.reasoningEffort?.bars, 4)
         XCTAssertEqual(u?.contextPercent, 82)
         XCTAssertEqual(u?.contextRemaining, 36_000)
         XCTAssertEqual(u?.sessionTotalTokens, 1_182_000)
@@ -78,6 +81,10 @@ final class AgentUsageTests: XCTestCase {
         XCTAssertEqual(AgentUsage.formatTokens(1_180_000), "1.18M")
         XCTAssertEqual(AgentUsage.formatTokens(1_540_000_000), "1.54B")
         XCTAssertEqual(AgentUsage.formatModelName("claude-opus-4-6-20260301"), "Opus 4.6")
+        XCTAssertEqual(AgentUsage.formatModelName("claude-fable-5-2"), "Fable 5.2")
+        XCTAssertEqual(AgentUsage.formatModelName("gemini-4-neon-xhigh"), "Gemini 4 Neon")
+        XCTAssertEqual(ReasoningEffort.fromRaw("med"), .medium)
+        XCTAssertEqual(ReasoningEffort.medium.bars, 2)
         let now = Date(timeIntervalSince1970: 10_000)
         XCTAssertEqual(AgentUsage.formatQuotaReset(18_040, now: now, english: false), "2h 14m 后重置")
         XCTAssertEqual(AgentUsage.formatQuotaReset(18_040, now: now, english: true), "Resets in 2h 14m")
