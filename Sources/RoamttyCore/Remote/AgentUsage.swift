@@ -185,8 +185,7 @@ public extension CodingAgent {
     /// Slash command sent behind the native "压缩上下文" button; nil when the agent has no built-in compaction command.
     var compactCommand: String? {
         switch self {
-        case .claude, .codex, .agy: return "/compact"
-        case .grok: return nil
+        case .claude, .codex, .agy, .grok: return "/compact"
         }
     }
 }

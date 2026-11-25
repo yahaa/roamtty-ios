@@ -51,7 +51,7 @@ final class AgentUsageTests: XCTestCase {
         XCTAssertNil(u?.quota5h)
         XCTAssertNil(u?.quota7d)
         XCTAssertEqual(u?.sessionTotalTokens, 380_000)
-        XCTAssertNil(CodingAgent.grok.compactCommand)
+        XCTAssertEqual(CodingAgent.grok.compactCommand, "/compact")
         XCTAssertEqual(CodingAgent.claude.compactCommand, "/compact")
         XCTAssertEqual(CodingAgent.codex.compactCommand, "/compact")
         XCTAssertEqual(CodingAgent.agy.compactCommand, "/compact")
@@ -171,5 +171,51 @@ final class AgentUsageTests: XCTestCase {
         XCTAssertEqual(codexPost.contextUsed, 37_754)
         XCTAssertEqual(codexPost.contextLimit, 258_400)
         XCTAssertEqual(codexPost.contextPercent, 15)
+    }
+
+    func testCollectorReadsGrokContextOnMultiCallTurns() throws {
+        let fm = FileManager.default
+        let home = fm.temporaryDirectory.appendingPathComponent("roamtty-usage-grok-\(UUID().uuidString)")
+        try fm.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: home) }
+
+        let grokDir = home.appendingPathComponent(".grok/sessions/%2Fwork%2Fgrok/sess-multi")
+        try fm.createDirectory(at: grokDir, withIntermediateDirectories: true)
+        try #"{"current_model_id":"grok-4.7","reasoning_effort":"xhigh","context_window":500000}"#
+            .write(to: grokDir.appendingPathComponent("summary.json"), atomically: true, encoding: .utf8)
+        try #"{"contextTokensUsed":193909,"contextWindowTokens":500000,"contextWindowUsage":38}"#
+            .write(to: grokDir.appendingPathComponent("signals.json"), atomically: true, encoding: .utf8)
+        let updates = [
+            #"{"timestamp":4070908800,"method":"session/update","params":{"_meta":{"totalTokens":193909},"update":{"sessionUpdate":"agent_message_chunk"}}}"#,
+            #"{"timestamp":4070908801,"method":"_x.ai/session/update","params":{"update":{"sessionUpdate":"turn_completed","#
+                + #""usage":{"inputTokens":1911236,"cachedReadTokens":1897344,"cacheCreationTokens":0,"outputTokens":6724,"modelCalls":10}}}}"#
+        ]
+        try (updates.joined(separator: "\n") + "\n")
+            .write(to: grokDir.appendingPathComponent("updates.jsonl"), atomically: true, encoding: .utf8)
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/sh")
+        proc.arguments = ["-c", AgentUsage.sessionCommand(agent: .grok, tmuxSession: nil, directory: "/work/grok")]
+        var env = ProcessInfo.processInfo.environment
+        env["HOME"] = home.path
+        env["ROAMTTY_NO_LIVE_QUOTA"] = "1"
+        proc.environment = env
+        let stdinPipe = Pipe(), stdoutPipe = Pipe()
+        proc.standardInput = stdinPipe
+        proc.standardOutput = stdoutPipe
+        try proc.run()
+        stdinPipe.fileHandleForWriting.write(AgentUsage.scriptData)
+        try stdinPipe.fileHandleForWriting.close()
+        proc.waitUntilExit()
+        XCTAssertEqual(proc.terminationStatus, 0)
+        let out = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
+        let usage = try XCTUnwrap(AgentUsage.parseSession(out))
+        XCTAssertEqual(usage.formattedModel, "grok-4.7")
+        XCTAssertEqual(usage.reasoningEffort, .xhigh)
+        XCTAssertEqual(usage.contextUsed, 193_909)
+        XCTAssertEqual(usage.contextLimit, 500_000)
+        XCTAssertEqual(usage.contextPercent, 39)
+        XCTAssertEqual(usage.contextCacheRead, 0)
+        XCTAssertEqual(usage.contextTurn, 0)
     }
 }

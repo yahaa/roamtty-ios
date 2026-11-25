@@ -109,8 +109,8 @@ def cmd_env():
 
 def tmux_meta(tmux_session):
     if not tmux_session:
-        return "", "", "", ""
-    fmt = "#{@roamtty_agent}\t#{@roamtty_session}\t#{@roamtty_transcript}\t#{pane_current_path}"
+        return "", "", "", "", 0
+    fmt = "#{@roamtty_agent}\t#{@roamtty_session}\t#{@roamtty_transcript}\t#{pane_current_path}\t#{pane_pid}"
     try:
         out = subprocess.check_output(
             ["tmux", "-u", "display-message", "-p", "-t", f"={tmux_session}:", fmt],
@@ -119,12 +119,12 @@ def tmux_meta(tmux_session):
             env=cmd_env(),
         ).decode("utf-8", "replace").rstrip("\r\n")
         parts = out.split("\t")
-        while len(parts) < 4:
+        while len(parts) < 5:
             parts.append("")
         agent_field = parts[0].split("|")[2] if parts[0].count("|") >= 2 else ""
-        return agent_field.strip(), parts[1].strip(), parts[2].strip(), parts[3].strip()
+        return agent_field.strip(), parts[1].strip(), parts[2].strip(), parts[3].strip(), safe_int(parts[4].strip())
     except Exception:
-        return "", "", "", ""
+        return "", "", "", "", 0
 
 
 def infer_claude_ctx_limit(model, ctx_used):
@@ -909,66 +909,166 @@ def grok_model_ctx_cache():
         for k, v in (data.get("models") or {}).items():
             info = v.get("info", v) if isinstance(v, dict) else {}
             cw = safe_int(info.get("context_window"))
-            if cw > 0:
-                out[k] = cw
+            wins = sorted({safe_int(x) for x in (info.get("context_windows") or []) if safe_int(x) > 0})
+            if cw > 0 and cw not in wins:
+                wins.append(cw)
+                wins.sort()
+            if cw > 0 or wins:
+                out[k] = (cw or wins[0], wins or [cw])
     except Exception:
         pass
     return out
 
 
+def grok_active_session_for_pid(pane_pid):
+    if pane_pid <= 0:
+        return ""
+    p = os.path.join(HOME, ".grok", "active_sessions.json")
+    if not os.path.isfile(p):
+        return ""
+    try:
+        entries = json.load(open(p, "r", encoding="utf-8", errors="replace"))
+    except Exception:
+        return ""
+    if not isinstance(entries, list) or not entries:
+        return ""
+    ppids = {}
+    try:
+        out = subprocess.check_output(["ps", "-eo", "pid=,ppid="], stderr=subprocess.DEVNULL, timeout=2).decode("utf-8", "replace")
+        for ln in out.splitlines():
+            parts = ln.split()
+            if len(parts) == 2:
+                pid_i, ppid_i = safe_int(parts[0]), safe_int(parts[1])
+                if pid_i > 0:
+                    ppids[pid_i] = ppid_i
+    except Exception:
+        return ""
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        sid = entry.get("session_id") or ""
+        cur = safe_int(entry.get("pid"))
+        if not sid or cur <= 0:
+            continue
+        for _ in range(8):
+            if cur == pane_pid:
+                return sid
+            nxt = ppids.get(cur, 0)
+            if nxt <= 1 or nxt == cur:
+                break
+            cur = nxt
+    return ""
+
+
 def parse_grok_file(path, cutoff=None, model_cache=None):
+    session_dir = path if os.path.isdir(path) else os.path.dirname(path)
+    updates_path = os.path.join(session_dir, "updates.jsonl") if os.path.isdir(path) or os.path.basename(path) != "updates.jsonl" else path
     model = ""
     effort = ""
-    summary = os.path.join(os.path.dirname(path), "summary.json")
+    summary_ctx_win = 0
+    summary = os.path.join(session_dir, "summary.json")
     if os.path.isfile(summary):
         try:
             s = json.load(open(summary, "r", encoding="utf-8", errors="replace"))
             model = s.get("current_model_id") or ""
             effort = normalize_effort(s.get("reasoning_effort"))
+            summary_ctx_win = safe_int(s.get("context_window"))
         except Exception:
             pass
+    sig_ctx_used = sig_ctx_win = 0
+    sig_mtime = 0.0
+    if cutoff is None:
+        signals = os.path.join(session_dir, "signals.json")
+        if os.path.isfile(signals):
+            try:
+                sig_mtime = os.path.getmtime(signals)
+                sig = json.load(open(signals, "r", encoding="utf-8", errors="replace"))
+                sig_ctx_used = safe_int(sig.get("contextTokensUsed"))
+                sig_ctx_win = safe_int(sig.get("contextWindowTokens"))
+                if not model:
+                    model = sig.get("primaryModelId") or ""
+            except Exception:
+                pass
     s_in = s_out = s_cr = s_cc = 0
     latest_single = None
+    last_meta_tokens = 0
+    updates_mtime = 0.0
     has_in_range = False
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            for line in f:
-                if '"turn_completed"' not in line:
-                    continue
-                try:
-                    o = json.loads(line)
-                except Exception:
-                    continue
-                u = ((o.get("params") or {}).get("update") or {})
-                if u.get("sessionUpdate") != "turn_completed":
-                    continue
-                ts = parse_iso_ts(o.get("timestamp"))
-                if cutoff is not None and ts is not None and ts < cutoff:
-                    continue
-                usage = u.get("usage")
-                if not isinstance(usage, dict):
-                    continue
-                inp = safe_int(usage.get("inputTokens"))
-                cr = min(inp, safe_int(usage.get("cachedReadTokens")))
-                cc = safe_int(usage.get("cacheCreationTokens"))
-                out = safe_int(usage.get("outputTokens"))
-                if inp == 0 and out == 0 and cr == 0 and cc == 0:
-                    continue
-                has_in_range = True
-                s_in += max(0, inp - cr)
-                s_cr += cr
-                s_cc += cc
-                s_out += out
-                calls = safe_int(usage.get("modelCalls"))
-                if calls == 1:
-                    latest_single = (inp, cr, cc, max(0, inp - cr))
-                else:
-                    latest_single = None
-    except OSError:
-        return None
+    if os.path.isfile(updates_path):
+        try:
+            updates_mtime = os.path.getmtime(updates_path)
+            with open(updates_path, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    has_tc = '"turn_completed"' in line
+                    has_meta = cutoff is None and '"totalTokens"' in line
+                    if not has_tc and not has_meta:
+                        continue
+                    try:
+                        o = json.loads(line)
+                    except Exception:
+                        continue
+                    params = o.get("params") or {}
+                    if has_meta:
+                        mtok = safe_int((params.get("_meta") or {}).get("totalTokens"))
+                        if mtok > 0:
+                            last_meta_tokens = mtok
+                    if not has_tc:
+                        continue
+                    u = params.get("update") or {}
+                    if u.get("sessionUpdate") != "turn_completed":
+                        continue
+                    ts = parse_iso_ts(o.get("timestamp"))
+                    if cutoff is not None and ts is not None and ts < cutoff:
+                        continue
+                    usage = u.get("usage")
+                    if not isinstance(usage, dict):
+                        continue
+                    inp = safe_int(usage.get("inputTokens"))
+                    cr = min(inp, safe_int(usage.get("cachedReadTokens")))
+                    cc = safe_int(usage.get("cacheCreationTokens"))
+                    out = safe_int(usage.get("outputTokens"))
+                    if inp == 0 and out == 0 and cr == 0 and cc == 0:
+                        continue
+                    has_in_range = True
+                    s_in += max(0, inp - cr)
+                    s_cr += cr
+                    s_cc += cc
+                    s_out += out
+                    calls = safe_int(usage.get("modelCalls"))
+                    if calls == 1:
+                        latest_single = (inp, cr, cc, max(0, inp - cr))
+                    else:
+                        latest_single = None
+        except OSError:
+            if cutoff is not None:
+                return None
+
+    ctx_used = 0
+    ctx_limit = 0
+    if cutoff is None:
+        if sig_ctx_used > 0 and (last_meta_tokens == 0 or sig_mtime >= updates_mtime - 2.0):
+            ctx_used = sig_ctx_used
+        elif last_meta_tokens > 0:
+            ctx_used = last_meta_tokens
+        elif latest_single:
+            ctx_used = latest_single[0]
+
+        cache_entry = (model_cache or {}).get(model)
+        if cache_entry is None and model.endswith("-build"):
+            cache_entry = (model_cache or {}).get(model[:-6])
+        default_cw = cache_entry[0] if isinstance(cache_entry, tuple) else safe_int(cache_entry)
+        wins = cache_entry[1] if isinstance(cache_entry, tuple) else []
+        ctx_limit = summary_ctx_win or sig_ctx_win or default_cw
+        if ctx_limit <= 0 and ctx_used > 0 and model.lower().startswith("grok-"):
+            ctx_limit = 256_000
+        if ctx_used > ctx_limit > 0:
+            candidates = [w for w in (wins or [256_000, 500_000]) if w >= ctx_used]
+            if candidates:
+                ctx_limit = candidates[0]
+
     if not has_in_range:
-        if cutoff is None and (model or effort):
-            return {
+        if cutoff is None and (model or effort or ctx_used > 0):
+            res = {
                 "model": model,
                 "effort": effort,
                 "sess_input": 0,
@@ -976,6 +1076,13 @@ def parse_grok_file(path, cutoff=None, model_cache=None):
                 "sess_cache_read": 0,
                 "sess_cache_create": 0,
             }
+            if ctx_used > 0 and ctx_limit > 0:
+                res["ctx_used"] = ctx_used
+                res["ctx_limit"] = ctx_limit
+                res["ctx_cache_read"] = 0
+                res["ctx_cache_create"] = 0
+                res["ctx_turn"] = 0
+            return res
         return None
     res = {
         "model": model,
@@ -985,40 +1092,53 @@ def parse_grok_file(path, cutoff=None, model_cache=None):
         "sess_cache_read": s_cr,
         "sess_cache_create": s_cc,
     }
-    ctx_limit = (model_cache or {}).get(model, 0)
-    if latest_single and ctx_limit > 0:
-        res["ctx_used"] = latest_single[0]
+    if ctx_used > 0 and ctx_limit > 0:
+        res["ctx_used"] = ctx_used
         res["ctx_limit"] = ctx_limit
-        res["ctx_cache_read"] = latest_single[1]
-        res["ctx_cache_create"] = latest_single[2]
-        res["ctx_turn"] = latest_single[3]
+        if latest_single and abs(latest_single[0] - ctx_used) <= 2000:
+            res["ctx_cache_read"] = latest_single[1]
+            res["ctx_cache_create"] = latest_single[2]
+            res["ctx_turn"] = latest_single[3]
+        else:
+            res["ctx_cache_read"] = 0
+            res["ctx_cache_create"] = 0
+            res["ctx_turn"] = 0
     return res
 
 
-def find_grok_transcript(transcript, sid, cwd):
-    if transcript and os.path.isfile(transcript):
-        return transcript
+def find_grok_transcript(transcript, sid, cwd, pane_pid=0):
+    if transcript:
+        if os.path.isfile(transcript):
+            return transcript
+        if os.path.isdir(transcript):
+            for name in ("updates.jsonl", "summary.json"):
+                cand = os.path.join(transcript, name)
+                if os.path.isfile(cand):
+                    return cand
     base = os.path.join(HOME, ".grok", "sessions")
     if not os.path.isdir(base):
         return None
-    if sid:
-        hits = glob.glob(os.path.join(base, "*", sid, "updates.jsonl"))
-        if hits:
-            return max(hits, key=os.path.getmtime)
+    resolved_sid = sid or grok_active_session_for_pid(pane_pid)
+    if resolved_sid:
+        for name in ("updates.jsonl", "summary.json"):
+            hits = glob.glob(os.path.join(base, "*", resolved_sid, name))
+            if hits:
+                return max(hits, key=os.path.getmtime)
     target = norm_path(cwd)
     if target:
         enc = urllib.parse.quote(target, safe="")
         folder = os.path.join(base, enc)
         if os.path.isdir(folder):
-            hits = glob.glob(os.path.join(folder, "*", "updates.jsonl"))
-            if hits:
-                return max(hits, key=os.path.getmtime)
+            for name in ("updates.jsonl", "summary.json"):
+                hits = glob.glob(os.path.join(folder, "*", name))
+                if hits:
+                    return max(hits, key=os.path.getmtime)
     return None
 
 
 def run_session(agent_arg, tmux_session, cwd_arg):
     now = time.time()
-    t_agent, t_sid, t_transcript, t_cwd = tmux_meta(tmux_session)
+    t_agent, t_sid, t_transcript, t_cwd, t_pid = tmux_meta(tmux_session)
     agent = (t_agent or agent_arg or "").strip().lower()
     cwd = t_cwd or cwd_arg or ""
     if agent not in ("claude", "codex", "agy", "grok"):
@@ -1063,7 +1183,7 @@ def run_session(agent_arg, tmux_session, cwd_arg):
             if q7d:
                 data["q7d"] = q7d
     elif agent == "grok":
-        p = find_grok_transcript(t_transcript, t_sid, cwd)
+        p = find_grok_transcript(t_transcript, t_sid, cwd, pane_pid=t_pid)
         if p:
             data = parse_grok_file(p, model_cache=grok_model_ctx_cache())
 

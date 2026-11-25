@@ -77,16 +77,10 @@ struct TerminalContextRing: View {
                         .trim(from: 0, to: CGFloat(min(100, max(0, percent))) / 100.0)
                         .stroke(tone, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                         .rotationEffect(.degrees(-90)).padding(3.5)
-                    Text("\(percent)%")
-                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                        .monospacedDigit().foregroundStyle(tone).lineLimit(1)
-                } else {
-                    HStack(alignment: .bottom, spacing: 2) {
-                        RoundedRectangle(cornerRadius: 0.8).fill(tone).frame(width: 2.4, height: 5)
-                        RoundedRectangle(cornerRadius: 0.8).fill(tone).frame(width: 2.4, height: 8)
-                        RoundedRectangle(cornerRadius: 0.8).fill(tone).frame(width: 2.4, height: 10.5)
-                    }
                 }
+                Text(percent.map { "\($0)%" } ?? "--")
+                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                    .monospacedDigit().foregroundStyle(tone).lineLimit(1)
             }.frame(width: 38, height: 38).frame(width: 48, height: 48).contentShape(Circle())
         }
         .buttonStyle(.plain)
