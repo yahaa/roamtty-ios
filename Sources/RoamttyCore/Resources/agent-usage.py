@@ -194,6 +194,8 @@ def parse_claude_file(path, cutoff=None):
     latest_model = ""
     latest_effort = ""
     latest_ctx = None
+    first_ctx = None
+    max_ctx_seen = 0
     first_cwd = ""
     has_in_range = False
     idx = 0
@@ -207,6 +209,23 @@ def parse_claude_file(path, cutoff=None):
                             first_cwd = o["cwd"]
                     except Exception:
                         pass
+                if '"compact_boundary"' in line or '"microcompact_boundary"' in line:
+                    try:
+                        o = json.loads(line)
+                    except Exception:
+                        continue
+                    if o.get("type") == "system" and o.get("subtype") in ("compact_boundary", "microcompact_boundary"):
+                        cm = o.get("compactMetadata") or o.get("microcompactMetadata")
+                        if isinstance(cm, dict):
+                            pre = safe_int(cm.get("preTokens"))
+                            if pre > max_ctx_seen:
+                                max_ctx_seen = pre
+                            post = safe_int(cm.get("postTokens"))
+                            if post > 0:
+                                latest_ctx = (post, 0, 0, 0)
+                            elif o.get("subtype") == "compact_boundary" and first_ctx is not None and (pre == 0 or first_ctx < pre):
+                                latest_ctx = (first_ctx, 0, 0, 0)
+                    continue
                 if '"usage"' not in line or '"input_tokens"' not in line:
                     continue
                 try:
@@ -243,9 +262,20 @@ def parse_claude_file(path, cutoff=None):
                 if prev is None:
                     ordered_keys.append(mid)
                     by_id[mid] = (inp, out, cr, cc, model)
+                    updated = True
+                elif out >= prev[1]:
+                    by_id[mid] = (inp, out, cr, cc, model)
+                    updated = True
                 else:
-                    if out >= prev[1]:
-                        by_id[mid] = (inp, out, cr, cc, model)
+                    updated = False
+                if updated:
+                    latest_model = model
+                    ctx_u = inp + cr + cc
+                    if first_ctx is None and ctx_u > 0:
+                        first_ctx = ctx_u
+                    if ctx_u > max_ctx_seen:
+                        max_ctx_seen = ctx_u
+                    latest_ctx = (ctx_u, cr, cc, inp)
     except OSError:
         return None
 
@@ -258,10 +288,10 @@ def parse_claude_file(path, cutoff=None):
         s_out += out
         s_cr += cr
         s_cc += cc
-        latest_model = model
-        latest_ctx = (inp + cr + cc, cr, cc, inp)
+        if not latest_model:
+            latest_model = model
     ctx_used, ctx_cr, ctx_cc, ctx_turn = latest_ctx
-    ctx_limit = infer_claude_ctx_limit(latest_model, ctx_used)
+    ctx_limit = infer_claude_ctx_limit(latest_model, max(ctx_used, max_ctx_seen))
     if not latest_effort and cutoff is None:
         latest_effort = claude_settings_effort(latest_model)
     return {
@@ -517,6 +547,7 @@ def parse_codex_file(path, cutoff=None, model_cache=None):
         ctx_limit = model_cache.get(model, 0)
     last_inp = safe_int(last_u.get("input_tokens"))
     last_cr = min(last_inp, safe_int(last_u.get("cached_input_tokens")))
+    last_tot = safe_int(last_u.get("total_tokens"))
     tot_inp = safe_int(tot_u.get("input_tokens"))
     tot_cr = min(tot_inp, safe_int(tot_u.get("cached_input_tokens")))
     tot_cc = safe_int(tot_u.get("cache_write_input_tokens"))
@@ -545,6 +576,13 @@ def parse_codex_file(path, cutoff=None, model_cache=None):
         res["ctx_cache_read"] = last_cr
         res["ctx_cache_create"] = 0
         res["ctx_turn"] = max(0, last_inp - last_cr)
+    elif last_tot > 0 and ctx_limit > 0:
+        # After /compact or auto-compaction, Codex reports retained context in total_tokens with input_tokens=0.
+        res["ctx_used"] = last_tot
+        res["ctx_limit"] = ctx_limit
+        res["ctx_cache_read"] = 0
+        res["ctx_cache_create"] = 0
+        res["ctx_turn"] = 0
     return res
 
 
@@ -755,33 +793,60 @@ def parse_agy_file(path, cutoff=None):
     raw_model = ""
     s_in = s_out = s_cr = 0
     latest_ctx = None
+    first_ctx = None
+    max_ctx_seen = 0
     has_in_range = False
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             for line in f:
-                if '"PLANNER_RESPONSE"' not in line:
+                if '"PLANNER_RESPONSE"' not in line and '"CHECKPOINT"' not in line:
                     continue
                 try:
                     o = json.loads(line)
                 except Exception:
                     continue
-                if o.get("type") != "PLANNER_RESPONSE":
-                    continue
-                ts = parse_iso_ts(o.get("created_at"))
-                if cutoff is not None and ts is not None and ts < cutoff:
-                    continue
-                inp = safe_int(o.get("input_tokens"))
-                out = safe_int(o.get("output_tokens"))
-                cr = safe_int(o.get("cache_read_tokens"))
-                if inp == 0 and out == 0 and cr == 0:
-                    continue
-                has_in_range = True
-                if isinstance(o.get("model"), str) and o["model"]:
-                    raw_model = o["model"]
-                s_in += inp
-                s_out += out
-                s_cr += cr
-                latest_ctx = (inp + cr, cr, 0, inp)
+                typ = o.get("type")
+                if typ == "PLANNER_RESPONSE":
+                    ts = parse_iso_ts(o.get("created_at"))
+                    inp = safe_int(o.get("input_tokens"))
+                    out = safe_int(o.get("output_tokens"))
+                    cr = safe_int(o.get("cache_read_tokens"))
+                    if inp == 0 and out == 0 and cr == 0:
+                        continue
+                    ctx_u = inp + cr
+                    if first_ctx is None and ctx_u > 0:
+                        first_ctx = ctx_u
+                    if ctx_u > max_ctx_seen:
+                        max_ctx_seen = ctx_u
+                    if isinstance(o.get("model"), str) and o["model"]:
+                        raw_model = o["model"]
+                    if cutoff is None or ts is None or ts >= cutoff:
+                        has_in_range = True
+                        s_in += inp
+                        s_out += out
+                        s_cr += cr
+                        latest_ctx = (ctx_u, cr, 0, inp)
+                elif typ == "CHECKPOINT":
+                    ts = parse_iso_ts(o.get("created_at"))
+                    inp = safe_int(o.get("input_tokens"))
+                    out = safe_int(o.get("output_tokens"))
+                    cr = safe_int(o.get("cache_read_tokens"))
+                    if inp + cr > max_ctx_seen:
+                        max_ctx_seen = inp + cr
+                    if (cutoff is None or ts is None or ts >= cutoff) and (inp or out or cr):
+                        has_in_range = True
+                        s_in += inp
+                        s_out += out
+                        s_cr += cr
+                    if cutoff is None:
+                        # Compaction replaces prior history with base system prompt + checkpoint summary until next turn.
+                        summary_tok = out if out > 0 else (len(o.get("content") or "") // 4)
+                        base_tok = first_ctx or 0
+                        post_ctx = base_tok + summary_tok
+                        if latest_ctx is not None and post_ctx >= latest_ctx[0] and 0 < summary_tok < latest_ctx[0]:
+                            post_ctx = summary_tok
+                        if post_ctx > 0:
+                            latest_ctx = (post_ctx, 0, 0, 0)
     except OSError:
         return None
     if not has_in_range:
@@ -789,20 +854,22 @@ def parse_agy_file(path, cutoff=None):
     clean_model, effort = split_model_effort(raw_model)
     if not effort and cutoff is None:
         effort = agy_settings_effort()
-    ctx_used, ctx_cr, ctx_cc, ctx_turn = latest_ctx
-    return {
+    res = {
         "model": clean_model or raw_model,
         "effort": effort,
-        "ctx_used": ctx_used,
-        "ctx_limit": infer_agy_ctx_limit(clean_model or raw_model, ctx_used),
-        "ctx_cache_read": ctx_cr,
-        "ctx_cache_create": ctx_cc,
-        "ctx_turn": ctx_turn,
         "sess_input": s_in,
         "sess_output": s_out,
         "sess_cache_read": s_cr,
         "sess_cache_create": 0,
     }
+    if latest_ctx is not None:
+        ctx_used, ctx_cr, ctx_cc, ctx_turn = latest_ctx
+        res["ctx_used"] = ctx_used
+        res["ctx_limit"] = infer_agy_ctx_limit(clean_model or raw_model, max(ctx_used, max_ctx_seen))
+        res["ctx_cache_read"] = ctx_cr
+        res["ctx_cache_create"] = ctx_cc
+        res["ctx_turn"] = ctx_turn
+    return res
 
 
 def find_agy_transcript(transcript, sid, cwd):

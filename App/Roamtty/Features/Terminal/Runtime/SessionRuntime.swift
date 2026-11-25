@@ -44,6 +44,7 @@ import RoamttyTransport
     @Published var agentUsage: AgentSessionUsage?
     @Published var agentUsageLoading = false
     var agentUsageTask: Task<Void, Never>?
+    var compactRefreshTask: Task<Void, Never>?
     var lastAgentUsageAt: Date?
     var lastAgentUsageState: AgentStatus.State?
     /// The status the last answered poll reported, starting from what the session reported before this runtime: what

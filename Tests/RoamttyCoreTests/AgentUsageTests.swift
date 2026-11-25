@@ -90,4 +90,86 @@ final class AgentUsageTests: XCTestCase {
         XCTAssertEqual(AgentUsage.formatQuotaReset(18_040, now: now, english: true), "Resets in 2h 14m")
         XCTAssertEqual(AgentUsage.formatQuotaReset(18_040, now: now, compact: true), "2h14m")
     }
+
+    func testCollectorDropsContextUsageImmediatelyAfterCompactionAcrossAgents() throws {
+        let fm = FileManager.default
+        let home = fm.temporaryDirectory.appendingPathComponent("roamtty-usage-compact-\(UUID().uuidString)")
+        try fm.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: home) }
+
+        func runSession(_ agent: CodingAgent, cwd: String) throws -> AgentSessionUsage {
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/bin/sh")
+            proc.arguments = ["-c", AgentUsage.sessionCommand(agent: agent, tmuxSession: nil, directory: cwd)]
+            var env = ProcessInfo.processInfo.environment
+            env["HOME"] = home.path
+            env["ROAMTTY_NO_LIVE_QUOTA"] = "1"
+            proc.environment = env
+            let stdinPipe = Pipe(), stdoutPipe = Pipe()
+            proc.standardInput = stdinPipe
+            proc.standardOutput = stdoutPipe
+            try proc.run()
+            stdinPipe.fileHandleForWriting.write(AgentUsage.scriptData)
+            try stdinPipe.fileHandleForWriting.close()
+            proc.waitUntilExit()
+            XCTAssertEqual(proc.terminationStatus, 0)
+            let out = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
+            return try XCTUnwrap(AgentUsage.parseSession(out))
+        }
+
+        // 1. Antigravity: CHECKPOINT drops 43% -> 2% before next PLANNER_RESPONSE.
+        let agyDir = home.appendingPathComponent(".gemini/antigravity-cli/brain/conv-compact/.system_generated/logs")
+        try fm.createDirectory(at: agyDir, withIntermediateDirectories: true)
+        let agyFile = agyDir.appendingPathComponent("transcript.jsonl")
+        let agyInitial = """
+        {"type":"PLANNER_RESPONSE","created_at":"2099-01-01T00:00:01Z","model":"gemini-4-neon-xhigh","input_tokens":12180,"output_tokens":300,"cache_read_tokens":0}
+        {"type":"PLANNER_RESPONSE","created_at":"2099-01-01T00:10:00Z","model":"gemini-4-neon-xhigh","input_tokens":2519,"output_tokens":1597,"cache_read_tokens":426997}
+        {"type":"CHECKPOINT","created_at":"2099-01-01T00:15:00Z","input_tokens":2506,"output_tokens":5080,"cache_read_tokens":429517,"content":"# Resuming from a compaction"}
+
+        """
+        try agyInitial.write(to: agyFile, atomically: true, encoding: .utf8)
+        let agyPost = try runSession(.agy, cwd: "/work/app")
+        XCTAssertEqual(agyPost.contextUsed, 17_260)
+        XCTAssertEqual(agyPost.contextLimit, 1_000_000)
+        XCTAssertEqual(agyPost.contextPercent, 2)
+        XCTAssertEqual(agyPost.contextCacheRead, 0)
+        XCTAssertEqual(agyPost.contextTurn, 0)
+
+        // 2. Claude Code: compact_boundary drops context immediately to postTokens and keeps 1M window.
+        let claudeDir = home.appendingPathComponent(".claude/projects/-work-app")
+        try fm.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+        let claudeLines = [
+            #"{"type":"assistant","effort":"high","cwd":"/work/app","timestamp":"2099-01-01T00:00:01Z","message":{"id":"m1","model":"claude-opus-4-6","#
+                + #""usage":{"input_tokens":5000,"output_tokens":400,"cache_read_input_tokens":781844,"cache_creation_input_tokens":0}}}"#,
+            #"{"type":"system","subtype":"compact_boundary","cwd":"/work/app","timestamp":"2099-01-01T00:05:00Z","#
+                + #""compactMetadata":{"trigger":"manual","preTokens":786844,"postTokens":15880,"cumulativeDroppedTokens":770964}}"#
+        ]
+        try (claudeLines.joined(separator: "\n") + "\n")
+            .write(to: claudeDir.appendingPathComponent("s-compact.jsonl"), atomically: true, encoding: .utf8)
+        let claudePost = try runSession(.claude, cwd: "/work/app")
+        XCTAssertEqual(claudePost.contextUsed, 15_880)
+        XCTAssertEqual(claudePost.contextLimit, 1_000_000)
+        XCTAssertEqual(claudePost.contextPercent, 2)
+
+        // 3. Codex: post-compaction token_count has input_tokens=0 and retained context in total_tokens.
+        let codexDir = home.appendingPathComponent(".codex/sessions/2026/11/25")
+        try fm.createDirectory(at: codexDir, withIntermediateDirectories: true)
+        let codexLines = [
+            #"{"timestamp":"2099-01-01T00:00:00Z","type":"session_meta","payload":{"cwd":"/work/app"}}"#,
+            #"{"timestamp":"2099-01-01T00:00:01Z","type":"turn_context","payload":{"model":"gpt-5.4","effort":"high","cwd":"/work/app"}}"#,
+            #"{"timestamp":"2099-01-01T00:01:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":"#
+                + #"{"input_tokens":243047,"cached_input_tokens":242944,"output_tokens":6845},"last_token_usage":"#
+                + #"{"input_tokens":243047,"cached_input_tokens":242944,"output_tokens":6845,"total_tokens":249892},"model_context_window":258400}}}"#,
+            #"{"timestamp":"2099-01-01T00:02:00Z","type":"compacted","payload":{"message":""}}"#,
+            #"{"timestamp":"2099-01-01T00:02:01Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":"#
+                + #"{"input_tokens":243047,"cached_input_tokens":242944,"output_tokens":6845},"last_token_usage":"#
+                + #"{"input_tokens":0,"cached_input_tokens":0,"output_tokens":0,"total_tokens":37754},"model_context_window":258400}}}"#
+        ]
+        try (codexLines.joined(separator: "\n") + "\n")
+            .write(to: codexDir.appendingPathComponent("rollout-compact.jsonl"), atomically: true, encoding: .utf8)
+        let codexPost = try runSession(.codex, cwd: "/work/app")
+        XCTAssertEqual(codexPost.contextUsed, 37_754)
+        XCTAssertEqual(codexPost.contextLimit, 258_400)
+        XCTAssertEqual(codexPost.contextPercent, 15)
+    }
 }

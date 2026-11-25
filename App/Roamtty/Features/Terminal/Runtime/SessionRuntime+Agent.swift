@@ -19,6 +19,7 @@ extension SessionRuntime {
     func stopAgentStatusPolling() {
         agentPoll?.cancel(); agentPoll = nil; agentStatus = nil; agentPolled = false
         agentUsageTask?.cancel(); agentUsageTask = nil; agentUsage = nil; agentUsageLoading = false
+        compactRefreshTask?.cancel(); compactRefreshTask = nil
         lastAgentUsageAt = nil; lastAgentUsageState = nil
     }
 
@@ -61,9 +62,9 @@ extension SessionRuntime {
         }
         let now = Date()
         let stateChanged = status?.state != lastAgentUsageState
+        lastAgentUsageState = status?.state
         let stale = lastAgentUsageAt.map { now.timeIntervalSince($0) >= 12 } ?? true
         if stale || (stateChanged && status?.state == .idle) {
-            lastAgentUsageState = status?.state
             refreshAgentUsage(force: false)
         }
     }
@@ -91,13 +92,22 @@ extension SessionRuntime {
     /// Sends the active agent's native context compaction command behind the "压缩上下文" button.
     func compactContext() async -> Bool {
         guard phase == .connected, let kind = activeAgentKind ?? launchedAgent, let cmd = kind.compactCommand else { return false }
+        let beforeCtx = agentUsage?.contextUsed
         let input = terminalView.getTerminal().bracketedPasteMode ? "\u{1b}[200~" + cmd + "\u{1b}[201~" : cmd
         guard send(input) else { return false }
         try? await Task.sleep(for: .milliseconds(120))
         guard send("\r") else { return false }
-        Task { [weak self] in
-            try? await Task.sleep(for: .seconds(4))
-            self?.refreshAgentUsage(force: false)
+        compactRefreshTask?.cancel()
+        compactRefreshTask = Task { [weak self] in
+            // Compaction typically finishes in 2-20s; re-poll at staggered intervals and stop once context drops.
+            for waitSeconds in [3, 4, 7, 10] {
+                do { try await Task.sleep(for: .seconds(waitSeconds)) } catch { return }
+                guard let self, self.phase == .connected else { return }
+                self.refreshAgentUsage(force: false)
+                await self.agentUsageTask?.value
+                let afterCtx = self.agentUsage?.contextUsed
+                if let afterCtx, beforeCtx.map({ afterCtx < $0 }) ?? true { return }
+            }
         }
         return true
     }
