@@ -106,8 +106,7 @@ struct SessionRow: View {
                 if showUsageFooter, let usage { SessionUsageFooter(usage: usage).opacity(fade) }
                 if replying { followUpField(kind: kind, runtime: runtime) }
                 if let failure { Text(failure).font(.system(size: 12)).foregroundStyle(Palette.danger).lineLimit(2).padding(.top, 6) }
-            }.padding(.horizontal, 14).padding(.top, 12).padding(.bottom, showUsageFooter ? 9 : 12)
-            if let pct = usage?.contextPercent { SessionContextBottomBar(percent: pct).opacity(fade) }
+            }.padding(.horizontal, 14).padding(.vertical, 12)
         }
         .overlay(alignment: .leading) { if waiting { Rectangle().fill(Palette.warning).frame(width: 3) } }
         .foregroundStyle(Palette.foreground)
@@ -307,30 +306,32 @@ private struct SessionUsageFooter: View {
             }
             .font(.system(size: 10.5, design: .monospaced)).monospacedDigit()
             .padding(.top, 5)
+            if let pct {
+                SessionContextBottomBar(percent: pct).padding(.top, 5)
+            }
         }
         .padding(.top, 6)
         .accessibilityIdentifier("session-usage-footer")
     }
 }
 
-/// Flush 2pt bottom-edge context progress hairline across an AI Agent session card (Option B1).
+/// Crisp 2.5pt rounded capsule context progress bar aligned to the card's inner width (Option B1).
 private struct SessionContextBottomBar: View {
     let percent: Int
 
     var body: some View {
         let fraction = CGFloat(min(100, max(0, percent))) / 100.0
-        let fill: Color = percent >= 90 ? Palette.danger : percent >= 75 ? Palette.warning.opacity(0.90) : Palette.secondary.opacity(0.38)
+        let fill: Color = percent >= 90 ? Palette.danger : percent >= 75 ? Palette.warning.opacity(0.90) : Palette.secondary.opacity(0.42)
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Rectangle().fill(Palette.foreground.opacity(0.055))
-                if fraction > 0 {
-                    Rectangle().fill(fill)
-                        .frame(width: geo.size.width * fraction)
-                        .clipShape(RoundedRectangle(cornerRadius: 2))
+                Capsule().fill(Palette.foreground.opacity(0.06))
+                if percent > 0 {
+                    Capsule().fill(fill)
+                        .frame(width: min(geo.size.width, max(3, geo.size.width * fraction)))
                 }
             }
         }
-        .frame(height: 2)
+        .frame(height: 2.5)
         .accessibilityIdentifier("session-context-bar")
     }
 }
