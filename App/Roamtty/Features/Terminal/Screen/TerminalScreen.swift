@@ -98,7 +98,6 @@ struct TerminalScreen: View {
                 TerminalContextRing(percent: runtime.agentUsage?.contextPercent) {
                     _ = runtime.terminalView.resignFirstResponder()
                     collapseIfFloating()
-                    runtime.refreshAgentUsage(force: true)
                     usageSheet = true
                 }
                 .padding(.top, insets.top + 6)
