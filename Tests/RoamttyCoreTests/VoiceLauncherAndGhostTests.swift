@@ -15,7 +15,8 @@ final class VoiceLauncherAndGhostTests: XCTestCase {
 
         let fakeAgy = dir.appendingPathComponent("agy")
         let seen = dir.appendingPathComponent("seen.txt")
-        try "#!/bin/sh\nprintf '%s|%s' \"$ROAMTTY_AGENT\" \"$ANTIGRAVITY_MIC\" > '\(seen.path)'\nexit 0\n"
+        let argsSeen = dir.appendingPathComponent("args.txt")
+        try "#!/bin/sh\nprintf '%s|%s' \"$ROAMTTY_AGENT\" \"$ANTIGRAVITY_MIC\" > '\(seen.path)'\nprintf '%s\\n' \"$@\" > '\(argsSeen.path)'\nexit 0\n"
             .write(to: fakeAgy, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeAgy.path)
 
@@ -29,6 +30,18 @@ final class VoiceLauncherAndGhostTests: XCTestCase {
         try proc.run(); proc.waitUntilExit()
         XCTAssertEqual(proc.terminationStatus, 0)
         XCTAssertEqual(try String(contentsOf: seen, encoding: .utf8), "agy|127.0.0.1:24713")
+        let args = try String(contentsOf: argsSeen, encoding: .utf8)
+        XCTAssertTrue(args.contains("--settings"), args)
+        XCTAssertTrue(args.contains("\"fullDuplex\":true"), args)
+        XCTAssertTrue(args.contains("sh ~/.roamtty/agent-hook.sh agy statusline"), args)
+
+        // Explicit --settings passed by caller is preserved without duplicating launcher --settings.
+        let procCustom = Process()
+        procCustom.executableURL = launcher
+        procCustom.arguments = ["--settings", "{}"]
+        procCustom.environment = env
+        try procCustom.run(); procCustom.waitUntilExit()
+        XCTAssertEqual(try String(contentsOf: argsSeen, encoding: .utf8), "--settings\n{}\n")
 
         // Dynamic default launcher uses 127.0.0.1:24713 when voice-mic is absent, and honors ~/.roamtty/voice-mic when present.
         try AgentHooks.agyLauncher(micPort: nil).write(to: launcher, atomically: true, encoding: .utf8)
@@ -113,7 +126,15 @@ final class VoiceLauncherAndGhostTests: XCTestCase {
         XCTAssertEqual(speaking.audioLevel, 0.65, accuracy: 0.0001)
 
         let muted = GhostVoiceState.muted
-        XCTAssertTrue(muted.showsHandset && !muted.showsAura && !muted.showsSoundWaves && muted.showsMuteBadge)
+        XCTAssertTrue(muted.showsHandset && muted.showsAura && !muted.showsSoundWaves && muted.showsMuteBadge)
+
+        // Pet stays green (.stable) across every active call state while network is stable,
+        // and shifts to amber (.unstable) only when network is unstable or reconnecting.
+        for activeState in [connecting, listening, speaking, muted] {
+            XCTAssertEqual(GhostVoiceTone.forCall(state: activeState, networkUnstable: false), .stable)
+            XCTAssertEqual(GhostVoiceTone.forCall(state: activeState, networkUnstable: true), .unstable)
+        }
+        XCTAssertEqual(GhostVoiceTone.forCall(state: .idle, networkUnstable: true), .stable)
 
         // Reduce Motion freezes bob/sway/jiggle/pulse while retaining static handset & wave marks.
         let rmA = GhostVoicePose.at(0.1, voice: speaking, reduceMotion: true)

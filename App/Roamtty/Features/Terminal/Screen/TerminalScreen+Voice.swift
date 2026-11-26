@@ -2,7 +2,7 @@ import SwiftUI
 import RoamttyCore
 import RoamttyDesktopCore
 
-/// Terminal voice dock button, confirmation sheet, floating call popover, and toast overlay.
+/// Terminal voice dock button, floating call popover, and toast overlay.
 extension TerminalScreen {
     var isAgySession: Bool {
         runtime.activeAgentKind == .agy || runtime.launchedAgent == .agy
@@ -13,8 +13,8 @@ extension TerminalScreen {
 
     var voiceDockButton: some View {
         let inCall = runtime.voice.active
-        let muted = runtime.voice.isMuted
-        let tint: Color = inCall ? (muted ? Palette.warning : Palette.success) : Palette.foreground
+        let unstable = runtime.voice.networkUnstable
+        let tint: Color = inCall ? (unstable ? Palette.warning : Palette.success) : Palette.foreground
         return Button {
             toolbox.touchDock(at: now)
             runtime.controlArmed = false
@@ -24,7 +24,9 @@ extension TerminalScreen {
                 withAnimation(.easeOut(duration: 0.18)) { runtime.voice.popoverOpen = true }
             } else {
                 _ = runtime.terminalView.resignFirstResponder()
-                voiceSheet = true
+                collapseDockSyncingPin()
+                let route: VoiceAudioRoute = VoiceAudioEngine.hasBluetoothRoute ? .bluetooth : .speaker
+                runtime.voice.startCall(mode: .live, route: route, runtime: runtime, model: model)
             }
         } label: {
             ZStack(alignment: .topTrailing) {
@@ -87,28 +89,6 @@ extension TerminalScreen {
                 .transition(.opacity.combined(with: .move(edge: .top)))
                 .accessibilityIdentifier("voice-toast")
         }
-    }
-
-    var voiceConfirmationSheetContent: some View {
-        let pluginMissing = model.desktopPluginInstalled[runtime.record.hostID] == false
-        return VoiceConfirmationSheet(
-            hostName: runtime.host.name,
-            desktopPipActive: pipDesktop != nil,
-            pluginMissing: pluginMissing,
-            micPermission: VoiceAudioEngine.microphonePermission,
-            onCancel: { voiceSheet = false },
-            onConfirm: { mode, route in
-                voiceSheet = false
-                collapseDockSyncingPin()
-                runtime.voice.startCall(mode: mode, route: route, runtime: runtime, model: model)
-            }
-        )
-        .environmentObject(model)
-        .onPreferenceChange(VoiceSheetHeightKey.self) { height in
-            if height > 0 { voiceSheetHeight = ceil(height) }
-        }
-        .presentationDetents([.height(max(360, voiceSheetHeight)), .large])
-        .presentationDragIndicator(.visible)
     }
 
     func collapseDockSyncingPin() {

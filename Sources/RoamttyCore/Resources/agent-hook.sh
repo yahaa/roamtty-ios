@@ -10,7 +10,8 @@ session=$3
 case "$agent" in grok|agy) [ "$ROAMTTY_AGENT" = "$agent" ] || exit 0 ;; esac
 # A Claude Code session sent to the background (/bg, or the agents view) runs on outside tmux. Its hooks report to the
 # tmux session named in its settings; with older settings, to the pane whose recorded session it resumes.
-[ -n "$TMUX_PANE" ] || [ "$agent" = claude ] || exit 0
+# statusLine hooks also cache live quotas even if started outside tmux.
+[ -n "$TMUX_PANE" ] || [ "$agent" = claude ] || [ "$event" = statusline ] || exit 0
 in_pane=${TMUX_PANE:+1}
 input=$(cat 2>/dev/null)
 # Claude Code statusLine hook receives official 5h/7d rate_limits JSON; cache for Roamtty and forward user statusLine if set.
@@ -42,6 +43,56 @@ try:
     cmd = sl.get("command", "") if isinstance(sl, dict) else ""
     if isinstance(cmd, str) and cmd.strip() and "agent-hook.sh" not in cmd:
         print(cmd)
+except Exception:
+    pass
+' 2>/dev/null)
+    if [ -n "$user_cmd" ]; then
+      printf '%s' "$input" | sh -c "$user_cmd" 2>/dev/null || true
+    fi
+  fi
+  exit 0
+fi
+# Antigravity CLI statusLine hook receives live 5h/weekly quota JSON from the authenticated session; cache atomically
+# (works even over macOS SSH where `agy -p /quota` cannot unlock Keychain) and forward any user statusLine command.
+if [ "$agent" = agy ] && [ "$event" = statusline ]; then
+  if command -v python3 >/dev/null 2>&1; then
+    user_cmd=$(printf '%s' "$input" | python3 -c '
+import json, os, sys, time
+try:
+    data = json.loads(sys.stdin.read() or "{}")
+except Exception:
+    data = {}
+quota = data.get("quota") if isinstance(data, dict) else None
+if isinstance(quota, dict):
+    cleaned = {}
+    for k, v in quota.items():
+        if isinstance(v, dict) and v.get("remaining_fraction") is not None:
+            cleaned[k] = {
+                "remaining_fraction": float(v["remaining_fraction"]),
+                "reset_time": v.get("reset_time"),
+                "reset_in_seconds": v.get("reset_in_seconds"),
+            }
+    if cleaned:
+        model_info = data.get("model") if isinstance(data.get("model"), dict) else {}
+        out = {
+            "_fetched_at": int(time.time()),
+            "_source": "statusline",
+            "model": model_info.get("id") or "",
+            "quota": cleaned,
+        }
+        d = os.path.expanduser("~/.roamtty")
+        os.makedirs(d, exist_ok=True)
+        tmp = os.path.join(d, f".quota-agy.{os.getpid()}.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(out, f)
+        os.replace(tmp, os.path.join(d, "quota-agy.json"))
+try:
+    cfg = json.load(open(os.path.expanduser("~/.gemini/antigravity-cli/settings.json"), encoding="utf-8"))
+    sl = cfg.get("statusLine") if isinstance(cfg, dict) else None
+    if isinstance(sl, dict) and sl.get("enabled", True) is not False:
+        cmd = sl.get("command", "")
+        if isinstance(cmd, str) and cmd.strip() and "agent-hook.sh" not in cmd:
+            print(cmd)
 except Exception:
     pass
 ' 2>/dev/null)

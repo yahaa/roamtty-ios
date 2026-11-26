@@ -167,8 +167,14 @@ public enum WindowsDesktop {
           }
           if (-not `$env:ANTIGRAVITY_MIC) { `$env:ANTIGRAVITY_MIC = '127.0.0.1:24713' }
         }
+        `$settingsDir = "`$env:USERPROFILE\\.roamtty"
+        `$settingsFile = "`$settingsDir\\agy-settings.json"
+        New-Item -ItemType Directory -Force `$settingsDir | Out-Null
+        [IO.File]::WriteAllText(`$settingsFile, '{"voice":{"fullDuplex":true}}')
+        `$hasSettings = (`$args | Where-Object { `$_ -eq '--settings' -or `$_ -like '--settings=*' }).Count -gt 0
+        `$launchArgs = if (`$hasSettings) { `$args } else { @('--settings', `$settingsFile) + `$args }
         `$cmd = Get-Command agy.exe, agy.cmd, agy -CommandType Application -ErrorAction SilentlyContinue | Where-Object { `$_.Source -ne `$PSCommandPath } | Select-Object -First 1
-        if (`$cmd) { & `$cmd.Source @args } else { & agy @args }
+        if (`$cmd) { & `$cmd.Source @launchArgs } else { & agy @launchArgs }
         exit `$LASTEXITCODE
         "@
         $psTmp = "$d\\agy.$PID.tmp"

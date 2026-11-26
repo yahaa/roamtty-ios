@@ -136,7 +136,9 @@ extension AgentStatusTests {
         XCTAssertEqual(pluginJSON?["name"] as? String, "roamtty")
         XCTAssertNotNil(hooksJSON?["roamtty"] as? [String: Any])
         let recorded = try String(contentsOf: seen, encoding: .utf8)
-        XCTAssertTrue(recorded.hasPrefix("agy|--mode plan|idle|"), recorded)
+        XCTAssertTrue(recorded.hasPrefix("agy|--settings "), recorded)
+        XCTAssertTrue(recorded.contains("\"fullDuplex\":true"), recorded)
+        XCTAssertTrue(recorded.contains(" --mode plan|idle|"), recorded)
         XCTAssertNil(fixture.option("@roamtty_agent"), "end hook clears state after agy exits")
     }
 }

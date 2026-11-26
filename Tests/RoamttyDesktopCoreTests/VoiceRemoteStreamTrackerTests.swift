@@ -91,13 +91,4 @@ final class VoiceRemoteStreamTrackerTests: XCTestCase {
         XCTAssertEqual(tracker.handle(.micStopped(streamId: 2), at: 20.0), .none)
         XCTAssertEqual(tracker.handle(.speakerStopped(streamId: 1), at: 20.01), .scheduleRemoteEnd(.ended))
     }
-
-    func testDictationModeEndsImmediatelyOnMicStopAndIgnoresStaleMicStop() {
-        var tracker = VoiceRemoteStreamTracker(mode: .dictate)
-        XCTAssertEqual(tracker.handle(.micStarted(streamId: 5, sampleRate: 16_000), at: 1.0), .streamActive)
-        // Stale stream id while active mic=5 is ignored.
-        XCTAssertEqual(tracker.handle(.micStopped(streamId: 4), at: 1.5), .none)
-        // Matching mic stop ends immediately.
-        XCTAssertEqual(tracker.handle(.micStopped(streamId: 5), at: 2.0), .endedImmediately(.dictationFinished))
-    }
 }

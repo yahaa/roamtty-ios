@@ -22,8 +22,8 @@ final class VoiceUITests: XCTestCase {
         _ app: XCUIApplication,
         state: String? = nil,
         dockOpen: Bool = false,
-        sheetOpen: Bool = false,
         popoverOpen: Bool = false,
+        networkUnstable: Bool = false,
         pluginMissing: Bool = false,
         english: Bool = false
     ) {
@@ -34,8 +34,8 @@ final class VoiceUITests: XCTestCase {
         app.launchEnvironment["ROAMTTY_STORAGE_NAME"] = "VoiceUIFixture"
         app.launchEnvironment["ROAMTTY_VOICE_FIXTURE_LANGUAGE"] = english ? "en" : "zh-Hans"
         app.launchEnvironment["ROAMTTY_VOICE_FIXTURE_DOCK"] = dockOpen ? "1" : "0"
-        app.launchEnvironment["ROAMTTY_VOICE_FIXTURE_SHEET"] = sheetOpen ? "1" : "0"
         app.launchEnvironment["ROAMTTY_VOICE_FIXTURE_POPOVER"] = popoverOpen ? "1" : "0"
+        app.launchEnvironment["ROAMTTY_VOICE_FIXTURE_UNSTABLE"] = networkUnstable ? "1" : "0"
         app.launchEnvironment["ROAMTTY_VOICE_FIXTURE_PLUGIN_MISSING"] = pluginMissing ? "1" : "0"
         if let state { app.launchEnvironment["ROAMTTY_VOICE_FIXTURE_STATE"] = state } else { app.launchEnvironment.removeValue(forKey: "ROAMTTY_VOICE_FIXTURE_STATE") }
         app.launch()
@@ -61,7 +61,7 @@ final class VoiceUITests: XCTestCase {
         return voiceBtn
     }
 
-    func testVoiceFlowDockSheetFloatingPetPopoverAndGestures() {
+    func testVoiceOneTapLiveCallFloatingPetPopoverAndGestures() {
         let app = XCUIApplication()
         defer { app.terminate() }
 
@@ -72,38 +72,20 @@ final class VoiceUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 0.4)
         saveShot("01-voice-dock-phone")
 
-        // 2. Tap phone button -> Confirmation Bottom Sheet (re-open dock if 5s quiet timer elapsed during screenshot).
+        // 2. Tap phone button -> starts live call immediately (no confirmation sheet), dock collapses, floating ghost appears & never auto-hides (>5s).
         ensureVoiceDockButton(app).tap()
-        let confirmBtn = app.buttons["voice-sheet-confirm"]
-        XCTAssertTrue(confirmBtn.waitForExistence(timeout: 5), "Confirmation sheet must present")
-        let cancelBtn = app.buttons["voice-sheet-cancel"]
-        XCTAssertTrue(cancelBtn.exists && cancelBtn.frame.width > 80, "Cancel button must be visibly sized beside Confirm")
-        XCTAssertGreaterThan(confirmBtn.frame.width, cancelBtn.frame.width, "Confirm button must be wider than Cancel")
-        XCTAssertTrue(app.buttons["voice-mode-live"].exists)
-        XCTAssertTrue(app.buttons["voice-mode-dictate"].exists)
-        XCTAssertTrue(app.buttons["voice-route-speaker"].exists)
-        Thread.sleep(forTimeInterval: 0.5)
-        saveShot("02-voice-confirm-sheet")
-
-        // Toggle Dictation hides route row; switch back to Live Call restores route row.
-        app.buttons["voice-mode-dictate"].tap()
-        XCTAssertFalse(app.buttons["voice-route-speaker"].exists, "Dictation hides audio output pills")
-        app.buttons["voice-mode-live"].tap()
-        XCTAssertTrue(app.buttons["voice-route-speaker"].waitForExistence(timeout: 3))
-
-        // 3. Confirm -> dock collapses, floating ghost holds telephone handset & never auto-hides (>5s).
-        confirmBtn.tap()
+        XCTAssertFalse(app.buttons["voice-sheet-confirm"].exists, "Confirmation sheet must not appear")
         let ghost = app.buttons["terminal-ghost"]
         XCTAssertTrue(ghost.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["pet-voice-tag"].waitForExistence(timeout: 5))
         Thread.sleep(forTimeInterval: 0.6)
-        saveShot("03-voice-floating-pet")
+        saveShot("02-voice-floating-pet")
 
         // Confirm pet never auto-hides past normal 5s timeout while call is active.
         Thread.sleep(forTimeInterval: 5.4)
         XCTAssertTrue(ghost.exists, "Ghost pet must NEVER auto-hide during an active voice call")
 
-        // 4. Tap phone-holding pet -> compact call control popover pops to its left.
+        // 3. Tap phone-holding pet -> compact call control popover pops to its left.
         ghost.tap()
         let muteBtn = app.buttons["voice-pop-mute"]
         XCTAssertTrue(muteBtn.waitForExistence(timeout: 5))
@@ -111,7 +93,7 @@ final class VoiceUITests: XCTestCase {
         XCTAssertTrue(app.buttons["voice-pop-dock"].exists)
         XCTAssertTrue(app.buttons["voice-pop-hangup"].exists)
         Thread.sleep(forTimeInterval: 0.4)
-        saveShot("04-voice-call-popover")
+        saveShot("03-voice-call-popover")
 
         // Test Mute toggle and Route cycle.
         muteBtn.tap()
@@ -137,23 +119,19 @@ final class VoiceUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["pet-voice-tag"].waitForNonExistence(timeout: 3))
     }
 
-    func testVoiceSpeakingStateRendersCleanly() {
+    func testVoiceSpeakingAndUnstableNetworkStatesRenderCleanly() {
         let app = XCUIApplication()
         defer { app.terminate() }
         launchVoiceFixture(app, state: "speaking")
         XCTAssertTrue(app.buttons["terminal-ghost"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["AI 回复中"].waitForExistence(timeout: 5))
         Thread.sleep(forTimeInterval: 0.4)
-        saveShot("05-voice-pet-speaking")
-    }
+        saveShot("04-voice-pet-speaking")
 
-    func testVoiceSheetShowsInstallAndCallWhenPluginMissing() {
-        let app = XCUIApplication()
-        defer { app.terminate() }
-        launchVoiceFixture(app, dockOpen: true, pluginMissing: true)
-        ensureVoiceDockButton(app).tap()
-        let confirm = app.buttons["voice-sheet-confirm"]
-        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
-        XCTAssertTrue(confirm.label.contains("安装插件并通话"), "Expected install CTA, got: \(confirm.label)")
+        launchVoiceFixture(app, state: "listening", networkUnstable: true)
+        XCTAssertTrue(app.buttons["terminal-ghost"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["网络不稳定"].waitForExistence(timeout: 5))
+        Thread.sleep(forTimeInterval: 0.4)
+        saveShot("05-voice-pet-unstable")
     }
 }

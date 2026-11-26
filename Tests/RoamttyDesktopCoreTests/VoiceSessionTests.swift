@@ -282,6 +282,29 @@ final class VoiceSessionTests: XCTestCase {
         }, "close() must send CONFIG shutdown:true so voice-daemon releases port 24713 immediately")
         XCTAssertTrue(waitUntil(2) { cleared.value }, "close() must clear transient mic port override")
     }
+
+    func testMissedSshPingsMarkNetworkPoor() {
+        let poorObserved = Box<Bool>(false)
+        let host = FakeHost(probe: FakeHost.probe("no", uname: "Linux x86_64", version: "0.9.7")) { s, _ in
+            s.hello([
+                "proto": 1, "ver": "0.9.7", "os": "linux", "mode": "voice",
+                "mic_port": 24713, "session": "s_poor", "resume_token": "tok_poor", "codecs": ["pcm16"]
+            ])
+        }
+        let session = VoiceSession(
+            config: .init(hostName: "h", address: "127.0.0.1"),
+            manifest: manifest,
+            timings: fastTimings,
+            login: { .host(host) }
+        )
+        session.onNetworkPoor = { poor in if poor { poorObserved.value = true } }
+        defer { session.close() }
+        session.start()
+
+        XCTAssertTrue(waitUntil(3) { if case .ready(24713, _) = session.phase { return true }; return false })
+        XCTAssertFalse(session.networkPoor)
+        XCTAssertTrue(waitUntil(3) { session.networkPoor && poorObserved.value }, "unanswered pings must flag networkPoor")
+    }
 }
 
 final class FakeVoiceAudioIO: VoiceAudioIO, @unchecked Sendable {

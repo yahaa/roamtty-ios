@@ -12,9 +12,9 @@ private enum GhostInk {
     static let blush = Color(red: 0xFF / 255, green: 0x9E / 255, blue: 0xB5 / 255)
     static let metal = Color(red: 0xD9 / 255, green: 0xDE / 255, blue: 0xE8 / 255)
     static let keyboard = Color(red: 0xED / 255, green: 0xEB / 255, blue: 0xF5 / 255)
-    static let mutedPhone = Color(red: 0x9A / 255, green: 0x98 / 255, blue: 0x90 / 255)
-    static let badgeStroke = Color(red: 0x25 / 255, green: 0x27 / 255, blue: 0x28 / 255)
-    static let badgeInk = Color(red: 0x2A / 255, green: 0x1D / 255, blue: 0x03 / 255)
+    static let badgeFill = Color(red: 0x2E / 255, green: 0x31 / 255, blue: 0x33 / 255)
+    static let badgeStroke = Color(red: 0x3B / 255, green: 0x35 / 255, blue: 0x50 / 255)
+    static let badgeInk = Color(red: 0xF3 / 255, green: 0xF0 / 255, blue: 0xEA / 255)
 }
 
 extension GraphicsContext {
@@ -26,15 +26,10 @@ extension GraphicsContext {
     }
 
     /// Breathing voice aura & expanding pulse ring drawn behind the ghost during active calls.
-    fileprivate func drawVoiceAura(voice: GhostVoiceState, pose: GhostPose, lift: Double) {
+    /// Stays green while network is stable and shifts to amber only when unstable/reconnecting.
+    fileprivate func drawVoiceAura(voice: GhostVoiceState, networkUnstable: Bool, pose: GhostPose, lift: Double) {
         guard voice.showsAura else { return }
-        let color: Color
-        switch voice {
-        case .speaking: color = Palette.accent
-        case .listening: color = Palette.success
-        case .connecting: color = Palette.secondary
-        case .idle, .muted: return
-        }
+        let color: Color = GhostVoiceTone.forCall(state: voice, networkUnstable: networkUnstable) == .unstable ? Palette.warning : Palette.success
         let cy = 12.6 - lift * 0.6
         let baseR = 9.2 + pose.level * 2.4
         let center = CGPoint(x: 12, y: cy)
@@ -75,13 +70,8 @@ extension GraphicsContext {
     }
 
     /// Classic retro curved telephone handset + coiled cord + optional sound-wave arcs (exact 26x26 coordinates).
-    private func drawHandset(voice: GhostVoiceState, pose: GhostPose) {
-        let phoneColor: Color
-        switch voice {
-        case .speaking: phoneColor = Palette.accent
-        case .muted: phoneColor = GhostInk.mutedPhone
-        case .idle, .connecting, .listening: phoneColor = Palette.success
-        }
+    private func drawHandset(voice: GhostVoiceState, networkUnstable: Bool, pose: GhostPose) {
+        let phoneColor: Color = GhostVoiceTone.forCall(state: voice, networkUnstable: networkUnstable) == .unstable ? Palette.warning : Palette.success
         let pawPivot = CGPoint(x: 3.3, y: 12.3)
         var handset = self
         handset.rotate(pose.ringJiggle, around: pawPivot)
@@ -113,8 +103,7 @@ extension GraphicsContext {
 
         // Sound waves radiating near earpiece while speaking or connecting.
         if voice.showsSoundWaves {
-            let waveColor: Color
-            if case .speaking = voice { waveColor = Palette.accent } else { waveColor = Palette.success }
+            let waveColor = phoneColor
             let style = StrokeStyle(lineWidth: 1.05, lineCap: .round)
             let arc1 = Path { $0.addArc(center: CGPoint(x: 3.5, y: 7.4), radius: 2.6, startAngle: .degrees(165), endAngle: .degrees(240), clockwise: false) }
             let arc2 = Path { $0.addArc(center: CGPoint(x: 3.5, y: 7.4), radius: 4.3, startAngle: .degrees(168), endAngle: .degrees(238), clockwise: false) }
@@ -128,11 +117,11 @@ extension GraphicsContext {
         handset.stroke(circle(CGPoint(x: 2.7, y: 12.2), 1.65), with: .color(GhostInk.ink), style: pawStyle)
     }
 
-    /// Amber mute badge pinned cleanly at bottom-right when muted.
+    /// Neutral dark mute badge pinned cleanly at bottom-right when muted.
     fileprivate func drawMuteBadge() {
         let bx = 21.5, by = 20.5
         let badge = circle(CGPoint(x: bx, y: by), 3.6)
-        fill(badge, with: .color(Palette.warning))
+        fill(badge, with: .color(GhostInk.badgeFill))
         stroke(badge, with: .color(GhostInk.badgeStroke), lineWidth: 1.1)
         let slash = Path { p in
             p.move(to: CGPoint(x: bx, y: by - 1.5))
@@ -166,7 +155,7 @@ extension GraphicsContext {
     }
 
     /// The ghost on its 26-unit grid, holding a keyboard (idle) or lifted telephone handset (call) and a wrench.
-    func drawGhost(accent: Color, pose: GhostPose, voice: GhostVoiceState = .idle) {
+    func drawGhost(accent: Color, pose: GhostPose, voice: GhostVoiceState = .idle, networkUnstable: Bool = false) {
         let line = StrokeStyle(lineWidth: 1.3, lineCap: .round, lineJoin: .round)
         let grip = CGPoint(x: 19.6, y: 14.2)
         drawWrench(accent: accent, wave: pose.wave, grip: grip)
@@ -193,7 +182,7 @@ extension GraphicsContext {
                 stroke(circle(center, radius), with: .color(GhostInk.ink), style: line)
             }
         } else {
-            drawHandset(voice: voice, pose: pose)
+            drawHandset(voice: voice, networkUnstable: networkUnstable, pose: pose)
             fill(circle(grip, 1.8), with: .color(GhostInk.body))
             stroke(circle(grip, 1.8), with: .color(GhostInk.ink), style: line)
         }
@@ -205,6 +194,7 @@ extension GraphicsContext {
 struct ToolboxPetArt: View {
     var animated = true
     var voiceState: GhostVoiceState = .idle
+    var networkUnstable = false
     @State private var appeared = Date()
 
     var body: some View {
@@ -218,7 +208,7 @@ struct ToolboxPetArt: View {
                 grid.scaleBy(x: unit, y: unit)
                 if isCall { grid.translateBy(x: 2, y: 2) }
                 let lift = pose.float * 1.6 + hop * (isCall ? 3.4 : 4.0)
-                grid.drawVoiceAura(voice: voiceState, pose: pose, lift: lift)
+                grid.drawVoiceAura(voice: voiceState, networkUnstable: networkUnstable, pose: pose, lift: lift)
                 let shadow = 1 - lift / 9
                 grid.fill(
                     Path(ellipseIn: CGRect(x: 12 - 5 * shadow, y: isCall ? 23.55 : 23.6, width: 10 * shadow, height: isCall ? 1.7 : 1.6)),
@@ -227,7 +217,7 @@ struct ToolboxPetArt: View {
                 var bodyCtx = grid
                 bodyCtx.translateBy(x: 0, y: 0.4 - lift)
                 bodyCtx.rotate(pose.sway, around: CGPoint(x: 12, y: 21))
-                bodyCtx.drawGhost(accent: Palette.accent, pose: pose, voice: voiceState)
+                bodyCtx.drawGhost(accent: Palette.accent, pose: pose, voice: voiceState, networkUnstable: networkUnstable)
                 if voiceState.showsMuteBadge { grid.drawMuteBadge() }
             }
         }

@@ -11,6 +11,7 @@ import RoamttyTransport
 @MainActor final class VoiceController: ObservableObject {
     @Published var active = false
     @Published var recovering = false
+    @Published var networkPoor = false
     @Published var mode: VoiceMode = .live
     @Published var audioRoute: VoiceAudioRoute = .speaker
     @Published var ghostState: GhostVoiceState = .idle
@@ -42,32 +43,30 @@ import RoamttyTransport
     #endif
 
     var isBusy: Bool { active || startTask != nil }
-    var canToggleMute: Bool { active && mode == .live && ghostState != .connecting }
+    var networkUnstable: Bool { recovering || networkPoor }
+    var canToggleMute: Bool { active && !recovering && ghostState != .connecting }
     var formattedElapsed: String { String(format: "%02d:%02d", elapsedSeconds / 60, elapsedSeconds % 60) }
 
     /// Compact micro-tag below the phone-holding pet when the control popover is closed.
     func petStatusTag(english: Bool) -> String? {
         guard active else { return nil }
+        if recovering { return english ? "Reconnecting…" : "重连中…" }
+        if networkPoor { return english ? "Poor network" : "网络不稳定" }
         switch ghostState {
         case .idle: return nil
-        case .connecting:
-            return recovering ? (english ? "Reconnecting…" : "重连中…") : (english ? "Connecting…" : "连接中…")
+        case .connecting: return english ? "Connecting…" : "连接中…"
         case .muted: return english ? "Muted" : "已静音"
         case .speaking: return english ? "Speaking" : "AI 回复中"
-        case .listening:
-            if mode == .dictate { return (english ? "Dictate " : "听写 ") + formattedElapsed }
-            return formattedElapsed
+        case .listening: return formattedElapsed
         }
     }
 
     func popoverStatusLabel(english: Bool) -> String {
+        if recovering { return english ? "Reconnecting…" : "正在重连…" }
+        if networkPoor { return english ? "Poor network" : "网络不稳定" }
         switch ghostState {
-        case .idle, .connecting:
-            return recovering ? (english ? "Reconnecting…" : "正在重连…") : (english ? "Connecting…" : "正在接通…")
-        case .listening:
-            return mode == .dictate
-                ? (english ? "Dictating" : "正在听写")
-                : (english ? "Listening" : "聆听中")
+        case .idle, .connecting: return english ? "Connecting…" : "正在接通…"
+        case .listening: return english ? "Listening" : "聆听中"
         case .speaking: return english ? "AI speaking" : "AI 语音回复中"
         case .muted: return english ? "Mic muted" : "麦克风已静音"
         }
@@ -107,7 +106,7 @@ import RoamttyTransport
         }
         let owner = "voice-\(runtime.record.id)"
         boundRuntime = runtime; boundModel = model; loginOwner = owner
-        self.mode = mode; self.audioRoute = route; self.active = true; self.recovering = false
+        self.mode = mode; self.audioRoute = route; self.active = true; self.recovering = false; self.networkPoor = false
         self.isMuted = false; self.elapsedSeconds = 0; self.popoverOpen = false
         self.errorMessage = nil; self.startKeySent = false; self.ghostState = .connecting
         streamTracker.reset(mode: mode)

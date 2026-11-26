@@ -14,6 +14,7 @@ struct GhostShortcuts: View {
     let center: CGPoint
     let viewport: CGSize
     var voiceState: GhostVoiceState = .idle
+    var voiceNetworkUnstable = false
     var voiceStatusTag: String?
     var voicePopoverOpen = false
     var onHoldBegan: (() -> Void)?
@@ -33,12 +34,7 @@ struct GhostShortcuts: View {
     }
     private var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
     private var statusTagColor: Color {
-        switch voiceState {
-        case .speaking: return Palette.accent
-        case .muted: return Palette.warning
-        case .connecting: return Palette.secondary
-        case .idle, .listening: return Palette.success
-        }
+        GhostVoiceTone.forCall(state: voiceState, networkUnstable: voiceNetworkUnstable) == .unstable ? Palette.warning : Palette.success
     }
     private var accessibilityTitle: String {
         voiceState.isCall
@@ -82,7 +78,7 @@ struct GhostShortcuts: View {
                 }
             }
             let artSize: CGFloat = voiceState.isCall ? 54 : 44
-            ToolboxPetArt(animated: !reduceMotion && !toolbox.ringOpen, voiceState: voiceState)
+            ToolboxPetArt(animated: !reduceMotion && !toolbox.ringOpen, voiceState: voiceState, networkUnstable: voiceNetworkUnstable)
                 .frame(width: artSize, height: artSize)
                 .scaleEffect(pressed ? 0.86 : 1).animation(.spring(response: 0.18, dampingFraction: 0.4), value: pressed)
                 .allowsHitTesting(false).position(anchor)

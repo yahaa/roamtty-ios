@@ -502,6 +502,15 @@ def parse_codex_file(path, cutoff=None, model_cache=None):
         return None
 
     rl_ts = max(best_q5h_ts, best_q7d_ts)
+    q_meta = {
+        "q5h": best_q5h,
+        "q5h_ts": best_q5h_ts,
+        "q5h_default": best_q5h_default,
+        "q7d": best_q7d,
+        "q7d_ts": best_q7d_ts,
+        "q7d_default": best_q7d_default,
+        "rl_ts": rl_ts,
+    }
     if cutoff is not None:
         if rec_count > 0:
             return {
@@ -512,9 +521,7 @@ def parse_codex_file(path, cutoff=None, model_cache=None):
                 "sess_output": rec_out,
                 "sess_cache_read": rec_cr,
                 "sess_cache_create": rec_cc,
-                "q5h": best_q5h,
-                "q7d": best_q7d,
-                "rl_ts": rl_ts,
+                **q_meta,
             }
         if last_token_count and (first_ts is None or first_ts >= cutoff):
             tot = last_token_count[1].get("total_token_usage") or {}
@@ -531,11 +538,9 @@ def parse_codex_file(path, cutoff=None, model_cache=None):
                     "sess_output": out,
                     "sess_cache_read": cr,
                     "sess_cache_create": cc,
-                    "q5h": best_q5h,
-                    "q7d": best_q7d,
-                    "rl_ts": rl_ts,
+                    **q_meta,
                 }
-        return {"rate_only": True, "q5h": best_q5h, "q7d": best_q7d, "rl_ts": rl_ts} if (best_q5h or best_q7d) else None
+        return {"rate_only": True, **q_meta} if (best_q5h or best_q7d) else None
 
     if not last_token_count and rec_count == 0 and not (best_q5h or best_q7d):
         return None
@@ -568,8 +573,7 @@ def parse_codex_file(path, cutoff=None, model_cache=None):
         "sess_output": s_out,
         "sess_cache_read": s_cr,
         "sess_cache_create": s_cc,
-        "q5h": best_q5h,
-        "q7d": best_q7d,
+        **q_meta,
     }
     if last_inp > 0 and ctx_limit > 0:
         res["ctx_used"] = last_inp
@@ -587,27 +591,39 @@ def parse_codex_file(path, cutoff=None, model_cache=None):
     return res
 
 
+def pick_better_codex_quota(cur, cur_ts, cur_def, cand, cand_ts, cand_def):
+    if not cand:
+        return cur, cur_ts, cur_def
+    if not cur:
+        return cand, cand_ts, cand_def
+    if cand_def and not cur_def:
+        return cand, cand_ts, cand_def
+    if cand_def == cur_def and cand_ts > cur_ts:
+        return cand, cand_ts, cand_def
+    return cur, cur_ts, cur_def
+
+
 def latest_codex_account_quotas(exclude_path=None):
     base = os.path.join(HOME, ".codex", "sessions")
     if not os.path.isdir(base):
-        return None, None
+        return (None, -1.0, False), (None, -1.0, False)
     paths = glob.glob(os.path.join(base, "*", "*", "*", "*.jsonl"))
     paths.sort(key=lambda p: os.path.getmtime(p), reverse=True)
-    q5h = None
-    q7d = None
+    q5h, q5h_ts, q5h_def = None, -1.0, False
+    q7d, q7d_ts, q7d_def = None, -1.0, False
     for p in paths[:15]:
         if exclude_path and p == exclude_path:
             continue
         r = parse_codex_file(p)
         if not r:
             continue
-        if q5h is None and r.get("q5h"):
-            q5h = r["q5h"]
-        if q7d is None and r.get("q7d"):
-            q7d = r["q7d"]
-        if q5h and q7d:
-            break
-    return q5h, q7d
+        q5h, q5h_ts, q5h_def = pick_better_codex_quota(
+            q5h, q5h_ts, q5h_def, r.get("q5h"), r.get("q5h_ts", -1.0), r.get("q5h_default", False)
+        )
+        q7d, q7d_ts, q7d_def = pick_better_codex_quota(
+            q7d, q7d_ts, q7d_def, r.get("q7d"), r.get("q7d_ts", -1.0), r.get("q7d_default", False)
+        )
+    return (q5h, q5h_ts, q5h_def), (q7d, q7d_ts, q7d_def)
 
 
 def find_codex_transcript(transcript, sid, cwd):
@@ -649,62 +665,91 @@ def infer_agy_ctx_limit(model, ctx_used):
     return 1_000_000
 
 
-def agy_settings_effort():
+def agy_settings_model_info():
     p = os.path.join(HOME, ".gemini", "antigravity-cli", "settings.json")
     try:
         cfg = json.load(open(p, "r", encoding="utf-8", errors="replace"))
         if isinstance(cfg, dict):
-            _, eff = split_model_effort(cfg.get("model") or "")
-            return eff
+            raw = cfg.get("model") or ""
+            if isinstance(raw, str):
+                return split_model_effort(raw)
     except Exception:
         pass
-    return ""
+    return "", ""
+
+
+def agy_settings_effort():
+    return agy_settings_model_info()[1]
+
+
+def agy_settings_model():
+    return agy_settings_model_info()[0]
+
+
+def _extract_agy_bucket(b, now):
+    if not isinstance(b, dict):
+        return None
+    frac = safe_float(b.get("remaining_fraction"))
+    if frac is None:
+        return None
+    rem = max(0.0, min(100.0, frac * 100.0))
+    resets = parse_iso_ts(b.get("reset_time"))
+    # Untouched 100% buckets report Unix epoch ("1970-01-01T00:00:00Z"); keep them with no reset countdown.
+    if resets is not None and resets <= 86400:
+        resets = None
+    if resets is not None and resets < now - 60:
+        return None
+    return (rem, int(resets) if resets else None)
 
 
 def parse_agy_quota_payload(data, model, now):
     if not isinstance(data, dict):
         return None, None
+    eff_model = model or (data.get("model") if isinstance(data.get("model"), str) else "") or agy_settings_model()
+    m = (eff_model or "").lower()
+    want_3p = ("claude" in m or "gpt" in m or "opus" in m or "sonnet" in m)
+
     groups = ((data.get("command") or {}).get("data") or {}).get("groups")
     if not isinstance(groups, list):
         groups = data.get("groups")
-    if not isinstance(groups, list) or not groups:
-        return None, None
-    m = (model or "").lower()
-    want_3p = ("claude" in m or "gpt" in m or "opus" in m or "sonnet" in m)
-    chosen = None
-    for g in groups:
-        if not isinstance(g, dict):
-            continue
-        name = (g.get("name") or "").lower()
-        if want_3p and ("claude" in name or "gpt" in name):
-            chosen = g
-            break
-        if not want_3p and "gemini" in name:
-            chosen = g
-            break
-    if chosen is None:
-        chosen = groups[0] if isinstance(groups[0], dict) else None
-    if not chosen:
-        return None, None
-    q5h = None
-    q7d = None
-    for b in chosen.get("buckets") or []:
-        if not isinstance(b, dict):
-            continue
-        frac = safe_float(b.get("remaining_fraction"))
-        if frac is None:
-            continue
-        rem = max(0.0, min(100.0, frac * 100.0))
-        resets = parse_iso_ts(b.get("reset_time"))
-        if resets is not None and resets < now - 60:
-            continue
-        win = (b.get("window") or "").lower()
-        entry = (rem, int(resets) if resets else None)
-        if win == "5h" and q5h is None:
-            q5h = entry
-        elif win == "weekly" and q7d is None:
-            q7d = entry
-    return q5h, q7d
+    if isinstance(groups, list) and groups:
+        chosen = None
+        for g in groups:
+            if not isinstance(g, dict):
+                continue
+            name = (g.get("name") or "").lower()
+            if want_3p and ("claude" in name or "gpt" in name):
+                chosen = g
+                break
+            if not want_3p and "gemini" in name:
+                chosen = g
+                break
+        if chosen is None:
+            chosen = groups[0] if isinstance(groups[0], dict) else None
+        if not chosen:
+            return None, None
+        q5h = None
+        q7d = None
+        for b in chosen.get("buckets") or []:
+            entry = _extract_agy_bucket(b, now)
+            if entry is None:
+                continue
+            win = (b.get("window") or "").lower()
+            if win == "5h" and q5h is None:
+                q5h = entry
+            elif win == "weekly" and q7d is None:
+                q7d = entry
+        return q5h, q7d
+
+    quota_map = data.get("quota")
+    if isinstance(quota_map, dict) and quota_map:
+        prefixes = ("3p-", "gemini-") if want_3p else ("gemini-", "3p-")
+        for prefix in prefixes:
+            q5h = _extract_agy_bucket(quota_map.get(f"{prefix}5h"), now)
+            q7d = _extract_agy_bucket(quota_map.get(f"{prefix}weekly"), now)
+            if q5h is not None or q7d is not None:
+                return q5h, q7d
+    return None, None
 
 
 def fetch_agy_quota_file(cache_path):
@@ -714,13 +759,18 @@ def fetch_agy_quota_file(cache_path):
         os.makedirs(os.path.dirname(cache_path), exist_ok=True)
         out = subprocess.check_output(
             ["agy", "-p", "/quota", "--output-format", "json"],
+            stdin=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=12,
+            timeout=18,
             env=cmd_env(),
         ).decode("utf-8", "replace")
         data = json.loads(out)
-        if isinstance(data, dict):
-            data["_fetched_at"] = int(time.time())
+        now = time.time()
+        if isinstance(data, dict) and (
+            parse_agy_quota_payload(data, "gemini", now) != (None, None)
+            or parse_agy_quota_payload(data, "claude", now) != (None, None)
+        ):
+            data["_fetched_at"] = int(now)
             tmp = f"{cache_path}.{os.getpid()}.tmp"
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(data, f)
@@ -1119,15 +1169,22 @@ def run_session(agent_arg, tmux_session, cwd_arg, fetch_agy_quota=False):
         p = find_codex_transcript(t_transcript, t_sid, cwd)
         if p:
             data = parse_codex_file(p, model_cache=codex_model_ctx_cache())
-        if data is None or not data.get("q5h") or not data.get("q7d"):
-            fb5, fb7 = latest_codex_account_quotas(exclude_path=p)
-            if fb5 or fb7:
-                if data is None:
-                    data = {}
-                if not data.get("q5h") and fb5:
-                    data["q5h"] = fb5
-                if not data.get("q7d") and fb7:
-                    data["q7d"] = fb7
+        (fb5, fb5_ts, fb5_def), (fb7, fb7_ts, fb7_def) = latest_codex_account_quotas(exclude_path=p)
+        cur5 = data.get("q5h") if data else None
+        cur5_ts = data.get("q5h_ts", -1.0) if data else -1.0
+        cur5_def = data.get("q5h_default", False) if data else False
+        cur7 = data.get("q7d") if data else None
+        cur7_ts = data.get("q7d_ts", -1.0) if data else -1.0
+        cur7_def = data.get("q7d_default", False) if data else False
+        best5, _, _ = pick_better_codex_quota(cur5, cur5_ts, cur5_def, fb5, fb5_ts, fb5_def)
+        best7, _, _ = pick_better_codex_quota(cur7, cur7_ts, cur7_def, fb7, fb7_ts, fb7_def)
+        if data is None and (best5 or best7):
+            data = {}
+        if data is not None:
+            if best5:
+                data["q5h"] = best5
+            if best7:
+                data["q7d"] = best7
     elif agent == "agy":
         p = find_agy_transcript(t_transcript, t_sid, cwd)
         if p:
@@ -1250,17 +1307,18 @@ def run_host(rng, fetch_agy_quota=False):
         if mt >= cutoff or i < 15:
             codex_scan.append(p)
     c_sess = c_in = c_out = c_cr = c_cc = 0
-    c_q5h = c_q7d = None
-    c_q5h_ts = c_q7d_ts = -1.0
+    c_q5h, c_q5h_ts, c_q5h_def = None, -1.0, False
+    c_q7d, c_q7d_ts, c_q7d_def = None, -1.0, False
     for p in codex_scan:
         r = parse_codex_file(p, cutoff=cutoff)
         if not r:
             continue
-        ts = r.get("rl_ts", 0)
-        if r.get("q5h") and ts >= c_q5h_ts:
-            c_q5h, c_q5h_ts = r["q5h"], ts
-        if r.get("q7d") and ts >= c_q7d_ts:
-            c_q7d, c_q7d_ts = r["q7d"], ts
+        c_q5h, c_q5h_ts, c_q5h_def = pick_better_codex_quota(
+            c_q5h, c_q5h_ts, c_q5h_def, r.get("q5h"), r.get("q5h_ts", -1.0), r.get("q5h_default", False)
+        )
+        c_q7d, c_q7d_ts, c_q7d_def = pick_better_codex_quota(
+            c_q7d, c_q7d_ts, c_q7d_def, r.get("q7d"), r.get("q7d_ts", -1.0), r.get("q7d_default", False)
+        )
         if r.get("rate_only"):
             continue
         if r["sess_input"] + r["sess_output"] + r["sess_cache_read"] + r["sess_cache_create"] > 0:
@@ -1274,7 +1332,11 @@ def run_host(rng, fetch_agy_quota=False):
 
     # 3. Antigravity CLI
     agy_paths = glob.glob(os.path.join(HOME, ".gemini", "antigravity-cli", "brain", "*", ".system_generated", "logs", "transcript.jsonl"))
-    has_agy = bool(agy_paths) or os.path.isfile(os.path.join(HOME, ".roamtty", "quota-agy.json"))
+    has_agy = (
+        bool(agy_paths)
+        or os.path.isfile(os.path.join(HOME, ".roamtty", "quota-agy.json"))
+        or os.path.isfile(os.path.join(HOME, ".gemini", "antigravity-cli", "settings.json"))
+    )
     aggregate(
         "agy",
         agy_paths,

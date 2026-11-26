@@ -111,8 +111,8 @@ extension AppModel {
         runtime.terminalView.feed(text: banner)
         let state = env["ROAMTTY_VOICE_FIXTURE_STATE"]
         let popover = env["ROAMTTY_VOICE_FIXTURE_POPOVER"] == "1"
-        let mode: VoiceMode = env["ROAMTTY_VOICE_FIXTURE_MODE"] == "dictate" ? .dictate : .live
-        runtime.voice.configureFixture(state: state, mode: mode, popover: popover)
+        let unstable = env["ROAMTTY_VOICE_FIXTURE_UNSTABLE"] == "1"
+        runtime.voice.configureFixture(state: state, mode: .live, popover: popover, networkUnstable: unstable)
         runtimes[record.id] = runtime
         path = [.terminal(record.id)]
     }

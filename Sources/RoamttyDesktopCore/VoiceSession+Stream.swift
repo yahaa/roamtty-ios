@@ -188,9 +188,12 @@ extension VoiceSession {
             if !hello.resumeToken.isEmpty { resumeToken = hello.resumeToken }
             everConnected = true
             ping = DesktopPingClock()
+            goodSinceMs = 0
+            _networkPoor = false
             sshEofDuringClose = false
             return _windowsHost
         }
+        callbackQueue.async { self.onNetworkPoor?(false) }
         // Always (re-)inject ANTIGRAVITY_MIC on hello so even a fresh fallback port after resume takes effect.
         injectMicPort(remote, hello.micPort, windows)
         if isClosing { s.close(); sync { stream = nil }; return .closed }
@@ -269,12 +272,15 @@ extension VoiceSession {
         if let deadline = graceDeadline {
             waitUntilDate(deadline)
         }
-        let l: UdpLink? = sync {
+        let (l, wasPoor): (UdpLink?, Bool) = sync {
             outgoing = nil; stream = nil
             activeMicStreamId = nil; activeSpkStreamId = nil
             shutdownGraceUntil = nil; sshEofDuringClose = false
-            let l = link; link = nil; return l
+            goodSinceMs = 0
+            let prevPoor = _networkPoor; _networkPoor = false
+            let l = link; link = nil; return (l, prevPoor)
         }
+        if wasPoor { callbackQueue.async { self.onNetworkPoor?(false) } }
         audioIO?.stopAll()
         queue.close()
         ticker.stop()
@@ -292,10 +298,29 @@ extension VoiceSession {
         if let p = sync({ ping.resendIfLate(nowUs: nowUs, lateMs: DesktopSession.POOR_MS) }) {
             sendFrame(VoiceProtocol.ping(p), reliable: false)
         }
+        updateLinkQuality(now: Self.nowMs())
         let (port, udpAlive) = sync { (_hello?.micPort, link?.alive ?? false) }
         if let port, case .ready(let p, let wasUdp) = phase, p == port, wasUdp != udpAlive {
             setPhase(.ready(micPort: port, udp: udpAlive))
         }
+    }
+
+    private func updateLinkQuality(now: Int64) {
+        let (l, rtt, missed) = sync { (link, ping.rttMs, ping.missed) }
+        let bad: Bool
+        if let l, l.alive {
+            bad = l.silentUs > 700_000 || l.loss > 0.25 || Int64(rtt) > DesktopSession.POOR_MS
+        } else {
+            bad = missed >= 2 || Int64(rtt) > DesktopSession.POOR_MS
+        }
+        let next: Bool? = sync {
+            if bad { goodSinceMs = 0 } else if goodSinceMs == 0 { goodSinceMs = now }
+            let poor = bad || (_networkPoor && now - goodSinceMs < 5_000)
+            guard poor != _networkPoor else { return nil }
+            _networkPoor = poor
+            return poor
+        }
+        if let next { callbackQueue.async { self.onNetworkPoor?(next) } }
     }
 
     func handle(_ message: VoiceServerMessage) {

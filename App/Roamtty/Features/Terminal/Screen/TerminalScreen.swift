@@ -18,8 +18,6 @@ struct TerminalScreen: View {
     @State var keyboardVisible = false
     @State var commandSheet = false
     @State var usageSheet = false
-    @State var voiceSheet = false
-    @State var voiceSheetHeight: CGFloat = 420
     @State var fileAction: TerminalFileAction?
     /// A file a tapped path names, shown in the preview at its line.
     @State var tappedFile: TappedTerminalFile?
@@ -46,8 +44,8 @@ struct TerminalScreen: View {
     @State var pipIMEFocused = false
     var connected: Bool { runtime.phase == .connected }
     var isAgentSession: Bool { runtime.activeAgentKind != nil }
-    var dockAvailable: Bool { connected && !editor && !commandSheet && !usageSheet && !voiceSheet }
-    var voiceControlsAvailable: Bool { runtime.voice.active && !editor && !commandSheet && !usageSheet && !voiceSheet }
+    var dockAvailable: Bool { connected && !editor && !commandSheet && !usageSheet }
+    var voiceControlsAvailable: Bool { runtime.voice.active && !editor && !commandSheet && !usageSheet }
     /// A double tap or a line starting with `/` brings arrow keys around the pet, while its ring and voice popover are closed.
     var petArrowsShown: Bool {
         dockAvailable && !toolbox.dockVisible && !toolbox.ringOpen
@@ -177,6 +175,7 @@ struct TerminalScreen: View {
                 GhostShortcuts(
                     runtime: runtime, toolbox: $toolbox, center: center, viewport: viewport,
                     voiceState: runtime.voice.ghostState,
+                    voiceNetworkUnstable: runtime.voice.networkUnstable,
                     voiceStatusTag: runtime.voice.petStatusTag(english: model.english),
                     voicePopoverOpen: runtime.voice.popoverOpen,
                     onHoldBegan: { runtime.voice.popoverOpen = false },
@@ -222,7 +221,6 @@ struct TerminalScreen: View {
         }
         .onChange(of: model.settings.toolboxPinned) { pinned in if pinned != toolbox.pinned { toolbox.setPinned(pinned, at: now) } }
         .onChange(of: commandSheet) { _ in toolbox.closeRing() }
-        .onChange(of: voiceSheet) { _ in toolbox.closeRing() }
         .onChange(of: runtime.voice.active) { active in toolbox.setVoiceActive(active, at: now) }
         .onChange(of: runtime.petArrowTouches) { _ in withAnimation(.easeOut(duration: 0.12)) { petArrowsUntil = now + 4 }; toolbox.wake(at: now) }
         // A terminal whose connection dropped, or that came back from the journal, reconnects as soon as it is shown.
@@ -238,7 +236,6 @@ struct TerminalScreen: View {
         let env = ProcessInfo.processInfo.environment
         if ProcessInfo.processInfo.arguments.contains("--voice-ui-fixture") {
             if env["ROAMTTY_VOICE_FIXTURE_DOCK"] == "1" { toolbox.openDock(at: now) }
-            if env["ROAMTTY_VOICE_FIXTURE_SHEET"] == "1" { voiceSheet = true }
         }
         #endif
         runtime.onFontScaled = { size in model.settings.fontSize = size; model.saveSettings() }
@@ -282,10 +279,9 @@ struct TerminalScreen: View {
             Text(runtime.record.mode == .tmux ? model.text("正在运行的程序会被结束，然后在同一目录重新启动。", "The running program is ended, then started again in the same folder.")
                  : model.text("当前 shell 会结束并重新连接。", "The current shell ends and reconnects."))
         }
-        .modifier(TerminalPasteConfirmation(runtime: runtime, enabled: !commandSheet && !usageSheet && !voiceSheet))
+        .modifier(TerminalPasteConfirmation(runtime: runtime, enabled: !commandSheet && !usageSheet))
         .sheet(isPresented: $commandSheet) { CommandSheet(runtime: runtime).environmentObject(model) }
         .sheet(isPresented: $usageSheet) { AgentUsageSheet(runtime: runtime).environmentObject(model) }
-        .sheet(isPresented: $voiceSheet) { voiceConfirmationSheetContent }
         .alert(model.text("语音通话提示", "Voice Session"), isPresented: Binding(
             get: { runtime.voice.errorMessage != nil },
             set: { if !$0 { runtime.voice.errorMessage = nil } }

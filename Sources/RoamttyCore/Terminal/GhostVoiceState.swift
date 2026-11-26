@@ -1,5 +1,15 @@
 import Foundation
 
+/// Voice-call visual color tone: green whenever network is stable, amber only when unstable/reconnecting.
+public enum GhostVoiceTone: Equatable, Sendable {
+    case stable
+    case unstable
+
+    public static func forCall(state: GhostVoiceState, networkUnstable: Bool) -> GhostVoiceTone {
+        state.isCall && networkUnstable ? .unstable : .stable
+    }
+}
+
 /// Voice-call visual state for the 26x26 toolbox ghost pet (`GhostArt.swift`), shared between
 /// the SwiftUI renderer and SwiftPM unit tests.
 public enum GhostVoiceState: Equatable, Sendable {
@@ -12,12 +22,7 @@ public enum GhostVoiceState: Equatable, Sendable {
     public var isCall: Bool { self != .idle }
     public var showsHandset: Bool { isCall }
     public var showsKeyboard: Bool { !isCall }
-    public var showsAura: Bool {
-        switch self {
-        case .connecting, .listening, .speaking: return true
-        case .idle, .muted: return false
-        }
-    }
+    public var showsAura: Bool { isCall }
     public var showsSoundWaves: Bool {
         switch self {
         case .connecting, .speaking: return true
@@ -76,7 +81,12 @@ public struct GhostVoicePose: Equatable, Sendable {
         let waveVal = voice.isCall ? rawWave * 0.18 : rawWave
         let cursorVal = ms.truncatingRemainder(dividingBy: 1060) < 530 ? 1.0 : 0.0
         let jiggle = ringJiggle(ms: ms, voice: voice)
-        let pulsePeriod: Double = voice == .connecting ? 1400 : 1800
+        let pulsePeriod: Double
+        switch voice {
+        case .connecting: pulsePeriod = 1400
+        case .muted: pulsePeriod = 2200
+        case .idle, .listening, .speaking: pulsePeriod = 1800
+        }
         let pulse: Double? = voice.showsAura ? ms.truncatingRemainder(dividingBy: pulsePeriod) / pulsePeriod : nil
         return GhostVoicePose(
             float: floatVal, sway: swayVal, hem: hemVal, eyes: eyesVal, wave: waveVal, cursor: cursorVal,

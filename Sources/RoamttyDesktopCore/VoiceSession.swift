@@ -47,6 +47,7 @@ public final class VoiceSession: @unchecked Sendable {
     public var onPhase: ((VoiceSessionPhase) -> Void)?
     public var onHello: ((VoiceHello) -> Void)?
     public var onEvent: ((VoiceStreamEvent) -> Void)?
+    public var onNetworkPoor: ((Bool) -> Void)?
     public var onLog: (([String]) -> Void)?
     public var onEnded: ((VoiceSession) -> Void)?
 
@@ -77,6 +78,8 @@ public final class VoiceSession: @unchecked Sendable {
     var activeMicStreamId: UInt32?
     var activeSpkStreamId: UInt32?
     var ping = DesktopPingClock()
+    var goodSinceMs: Int64 = 0
+    var _networkPoor = false
 
     public init(
         config: Config,
@@ -113,6 +116,7 @@ public final class VoiceSession: @unchecked Sendable {
     public var log: [String] { sync { _log } }
     public var onUdp: Bool { sync { link?.alive ?? false } }
     public var isMuted: Bool { sync { _muted } }
+    public var networkPoor: Bool { sync { _networkPoor } }
     public var active: Bool {
         sync {
             switch _phase {

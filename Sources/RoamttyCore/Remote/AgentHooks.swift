@@ -177,7 +177,10 @@ public enum AgentHooks {
         }
         lines.append("export ROAMTTY_AGENT=agy")
         lines.append("\(hookCommand(.agy, "start")) </dev/null")
-        lines.append("agy \"$@\"")
+        let agySettings = "{\"voice\":{\"fullDuplex\":true},\"statusLine\":{\"type\":\"command\",\"command\":\"\(hookCommand(.agy, "statusline"))\",\"enabled\":true,\"stack_with_default\":true}}"
+        lines.append("agy_has_settings=0")
+        lines.append("for arg in \"$@\"; do case \"$arg\" in --settings|--settings=*) agy_has_settings=1; break ;; esac; done")
+        lines.append("if [ \"$agy_has_settings\" = 1 ]; then agy \"$@\"; else agy --settings '\(agySettings)' \"$@\"; fi")
         return (lines + launcherEnd(.agy)).joined(separator: "\n") + "\n"
     }
 

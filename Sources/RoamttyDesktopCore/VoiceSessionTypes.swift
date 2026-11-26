@@ -1,19 +1,12 @@
 import Foundation
 
-/// User-selected voice mode on the terminal voice confirmation sheet.
+/// Voice dialogue mode (`agy /voice live` with full-duplex barge-in).
 public enum VoiceMode: String, CaseIterable, Equatable, Sendable {
     /// Two-way live conversation (`/voice live` · `F6`).
     case live
-    /// Push-to-dictate speech-to-text (`/voice dictate` · `F5`).
-    case dictate
 
     /// Terminal function key number that starts this mode in `agy`.
-    public var startFunctionKey: Int {
-        switch self {
-        case .live: return 6
-        case .dictate: return 5
-        }
-    }
+    public var startFunctionKey: Int { 6 }
 }
 
 /// Output audio route selection for active voice calls.
@@ -65,8 +58,6 @@ public enum VoiceStreamEvent: Equatable, Sendable {
 
 /// Classification for why remote `agy` audio streams closed.
 public enum VoiceRemoteEndReason: Equatable, Sendable {
-    /// Dictation (`F5`) finished once `agy` closed its mic stream.
-    case dictationFinished
     /// Live call (`F6`) ended cleanly after running normally (e.g. `hang_up`, `Esc`, or `/voice`).
     case ended
     /// Live call streams closed right after opening without any speaker audio (e.g. `Access denied`).
@@ -132,16 +123,13 @@ public struct VoiceRemoteStreamTracker: Equatable, Sendable {
             let wasStreaming = activeMicStreamId != nil || activeSpkStreamId != nil
             let matched = activeMicStreamId == id
             if matched { activeMicStreamId = nil }
-            if mode == .dictate {
-                return (matched || !wasStreaming) ? .endedImmediately(.dictationFinished) : .none
-            }
             guard matched, wasStreaming, activeMicStreamId == nil, activeSpkStreamId == nil else { return .none }
             return .scheduleRemoteEnd(classifyLiveEnd(at: now))
         case .speakerStopped(let id):
             let wasStreaming = activeMicStreamId != nil || activeSpkStreamId != nil
             let matched = activeSpkStreamId == id
             if matched { activeSpkStreamId = nil }
-            guard mode == .live, matched, wasStreaming, activeMicStreamId == nil, activeSpkStreamId == nil else {
+            guard matched, wasStreaming, activeMicStreamId == nil, activeSpkStreamId == nil else {
                 return .none
             }
             return .scheduleRemoteEnd(classifyLiveEnd(at: now))

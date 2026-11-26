@@ -17,15 +17,10 @@ struct VoiceCallPopover: View {
     let onDismiss: () -> Void
 
     private static let hangupTint = Color(red: 1.0, green: 0.48, blue: 0.44)
-    private var bubbleWidth: CGFloat { voice.mode == .dictate ? 148 : 236 }
+    private let bubbleWidth: CGFloat = 236
 
     private var statusColor: Color {
-        switch voice.ghostState {
-        case .speaking: return Palette.accent
-        case .muted: return Palette.warning
-        case .connecting: return Palette.secondary
-        case .idle, .listening: return Palette.success
-        }
+        voice.networkUnstable ? Palette.warning : Palette.success
     }
 
     private var routeIcon: String {
@@ -92,26 +87,24 @@ struct VoiceCallPopover: View {
 
     private var actionsRow: some View {
         HStack(spacing: 6) {
-            if voice.mode == .live {
-                actionTile(
-                    icon: voice.isMuted ? "mic.slash.fill" : "mic.fill",
-                    label: voice.isMuted ? model.text("取消静音", "Unmute") : model.text("静音", "Mute"),
-                    fg: voice.isMuted ? Palette.warning : Palette.foreground,
-                    bg: voice.isMuted ? Palette.warning.opacity(0.2) : Palette.raised,
-                    enabled: voice.canToggleMute,
-                    id: "voice-pop-mute",
-                    action: onMute
-                )
-                actionTile(
-                    icon: routeIcon,
-                    label: voice.routeLabel(voice.audioRoute, english: model.english),
-                    fg: Palette.foreground,
-                    bg: Palette.raised,
-                    enabled: true,
-                    id: "voice-pop-route",
-                    action: onCycleRoute
-                )
-            }
+            actionTile(
+                icon: voice.isMuted ? "mic.slash.fill" : "mic.fill",
+                label: voice.isMuted ? model.text("取消静音", "Unmute") : model.text("静音", "Mute"),
+                fg: voice.isMuted ? Palette.warning : Palette.foreground,
+                bg: voice.isMuted ? Palette.warning.opacity(0.2) : Palette.raised,
+                enabled: voice.canToggleMute,
+                id: "voice-pop-mute",
+                action: onMute
+            )
+            actionTile(
+                icon: routeIcon,
+                label: voice.routeLabel(voice.audioRoute, english: model.english),
+                fg: Palette.foreground,
+                bg: Palette.raised,
+                enabled: true,
+                id: "voice-pop-route",
+                action: onCycleRoute
+            )
             actionTile(
                 icon: "ellipsis.rectangle",
                 label: model.text("操作栏", "Dock"),

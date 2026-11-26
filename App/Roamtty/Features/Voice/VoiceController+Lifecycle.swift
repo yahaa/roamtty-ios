@@ -17,6 +17,12 @@ extension VoiceController {
                 self.handleStreamEvent(event, model: model)
             }
         }
+        voiceSession.onNetworkPoor = { [weak self, weak voiceSession] poor in
+            Task { @MainActor in
+                guard let self, let voiceSession, self.session === voiceSession, self.active else { return }
+                self.networkPoor = poor
+            }
+        }
         voiceSession.onEnded = { [weak self, weak voiceSession] _ in
             Task { @MainActor in
                 guard let self, let voiceSession, self.session === voiceSession else { return }
@@ -38,7 +44,7 @@ extension VoiceController {
             streamTracker.beginRecovery()
             if active { ghostState = .connecting }
         case .ready(let port, let udp):
-            recovering = false; micPort = port; onUdp = udp
+            recovering = false; networkPoor = false; micPort = port; onUdp = udp
             Diagnostics.shared.log("voice-ready", "port=\(port) udp=\(udp)")
             model.markDesktopPluginInstalled(for: runtime.host.id)
             if !startKeySent {
@@ -52,9 +58,7 @@ extension VoiceController {
                         "Voice port 24713 is busy; using \(port). Restart agy if voice does not respond"
                     ))
                 } else {
-                    showToast(mode == .live
-                        ? model.text("已接通，可以直接说话", "Connected — speak naturally")
-                        : model.text("听写已开始", "Dictation started"))
+                    showToast(model.text("已接通，可以直接说话", "Connected — speak naturally"))
                 }
                 scheduleNoStreamHint(generation: startGeneration, model: model)
             } else if ghostState == .connecting {
@@ -138,7 +142,7 @@ extension VoiceController {
             boundModel?.logins.dismissPrompts(owner: owner)
             loginOwner = nil
         }
-        active = false; recovering = false; popoverOpen = false; isMuted = false
+        active = false; recovering = false; networkPoor = false; popoverOpen = false; isMuted = false
         ghostState = .idle; micPort = nil; onUdp = false; startKeySent = false
         boundModel?.setVoiceCallActive(false)
     }
@@ -182,9 +186,6 @@ extension VoiceController {
     private func finishFromRemote(reason: VoiceRemoteEndReason, model: AppModel) {
         guard active else { return }
         switch reason {
-        case .dictationFinished:
-            showToast(model.text("听写已结束", "Dictation finished"))
-            stopInternal(sendHangup: false, reason: "dictate-done")
         case .abortedEarly:
             showToast(
                 model.text("agy 语音已中断，请查看终端输出", "agy voice stopped — check terminal"),
@@ -225,13 +226,14 @@ extension VoiceController {
     }
 
     #if DEBUG
-    func configureFixture(state: String?, mode: VoiceMode = .live, popover: Bool = false) {
+    func configureFixture(state: String?, mode: VoiceMode = .live, popover: Bool = false, networkUnstable: Bool = false) {
         fixtureMode = true; self.mode = mode; audioRoute = .speaker
         guard let state, !state.isEmpty else { cleanupAfterEnd(reason: "fixture-reset"); return }
-        active = true; recovering = false; elapsedSeconds = 24; micPort = VoiceProtocol.defaultPort
+        active = true; recovering = state == "reconnecting"; networkPoor = networkUnstable || state == "unstable"
+        elapsedSeconds = 24; micPort = VoiceProtocol.defaultPort
         onUdp = true; popoverOpen = popover; startKeySent = state != "connecting"
         switch state {
-        case "connecting": ghostState = .connecting; isMuted = false
+        case "connecting", "reconnecting": ghostState = .connecting; isMuted = false
         case "speaking": ghostState = .speaking(level: 0.72); isMuted = false
         case "muted": ghostState = .muted; isMuted = true
         default: ghostState = .listening(level: 0.45); isMuted = false
@@ -239,7 +241,7 @@ extension VoiceController {
     }
 
     func startFixtureCall(mode: VoiceMode, route: VoiceAudioRoute, english: Bool) {
-        self.mode = mode; self.audioRoute = route; self.active = true; self.recovering = false
+        self.mode = mode; self.audioRoute = route; self.active = true; self.recovering = false; self.networkPoor = false
         self.isMuted = false; self.elapsedSeconds = 18; self.popoverOpen = false
         self.micPort = VoiceProtocol.defaultPort; self.onUdp = true; self.startKeySent = true
         self.ghostState = .listening(level: 0.48)
