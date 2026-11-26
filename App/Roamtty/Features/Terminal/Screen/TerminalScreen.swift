@@ -17,6 +17,7 @@ struct TerminalScreen: View {
     @State var toolbox = TerminalToolboxState()
     @State var keyboardVisible = false
     @State var commandSheet = false
+    @State var usageSheet = false
     @State var fileAction: TerminalFileAction?
     /// A file a tapped path names, shown in the preview at its line.
     @State var tappedFile: TappedTerminalFile?
@@ -42,12 +43,15 @@ struct TerminalScreen: View {
     @State var pipKeyboardPage: DesktopKeyboardPage = .ime
     @State var pipIMEFocused = false
     var connected: Bool { runtime.phase == .connected }
-    var dockAvailable: Bool { connected && !editor && !commandSheet }
+    var isAgentSession: Bool { runtime.activeAgentKind != nil }
+    var dockAvailable: Bool { connected && !editor && !commandSheet && !usageSheet }
     /// A double tap or a line starting with `/` brings arrow keys around the pet, while its ring is closed.
     var petArrowsShown: Bool { dockAvailable && !toolbox.dockVisible && !toolbox.ringOpen && (petArrowsUntil > now || runtime.slashCommandLine) }
     var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
-    /// The terminal view sits inside these insets of its viewport, as on Android (10 / 6 / 6 dp).
-    static let inset = EdgeInsets(top: 6, leading: 10, bottom: 0, trailing: 6)
+    /// The terminal view sits inside these insets of its viewport, as on Android (portrait 4 / 4 / 6 dp; landscape 10 / 6 / 6 dp).
+    static func inset(landscape: Bool) -> EdgeInsets {
+        landscape ? EdgeInsets(top: 6, leading: 10, bottom: 0, trailing: 6) : EdgeInsets(top: 6, leading: 4, bottom: 0, trailing: 4)
+    }
 
     var body: some View {
         let content = GeometryReader { page in layout(page) }
@@ -88,27 +92,61 @@ struct TerminalScreen: View {
             CursorRowReader(cursor: runtime.cursorRow) {
                 if dockAvailable && !reserved { floatingControls(in: page.size, twoColumns: twoColumns) }
             }
+            if connected && !editor && isAgentSession {
+                let insets = safeAreaInsets(for: page)
+                let ringTrailing = reserved ? max(insets.trailing, twoColumns ? 96 : 48) + 4 : insets.trailing + 8
+                TerminalContextRing(percent: runtime.agentUsage?.contextPercent) {
+                    _ = runtime.terminalView.resignFirstResponder()
+                    collapseIfFloating()
+                    runtime.refreshAgentUsage(force: true)
+                    usageSheet = true
+                }
+                .padding(.top, insets.top + 6)
+                .padding(.trailing, ringTrailing)
+                .frame(width: page.size.width, height: page.size.height, alignment: .topTrailing)
+            }
             if let desktop = pipDesktop { desktopWindow(desktop, page: page, landscape: landscape, reserved: reserved, twoColumns: twoColumns) }
             ImageInsertStatus(transfers: model.files, jobs: $imageJobs, topInset: page.safeAreaInsets.top).frame(width: page.size.width, height: page.size.height)
         }
+    }
+
+    /// The terminal's `GeometryReader` ignores `.container` safe area so it draws edge-to-edge under the status bar
+    /// and camera housing, zeroing `page.safeAreaInsets`; read the hosting window's safe area instead (falling back
+    /// to the active window before the terminal view attaches).
+    func safeAreaInsets(for page: GeometryProxy) -> EdgeInsets {
+        let window = (runtime.terminalView.window ?? Self.activeWindow)?.safeAreaInsets ?? .zero
+        return EdgeInsets(
+            top: max(window.top, page.safeAreaInsets.top),
+            leading: max(window.left, page.safeAreaInsets.leading),
+            bottom: max(window.bottom, page.safeAreaInsets.bottom),
+            trailing: max(window.right, page.safeAreaInsets.trailing)
+        )
+    }
+
+    private static var activeWindow: UIWindow? {
+        let windows = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+        return windows.first(where: \.isKeyWindow) ?? windows.first
     }
 
     /// The terminal with its notice over it, and the text editor's bar below while it is open.
     private func terminalColumn(_ page: GeometryProxy, landscape: Bool) -> some View {
         VStack(spacing: 0) {
             ZStack {
+                let inset = Self.inset(landscape: landscape)
                 NativeTerminal(runtime: runtime, settings: model.settings).clipped()
                     .overlay {
                         CursorRowReader(cursor: runtime.cursorRow) {
                             if connected && !editor {
-                                CursorRowButtons(runtime: runtime, trailingInset: Self.inset.trailing,
+                                CursorRowButtons(runtime: runtime, trailingInset: inset.trailing,
                                     bottomInset: keyboardVisible ? 0 : (runtime.terminalView.window?.safeAreaInsets.bottom ?? page.safeAreaInsets.bottom),
-                                    avoid: petArrowsShown ? petArrowBounds(in: page.size).offsetBy(dx: -Self.inset.leading, dy: -Self.inset.top) : nil,
+                                    avoid: petArrowsShown ? petArrowBounds(in: page.size).offsetBy(dx: -inset.leading, dy: -inset.top) : nil,
                                     keyboardVisible: keyboardVisible)
                             }
                         }
                     }
-                    .padding(Self.inset)
+                    .padding(inset)
                 notice.padding(.top, page.safeAreaInsets.top)
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
             // The bar's controls keep clear of the camera housing that the landscape grid runs under.
@@ -218,8 +256,9 @@ struct TerminalScreen: View {
             Text(runtime.record.mode == .tmux ? model.text("正在运行的程序会被结束，然后在同一目录重新启动。", "The running program is ended, then started again in the same folder.")
                  : model.text("当前 shell 会结束并重新连接。", "The current shell ends and reconnects."))
         }
-        .modifier(TerminalPasteConfirmation(runtime: runtime, enabled: !commandSheet))
+        .modifier(TerminalPasteConfirmation(runtime: runtime, enabled: !commandSheet && !usageSheet))
         .sheet(isPresented: $commandSheet) { CommandSheet(runtime: runtime).environmentObject(model) }
+        .sheet(isPresented: $usageSheet) { AgentUsageSheet(runtime: runtime).environmentObject(model) }
         .sheet(item: $fileAction, onDismiss: {
             // The root launch sheet must wait until its child picker has gone.
             if let launchAfterFiles { self.launchAfterFiles = nil; model.sheet = launchAfterFiles }

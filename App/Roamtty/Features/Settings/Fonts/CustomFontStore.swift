@@ -6,7 +6,7 @@ enum TerminalFontSelection {
     static let system = "system"
     static let custom = "custom"
     static let defaultFont = "JetBrainsMono-Regular"
-    static let bundled = [defaultFont, "FiraCode-Regular", "SourceCodePro-Regular", "IBMPlexMono", "CascadiaMono-Regular"]
+    static let bundled = [defaultFont, "FiraCode-Regular", "SourceCodePro-Regular", "IBMPlexMono", "CascadiaMono-Regular", "Iosevka-Fixed"]
 
     static func restored(_ selection: String, customName: String?) -> String {
         if selection == "IBMPlexMono-Regular" { return "IBMPlexMono" }

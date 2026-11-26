@@ -138,6 +138,7 @@ extension HostDetailScreen {
                 }
             }.padding(.horizontal, 4)
             if !live { monitorPanel(host) }
+            HostAiUsageSection(host: host)
             if let metrics {
                 let series = model.monitor.series[hostID] ?? HostMetricSeries()
                 HStack(spacing: 10) {

@@ -41,6 +41,8 @@ struct SessionRow: View {
         // An offline host's card keeps what it last showed, its marks faded, so it reads as a record rather than live.
         let offline = model.hostOffline(record) && !phase.active
         let fade = offline ? 0.55 : 1
+        let usage = kind != nil ? runtime?.agentUsage : nil
+        let showUsageFooter = usage.map { $0.contextPercent != nil || $0.sessionTotalTokens > 0 } ?? false
         VStack(alignment: .leading, spacing: 0) {
             if divider { Rectangle().fill(Palette.foreground.opacity(0.07)).frame(height: 1).padding(.leading, 14) }
             VStack(alignment: .leading, spacing: 0) {
@@ -101,6 +103,7 @@ struct SessionRow: View {
                     }
                 // As tall as its icon buttons (36 points to touch), with or without them.
                 }.frame(minHeight: 36).padding(.top, 8)
+                if showUsageFooter, let usage { SessionUsageFooter(usage: usage).opacity(fade) }
                 if replying { followUpField(kind: kind, runtime: runtime) }
                 if let failure { Text(failure).font(.system(size: 12)).foregroundStyle(Palette.danger).lineLimit(2).padding(.top, 6) }
             }.padding(.horizontal, 14).padding(.vertical, 12)
@@ -265,5 +268,70 @@ struct HostChip: View {
         .padding(.leading, 6).padding(.trailing, 8).padding(.vertical, 2)
         .background(offline ? Palette.foreground.opacity(0.06) : tint.opacity(0.14), in: Capsule())
         .frame(maxWidth: 140).fixedSize()
+    }
+}
+
+/// Quiet monospace footer directly above the 2pt bottom-edge progress bar on an AI Agent card (Option B1).
+private struct SessionUsageFooter: View {
+    @EnvironmentObject var model: AppModel
+    let usage: AgentSessionUsage
+
+    var body: some View {
+        let pct = usage.contextPercent
+        let used = usage.contextUsed
+        let limit = usage.contextLimit.flatMap { $0 > 0 ? $0 : nil }
+        let total = usage.sessionTotalTokens
+        let pctColor: Color = pct.map {
+            $0 >= 90 ? Palette.danger : $0 >= 75 ? Palette.warning : Palette.secondary.opacity(0.84)
+        } ?? Palette.secondary.opacity(0.84)
+        VStack(spacing: 0) {
+            Rectangle().fill(Palette.foreground.opacity(0.045)).frame(height: 1)
+            HStack(spacing: 6) {
+                HStack(spacing: 5) {
+                    if let used, let limit {
+                        Text("\(AgentUsage.formatTokens(used)) / \(AgentUsage.formatTokens(limit))")
+                        if total > 0 {
+                            Text("·").foregroundStyle(Palette.secondary.opacity(0.45))
+                            Text(model.text("累计 \(AgentUsage.formatTokens(total))", "Total \(AgentUsage.formatTokens(total))"))
+                        }
+                    } else if total > 0 {
+                        Text(model.text("累计 \(AgentUsage.formatTokens(total)) tokens", "Total \(AgentUsage.formatTokens(total)) tokens"))
+                    }
+                }
+                .foregroundStyle(Palette.secondary.opacity(0.68)).lineLimit(1)
+                Spacer(minLength: 6)
+                if let pct {
+                    Text("\(pct)%").fontWeight(.semibold).foregroundStyle(pctColor).lineLimit(1)
+                }
+            }
+            .font(.system(size: 10.5, design: .monospaced)).monospacedDigit()
+            .padding(.top, 5)
+            if let pct {
+                SessionContextBottomBar(percent: pct).padding(.top, 5)
+            }
+        }
+        .padding(.top, 6)
+        .accessibilityIdentifier("session-usage-footer")
+    }
+}
+
+/// Crisp 2.5pt rounded capsule context progress bar aligned to the card's inner width (Option B1).
+private struct SessionContextBottomBar: View {
+    let percent: Int
+
+    var body: some View {
+        let fraction = CGFloat(min(100, max(0, percent))) / 100.0
+        let fill: Color = percent >= 90 ? Palette.danger : percent >= 75 ? Palette.warning.opacity(0.90) : Palette.secondary.opacity(0.42)
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Palette.foreground.opacity(0.06))
+                if percent > 0 {
+                    Capsule().fill(fill)
+                        .frame(width: min(geo.size.width, max(3, geo.size.width * fraction)))
+                }
+            }
+        }
+        .frame(height: 2.5)
+        .accessibilityIdentifier("session-context-bar")
     }
 }

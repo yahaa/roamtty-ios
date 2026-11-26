@@ -56,18 +56,17 @@ struct HomeSessionsList: View {
         let only = model.filteredGroup(groups)
         GeometryReader { geometry in
             let columns = max(1, Int((geometry.size.width - 32 + 12) / (320 + 12)))
-            let joined = columns == 1
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     if groups.count > 1 && !compact { SessionFilters(groups: groups, total: sessions.count) }
                     ForEach(groups.filter { only == nil || $0.group == only }, id: \.group) { members in
                         header(members.group, count: members.records.count, plainOnly: members.plainOnly)
-                        if joined {
-                            VStack(spacing: 0) {
-                                ForEach(Array(members.records.enumerated()), id: \.element.id) { index, record in
-                                    SessionRow(record: record, divider: index > 0)
+                        if columns == 1 {
+                            VStack(spacing: 12) {
+                                ForEach(members.records) { record in
+                                    SessionRow(record: record).background(Palette.panel).clipShape(RoundedRectangle(cornerRadius: 18))
                                 }
-                            }.background(Palette.panel).clipShape(RoundedRectangle(cornerRadius: 18))
+                            }
                         } else {
                             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: columns), spacing: 12) {
                                 ForEach(members.records) { record in SessionRow(record: record).background(Palette.panel).clipShape(RoundedRectangle(cornerRadius: 18)) }

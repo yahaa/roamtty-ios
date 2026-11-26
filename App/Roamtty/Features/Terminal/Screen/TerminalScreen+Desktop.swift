@@ -83,10 +83,8 @@ extension TerminalScreen {
     }
     @ViewBuilder
     func desktopWindow(_ desktop: DesktopController, page: GeometryProxy, landscape: Bool, reserved: Bool, twoColumns: Bool) -> some View {
-        // The page runs under the status bar and the camera housing, so its own proxy reports no insets: the window's do.
-        let window = runtime.terminalView.window?.safeAreaInsets ?? .zero
-        let insets = EdgeInsets(top: max(window.top, page.safeAreaInsets.top), leading: max(window.left, page.safeAreaInsets.leading),
-                                bottom: max(window.bottom, page.safeAreaInsets.bottom), trailing: max(window.right, page.safeAreaInsets.trailing))
+        // The page runs under the status bar and the camera housing, so its own proxy reports no insets.
+        let insets = safeAreaInsets(for: page)
         let margin: CGFloat = 8
         // Anywhere it is dragged, clear of the status bar, the camera housing, a pinned dock and the home indicator.
         let dockWidth: CGFloat = reserved ? (twoColumns ? 96 : 48) : 0

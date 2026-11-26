@@ -37,6 +37,7 @@ import CoreText
 
     func valueLabel(_ selection: String, english: Bool) -> String {
         if selection == TerminalFontSelection.system { return english ? "System monospace" : "系统等宽" }
+        if selection == "Iosevka-Fixed" { return english ? "Iosevka Fixed (Narrow)" : "Iosevka 窄体" }
         let name = selection == TerminalFontSelection.custom ? custom?.postScriptName ?? TerminalFontSelection.defaultFont : selection
         return name.replacingOccurrences(of: "-Regular", with: "")
     }

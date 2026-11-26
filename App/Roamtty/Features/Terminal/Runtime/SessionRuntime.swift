@@ -40,6 +40,13 @@ import RoamttyTransport
     /// Whether the host has answered a status poll since this connection came up; until then the list shows what the
     /// session reported last.
     @Published var agentPolled = false
+    /// Live context-window, remaining quota and cumulative session token telemetry for the active AI agent.
+    @Published var agentUsage: AgentSessionUsage?
+    @Published var agentUsageLoading = false
+    var agentUsageTask: Task<Void, Never>?
+    var compactRefreshTask: Task<Void, Never>?
+    var lastAgentUsageAt: Date?
+    var lastAgentUsageState: AgentStatus.State?
     /// The status the last answered poll reported, starting from what the session reported before this runtime: what
     /// `onAgentReport` compares the next report with. Unlike `agentStatus`, a dropped connection does not clear it.
     var reportedAgentStatus: AgentStatus?
@@ -169,7 +176,7 @@ import RoamttyTransport
     var summaryWillChange: AnyPublisher<Void, Never> {
         func changes<T>(_ publisher: Published<T>.Publisher) -> AnyPublisher<Void, Never> { publisher.dropFirst().map { _ in () }.eraseToAnyPublisher() }
         return Publishers.MergeMany(changes($record), changes($phase), changes($end), changes($agentStatus), changes($agentPolled),
-                                    changes($paneDirectory), changes($transportName), changes($launchedAgent)).eraseToAnyPublisher()
+                                    changes($agentUsage), changes($paneDirectory), changes($transportName), changes($launchedAgent)).eraseToAnyPublisher()
     }
     static func background(_ scheme: ColorScheme) -> UIColor { UIColor(hex: scheme == .dark ? 0x252728 : 0xFFFDF9) }
     /// Android's 16 ANSI colours (`TerminalColorScheme`), so a program's colours look the same on both. Black is the

@@ -16,7 +16,12 @@ extension SessionRuntime {
             }
         }
     }
-    func stopAgentStatusPolling() { agentPoll?.cancel(); agentPoll = nil; agentStatus = nil; agentPolled = false }
+    func stopAgentStatusPolling() {
+        agentPoll?.cancel(); agentPoll = nil; agentStatus = nil; agentPolled = false
+        agentUsageTask?.cancel(); agentUsageTask = nil; agentUsage = nil; agentUsageLoading = false
+        compactRefreshTask?.cancel(); compactRefreshTask = nil
+        lastAgentUsageAt = nil; lastAgentUsageState = nil
+    }
 
     /// Asks the host what the agent is doing now and shows it; a poll that got no answer keeps what was shown.
     @discardableResult func pollAgentStatus() async -> AgentStatus? {
@@ -39,7 +44,72 @@ extension SessionRuntime {
         onAgentReport?(previous, status)
         let directory = AgentStatus.directory(answer)
         if !directory.isEmpty && directory != paneDirectory { paneDirectory = directory }
+        maybeRefreshAgentUsage(status: status)
         return status
+    }
+
+    var activeAgentKind: CodingAgent? {
+        if let reported = CodingAgent.fromCommand(agentStatus?.agent) { return reported }
+        if !agentPolled { return launchedAgent }
+        return nil
+    }
+
+    private func maybeRefreshAgentUsage(status: AgentStatus?) {
+        guard activeAgentKind != nil else {
+            if agentPolled && status == nil { agentUsage = nil }
+            lastAgentUsageState = nil
+            return
+        }
+        let now = Date()
+        let stateChanged = status?.state != lastAgentUsageState
+        lastAgentUsageState = status?.state
+        let stale = lastAgentUsageAt.map { now.timeIntervalSince($0) >= 12 } ?? true
+        if stale || (stateChanged && status?.state == .idle) {
+            refreshAgentUsage(force: false)
+        }
+    }
+
+    /// Reads current session context, remaining quota and cumulative session tokens from the host's CLI transcript.
+    func refreshAgentUsage(force: Bool = true) {
+        guard phase == .connected else { return }
+        if !force, agentUsageTask != nil { return }
+        guard let kind = activeAgentKind ?? launchedAgent else { return }
+        let directory = (agentStatus?.directory.isEmpty == false ? agentStatus?.directory : nil) ?? paneDirectory
+        let tmuxName = record.mode == .tmux ? record.remoteName : nil
+        agentUsageTask?.cancel()
+        if force { agentUsageLoading = true }
+        agentUsageTask = Task { [weak self] in
+            defer { self?.agentUsageTask = nil; self?.agentUsageLoading = false }
+            guard let self, let ssh = await self.sideConnection() else { return }
+            let cmd = AgentUsage.sessionCommand(agent: kind, tmuxSession: tmuxName, directory: directory)
+            let result = try? await ssh.run(cmd, input: AgentUsage.scriptData, timeout: 15, cancellation: self.lifetimeCancellation)
+            guard !Task.isCancelled, self.ssh === ssh, self.phase == .connected else { return }
+            self.lastAgentUsageAt = Date()
+            if let parsed = AgentUsage.parseSession(result?.text) { self.agentUsage = parsed }
+        }
+    }
+
+    /// Sends the active agent's native context compaction command behind the "压缩上下文" button.
+    func compactContext() async -> Bool {
+        guard phase == .connected, let kind = activeAgentKind ?? launchedAgent, let cmd = kind.compactCommand else { return false }
+        let beforeCtx = agentUsage?.contextUsed
+        let input = terminalView.getTerminal().bracketedPasteMode ? "\u{1b}[200~" + cmd + "\u{1b}[201~" : cmd
+        guard send(input) else { return false }
+        try? await Task.sleep(for: .milliseconds(120))
+        guard send("\r") else { return false }
+        compactRefreshTask?.cancel()
+        compactRefreshTask = Task { [weak self] in
+            // Compaction typically finishes in 2-20s; re-poll at staggered intervals and stop once context drops.
+            for waitSeconds in [3, 4, 7, 10] {
+                do { try await Task.sleep(for: .seconds(waitSeconds)) } catch { return }
+                guard let self, self.phase == .connected else { return }
+                self.refreshAgentUsage(force: false)
+                await self.agentUsageTask?.value
+                let afterCtx = self.agentUsage?.contextUsed
+                if let afterCtx, beforeCtx.map({ afterCtx < $0 }) ?? true { return }
+            }
+        }
+        return true
     }
 
     /// The folder the terminal is in now, asked of the host; what the shell last reported when the host does not say.
