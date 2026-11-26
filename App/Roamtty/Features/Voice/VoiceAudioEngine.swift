@@ -97,6 +97,16 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
         }
     }
 
+    /// Pre-warms `AVAudioSession` (`.playAndRecord` + `.voiceChat`) and `AVAudioEngine` with VPIO AEC
+    /// when the call starts so `SPK_START` replies with `SPK_ACK` without cold-start timeout risk.
+    func prepareSession(route next: VoiceAudioRoute) {
+        queue.async { [self] in
+            route = next
+            _ = ensureEngineRunning()
+            applyRouteLocked()
+        }
+    }
+
     // MARK: VoiceAudioIO
 
     func startMic(streamId: UInt32, sampleRate: UInt32, channels: UInt8, onPcm: @escaping @Sendable (UInt32, [UInt8]) -> Void) {

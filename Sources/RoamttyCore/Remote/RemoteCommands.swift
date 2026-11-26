@@ -107,11 +107,11 @@ public enum RemoteCommands {
         let safe = sanitizeSessionName(session)
         return shell(pathSetup + "; tmux set-environment -u -t \(safe) \(name) 2>/dev/null || true")
     }
-    /// Injects `ANTIGRAVITY_MIC=127.0.0.1:<micPort>` into `~/.roamtty/agy`, `~/.roamtty/voice-mic`,
-    /// and (when attached to tmux) runs `tmux set-environment -t <session> ANTIGRAVITY_MIC 127.0.0.1:<micPort>`.
+    /// Injects `ANTIGRAVITY_MIC=127.0.0.1:<micPort>` into `~/.roamtty/voice-mic`, keeps `~/.roamtty/agy` on the
+    /// dynamic default template, and (when attached to tmux) sets `ANTIGRAVITY_MIC` in the tmux session environment.
     public static func injectAntigravityMicScript(micPort: Int, tmuxSession: String? = nil) -> String? {
         guard let addr = AgentHooks.voiceMicAddress(port: micPort) else { return nil }
-        let launcher = AgentHooks.agyLauncher(micPort: micPort)
+        let launcher = AgentHooks.agyLauncher(micPort: nil)
         var parts = [
             pathSetup,
             "mkdir -p \"$HOME/.roamtty\"",
@@ -121,6 +121,21 @@ public enum RemoteCommands {
         if let session = tmuxSession, !session.isEmpty {
             let safe = sanitizeSessionName(session)
             parts.append("tmux set-environment -t \(safe) ANTIGRAVITY_MIC \(shellQuote(addr)) 2>/dev/null || true")
+        }
+        return parts.joined(separator: "\n") + "\n"
+    }
+    /// Clears transient `~/.roamtty/voice-mic` and tmux override on clean hangup while keeping the default `24713` launcher.
+    public static func clearAntigravityMicScript(tmuxSession: String? = nil) -> String {
+        let launcher = AgentHooks.agyLauncher(micPort: nil)
+        var parts = [
+            pathSetup,
+            "mkdir -p \"$HOME/.roamtty\"",
+            "rm -f \"$HOME/.roamtty/voice-mic\"",
+            "printf '%s' \(shellQuote(launcher)) > \"$HOME/.roamtty/agy\" && chmod +x \"$HOME/.roamtty/agy\""
+        ]
+        if let session = tmuxSession, !session.isEmpty {
+            let safe = sanitizeSessionName(session)
+            parts.append("tmux set-environment -u -t \(safe) ANTIGRAVITY_MIC 2>/dev/null || true")
         }
         return parts.joined(separator: "\n") + "\n"
     }

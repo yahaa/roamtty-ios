@@ -95,7 +95,11 @@ extension VoiceSession {
             }
             return .finished(.failed(.pluginError(detail ?? code)))
         case .ready(let hello):
-            return .finished(runStream(s, remote: remote, hello: hello, parser: parser))
+            let outcome = runStream(s, remote: remote, hello: hello, parser: parser)
+            if isClosing {
+                clearMicPort(remote, sync { _windowsHost })
+            }
+            return .finished(outcome)
         }
     }
 

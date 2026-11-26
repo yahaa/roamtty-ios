@@ -143,13 +143,16 @@ public enum AgentHooks {
         return (lines + launcherEnd(.grok)).joined(separator: "\n") + "\n"
     }
 
+    /// Default loopback `ANTIGRAVITY_MIC` endpoint pre-configured in Roamtty's `agy` launchers.
+    public static let defaultAntigravityMic = "127.0.0.1:24713"
+
     /// `~/.roamtty/agy`: Antigravity CLI loads global hooks from plugins under `~/.gemini/config/plugins/`, so this
     /// writes a small `roamtty` plugin whose hooks act only for an `agy` started here (`script` checks `ROAMTTY_AGENT`),
     /// reports the initial idle state (Antigravity fires `SessionStart` only on the first prompt), then runs `agy`.
     public static var agyLauncher: String { agyLauncher(micPort: nil) }
 
-    /// `~/.roamtty/agy` with optional `ANTIGRAVITY_MIC=127.0.0.1:<micPort>` injection for `/voice`.
-    /// When `micPort` is nil, also honors an existing `ANTIGRAVITY_MIC` or `~/.roamtty/voice-mic` file if present.
+    /// `~/.roamtty/agy` with `ANTIGRAVITY_MIC` injection for `/voice`.
+    /// When `micPort` is nil, honors an existing `ANTIGRAVITY_MIC` or `~/.roamtty/voice-mic`, falling back to `127.0.0.1:24713`.
     public static func agyLauncher(micPort: Int?) -> String {
         let plugin = "{\"name\":\"roamtty\",\"displayName\":\"Roamtty\",\"version\":\"1.0.0\"," +
             "\"description\":\"Reports Antigravity CLI status to Roamtty.\"}"
@@ -168,7 +171,9 @@ public enum AgentHooks {
         if let addr = voiceMicAddress(port: micPort) {
             lines.append("export ANTIGRAVITY_MIC=\(addr)")
         } else {
-            lines.append("[ -n \"${ANTIGRAVITY_MIC:-}\" ] || { [ -s \"$HOME/.roamtty/voice-mic\" ] && export ANTIGRAVITY_MIC=\"$(cat \"$HOME/.roamtty/voice-mic\")\"; }")
+            let fallback = "[ -s \"$HOME/.roamtty/voice-mic\" ] && export ANTIGRAVITY_MIC=\"$(cat \"$HOME/.roamtty/voice-mic\")\" " +
+                "|| export ANTIGRAVITY_MIC=\(defaultAntigravityMic)"
+            lines.append("[ -n \"${ANTIGRAVITY_MIC:-}\" ] || { \(fallback); }")
         }
         lines.append("export ROAMTTY_AGENT=agy")
         lines.append("\(hookCommand(.agy, "start")) </dev/null")
@@ -176,7 +181,7 @@ public enum AgentHooks {
         return (lines + launcherEnd(.agy)).joined(separator: "\n") + "\n"
     }
 
-    /// Windows PowerShell launcher (`%USERPROFILE%\.roamtty\agy.ps1`) with optional `ANTIGRAVITY_MIC` injection.
+    /// Windows PowerShell launcher (`%USERPROFILE%\.roamtty\agy.ps1`) with `ANTIGRAVITY_MIC` injection.
     public static func agyWindowsLauncher(micPort: Int?) -> String {
         var lines = [
             "# Roamtty: starts Antigravity CLI with voice mic forwarding when active.",
@@ -185,8 +190,11 @@ public enum AgentHooks {
         if let addr = voiceMicAddress(port: micPort) {
             lines.append("$env:ANTIGRAVITY_MIC = '\(addr)'")
         } else {
-            lines.append("if (-not $env:ANTIGRAVITY_MIC -and (Test-Path \"$env:USERPROFILE\\.roamtty\\voice-mic\")) {")
-            lines.append("  $env:ANTIGRAVITY_MIC = (Get-Content \"$env:USERPROFILE\\.roamtty\\voice-mic\" -Raw).Trim()")
+            lines.append("if (-not $env:ANTIGRAVITY_MIC) {")
+            lines.append("  if (Test-Path \"$env:USERPROFILE\\.roamtty\\voice-mic\") {")
+            lines.append("    $env:ANTIGRAVITY_MIC = (Get-Content \"$env:USERPROFILE\\.roamtty\\voice-mic\" -Raw).Trim()")
+            lines.append("  }")
+            lines.append("  if (-not $env:ANTIGRAVITY_MIC) { $env:ANTIGRAVITY_MIC = '\(defaultAntigravityMic)' }")
             lines.append("}")
         }
         lines.append("& agy @args")

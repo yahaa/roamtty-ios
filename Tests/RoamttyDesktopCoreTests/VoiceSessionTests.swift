@@ -22,6 +22,7 @@ final class VoiceSessionTests: XCTestCase {
         t.recoverRetryMs = 40
         t.tickMs = 50
         t.exitWaitMs = 200
+        t.shutdownGraceMs = 20
         return t
     }
 
@@ -247,6 +248,39 @@ final class VoiceSessionTests: XCTestCase {
                 return false
             }, "expected '\(expected)', got \(session.phase)")
         }
+    }
+
+    func testCloseSendsShutdownConfigAndClearsMicPort() throws {
+        let streamBox = Box<FakeStream?>(nil)
+        let cleared = Box<Bool>(false)
+        let host = FakeHost(probe: FakeHost.probe("no", uname: "Linux x86_64", version: "0.9.7")) { s, _ in
+            streamBox.value = s
+            s.hello([
+                "proto": 1, "ver": "0.9.7", "os": "linux", "mode": "voice",
+                "mic_port": 24713, "session": "s_shut", "resume_token": "tok_shut", "codecs": ["pcm16"]
+            ])
+        }
+        let session = VoiceSession(
+            config: .init(hostName: "h", address: "127.0.0.1", tmuxSession: "work"),
+            manifest: manifest,
+            timings: fastTimings,
+            login: { .host(host) },
+            injectMicPort: { _, _, _ in },
+            clearMicPort: { _, _ in cleared.value = true }
+        )
+        session.start()
+        XCTAssertTrue(waitUntil(3) { if case .ready(24713, _) = session.phase { return true }; return false })
+        let stream = try XCTUnwrap(streamBox.value)
+        session.close()
+
+        XCTAssertTrue(waitUntil(2) {
+            stream.received.contains { f in
+                guard f.type == DesktopProtocol.CONFIG else { return false }
+                let text = String(decoding: f.payload, as: UTF8.self)
+                return text.contains("\"shutdown\"") && text.contains("true")
+            }
+        }, "close() must send CONFIG shutdown:true so voice-daemon releases port 24713 immediately")
+        XCTAssertTrue(waitUntil(2) { cleared.value }, "close() must clear transient mic port override")
     }
 }
 

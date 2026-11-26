@@ -148,7 +148,7 @@ public enum WindowsDesktop {
         #"cmd /c ""%USERPROFILE%\.roamtty\bin\roamtty-desktop.exe" voice "# + args + "\""
     }
 
-    /// Writes `%USERPROFILE%\.roamtty\agy.ps1` and `voice-mic` with `ANTIGRAVITY_MIC=127.0.0.1:<micPort>`.
+    /// Writes `%USERPROFILE%\.roamtty\voice-mic` and dynamic `agy.ps1` (defaulting to `127.0.0.1:24713`).
     public static func writeAgyLauncherCommand(micPort: Int) -> String? {
         guard (1...65535).contains(micPort) else { return nil }
         let addr = "127.0.0.1:\(micPort)"
@@ -159,11 +159,25 @@ public enum WindowsDesktop {
         $launcher = @"
         # Roamtty: starts Antigravity CLI with voice mic forwarding when active.
         `$env:ROAMTTY_AGENT = 'agy'
-        `$env:ANTIGRAVITY_MIC = '\(addr)'
+        if (-not `$env:ANTIGRAVITY_MIC) {
+          if (Test-Path "`$env:USERPROFILE\\.roamtty\\voice-mic") {
+            `$env:ANTIGRAVITY_MIC = (Get-Content "`$env:USERPROFILE\\.roamtty\\voice-mic" -Raw).Trim()
+          }
+          if (-not `$env:ANTIGRAVITY_MIC) { `$env:ANTIGRAVITY_MIC = '127.0.0.1:24713' }
+        }
         & agy @args
         exit `$LASTEXITCODE
         "@
         Set-Content -Path "$d\\agy.ps1" -Value $launcher -Encoding UTF8
+        exit 0
+        """
+        return PowerShell.command(script)
+    }
+
+    /// Removes transient `%USERPROFILE%\.roamtty\voice-mic` on clean hangup.
+    public static func clearAgyLauncherCommand() -> String {
+        let script = """
+        Remove-Item "$env:USERPROFILE\\.roamtty\\voice-mic" -ErrorAction SilentlyContinue
         exit 0
         """
         return PowerShell.command(script)

@@ -108,6 +108,7 @@ import RoamttyTransport
             let manifest = try model.desktopManifest()
             let voiceSession = buildVoiceSession(runtime: runtime, model: model, credentials: credentials, manifest: manifest)
             let engine = makeAudioEngine(route: route)
+            engine.prepareSession(route: route)
             voiceSession.audioIO = engine
             self.audioEngine = engine
             self.session = voiceSession
@@ -139,6 +140,14 @@ import RoamttyTransport
                     }
                 } else if let script = RemoteCommands.injectAntigravityMicScript(micPort: port, tmuxSession: tmux) {
                     _ = remote.run(script, timeout: 10) { _ in }
+                }
+            },
+            clearMicPort: { remote, windows in
+                if windows {
+                    _ = remote.runCommand(WindowsDesktop.clearAgyLauncherCommand(), timeout: 5) { _ in }
+                } else {
+                    let script = RemoteCommands.clearAntigravityMicScript(tmuxSession: tmux)
+                    _ = remote.run(script, timeout: 5) { _ in }
                 }
             }
         )
@@ -203,9 +212,16 @@ import RoamttyTransport
                 sendFunctionKey(mode.startFunctionKey, to: runtime)
                 ghostState = isMuted ? .muted : .listening(level: 0)
                 startElapsedTimer()
-                showToast(mode == .live
-                    ? model.text("已接通，可以直接说话", "Connected — speak naturally")
-                    : model.text("听写已开始", "Dictation started"))
+                if port != VoiceProtocol.defaultPort {
+                    showToast(model.text(
+                        "语音端口 24713 被占用，已改用 \(port)；若当前 agy 无响应请重启会话",
+                        "Voice port 24713 is busy; using \(port). Restart agy if voice does not respond"
+                    ))
+                } else {
+                    showToast(mode == .live
+                        ? model.text("已接通，可以直接说话", "Connected — speak naturally")
+                        : model.text("听写已开始", "Dictation started"))
+                }
             }
         case .failed(let message):
             errorMessage = message

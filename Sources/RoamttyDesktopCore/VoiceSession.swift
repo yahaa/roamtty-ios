@@ -28,6 +28,7 @@ public final class VoiceSession: @unchecked Sendable {
         public var recoverRetryMs: Int64 = 1_000
         public var tickMs: Int64 = 250
         public var exitWaitMs: Int64 = 3_000
+        public var shutdownGraceMs: Int64 = 120
         public init() {}
     }
 
@@ -37,6 +38,7 @@ public final class VoiceSession: @unchecked Sendable {
     let fetch: (String) throws -> Data
     let makeUdp: (String, Int) throws -> UdpTransport
     let injectMicPort: (DesktopHost, Int, Bool) -> Void
+    let clearMicPort: (DesktopHost, Bool) -> Void
     let timings: Timings
     let callbackQueue: DispatchQueue
     public var audioIO: VoiceAudioIO?
@@ -80,7 +82,8 @@ public final class VoiceSession: @unchecked Sendable {
         login: @escaping () -> DesktopLogin,
         fetch: @escaping (String) throws -> Data = HTTPFetch.get,
         makeUdp: @escaping (String, Int) throws -> UdpTransport = { try UdpSocketTransport(host: $0, port: $1) },
-        injectMicPort: ((DesktopHost, Int, Bool) -> Void)? = nil
+        injectMicPort: ((DesktopHost, Int, Bool) -> Void)? = nil,
+        clearMicPort: ((DesktopHost, Bool) -> Void)? = nil
     ) {
         self.config = config
         self.manifest = manifest
@@ -92,6 +95,9 @@ public final class VoiceSession: @unchecked Sendable {
         let tmux = config.tmuxSession
         self.injectMicPort = injectMicPort ?? { host, port, windows in
             Self.defaultInjectMicPort(host: host, port: port, windows: windows, tmuxSession: tmux)
+        }
+        self.clearMicPort = clearMicPort ?? { host, windows in
+            Self.defaultClearMicPort(host: host, windows: windows, tmuxSession: tmux)
         }
     }
 
@@ -129,16 +135,36 @@ public final class VoiceSession: @unchecked Sendable {
     }
 
     public func close() {
-        let (s, l, h, wasRunning): (DesktopStream?, UdpLink?, DesktopHost?, Bool) = sync {
+        var s: DesktopStream?
+        var l: UdpLink?
+        var q: DesktopOutQueue?
+        var h: DesktopHost?
+        var wasRunning = false
+        sync {
             closing = true
             activeMicStreamId = nil
             activeSpkStreamId = nil
-            return (stream, link, host, running)
+            s = stream
+            l = link
+            q = outgoing
+            h = host
+            wasRunning = running
         }
         audioIO?.stopAll()
-        s?.close()
-        l?.close()
-        h?.disconnect()
+        if s != nil || (l?.alive ?? false) {
+            let shutdownFrame = VoiceProtocol.config(["shutdown": true])
+            if let l, l.alive { l.send(shutdownFrame, reliable: true, fecRatio: 1.0) }
+            q?.send(shutdownFrame)
+            let graceMs = max(0, timings.shutdownGraceMs)
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + .milliseconds(Int(graceMs))) {
+                s?.close()
+                l?.close()
+            }
+        } else {
+            s?.close()
+            l?.close()
+            h?.disconnect()
+        }
         wakeAll()
         if !wasRunning {
             setPhase(.idle)
@@ -240,5 +266,23 @@ public final class VoiceSession: @unchecked Sendable {
             }
         }
         _ = host.run(lines.joined(separator: "\n") + "\n", timeout: 10) { _ in }
+    }
+
+    private static func defaultClearMicPort(host: DesktopHost, windows: Bool, tmuxSession: String?) {
+        if windows {
+            _ = host.runCommand(WindowsDesktop.clearAgyLauncherCommand(), timeout: 5) { _ in }
+            return
+        }
+        var lines = [
+            "PATH=\"$PATH:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/home/linuxbrew/.linuxbrew/bin:/snap/bin\"; export PATH",
+            "rm -f \"$HOME/.roamtty/voice-mic\""
+        ]
+        if let raw = tmuxSession, !raw.isEmpty {
+            let safe = String(raw.unicodeScalars.filter { CharacterSet.letters.contains($0) || CharacterSet.decimalDigits.contains($0) || $0 == "-" || $0 == "_" }.prefix(64))
+            if !safe.isEmpty {
+                lines.append("tmux set-environment -u -t \(safe) ANTIGRAVITY_MIC 2>/dev/null || true")
+            }
+        }
+        _ = host.run(lines.joined(separator: "\n") + "\n", timeout: 5) { _ in }
     }
 }
