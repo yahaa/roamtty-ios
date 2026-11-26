@@ -201,6 +201,53 @@ final class VoiceSessionTests: XCTestCase {
         audio.emitMic(streamId: 3, pcm: [UInt8](repeating: 0x11, count: 640))
         XCTAssertTrue(waitUntil(2) { udpHost.frames.contains { $0.type == VoiceProtocol.MIC_AUDIO } })
     }
+
+    func testOutdatedPluginTriggersHeadlessAutoUpgrade() {
+        let upgradeManifest = PluginManifest(
+            version: "0.9.8",
+            baseUrl: "https://example.invalid/v0.9.8/",
+            protoMin: 1,
+            protoMax: 1,
+            openh264: "2.6.0",
+            targets: ["linux-x86_64": .init(file: "linux-x86_64.gz", sha256: "00", size: 1)]
+        )
+        let host = FakeHost(probe: FakeHost.probe("no", uname: "Linux x86_64", version: "0.9.7")) { s, _ in
+            s.hello(["proto": 1, "ver": "0.9.8", "os": "linux", "mode": "voice", "mic_port": 24713, "session": "up1", "resume_token": "tok1", "codecs": ["pcm16"]])
+        }
+        let session = VoiceSession(
+            config: .init(hostName: "upgrade", address: "127.0.0.1"),
+            manifest: upgradeManifest,
+            timings: fastTimings,
+            login: { .host(host) }
+        )
+        defer { session.close() }
+        session.start()
+
+        XCTAssertTrue(waitUntil(3) { if case .ready(24713, _) = session.phase { return true }; return false })
+        XCTAssertTrue(host.allScripts.contains { $0.contains("https://example.invalid/v0.9.8/linux-x86_64.gz") }, "mismatched 0.9.7 must trigger headless upgrade to 0.9.8")
+        XCTAssertFalse(host.allScripts.contains { $0.contains("roamtty-desktop\" install") }, "headless voice upgrade must skip OpenH264 & register")
+    }
+
+    func testExitCode2SurfacesOutdatedPluginErrorInBothLanguages() {
+        for (english, expected) in [
+            (false, "主机插件版本过旧，不支持语音模式，请更新插件"),
+            (true, "Host plugin is outdated and does not support voice mode; please update the plugin")
+        ] {
+            let host = FakeHost(probe: FakeHost.probe("no", uname: "Linux x86_64", version: "0.9.7")) { s, _ in
+                s.exit(2)
+            }
+            var cfg = VoiceSession.Config(hostName: "old", address: "127.0.0.1")
+            cfg.english = english
+            let session = VoiceSession(config: cfg, manifest: manifest, timings: fastTimings, login: { .host(host) })
+            defer { session.close() }
+            session.start()
+
+            XCTAssertTrue(waitUntil(3) {
+                if case .failed(let message) = session.phase { return message == expected }
+                return false
+            }, "expected '\(expected)', got \(session.phase)")
+        }
+    }
 }
 
 private final class FakeVoiceAudioIO: VoiceAudioIO, @unchecked Sendable {

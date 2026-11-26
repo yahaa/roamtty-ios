@@ -39,14 +39,20 @@ final class VoiceUITests: XCTestCase {
         app.launchEnvironment["ROAMTTY_VOICE_FIXTURE_PLUGIN_MISSING"] = pluginMissing ? "1" : "0"
         if let state { app.launchEnvironment["ROAMTTY_VOICE_FIXTURE_STATE"] = state } else { app.launchEnvironment.removeValue(forKey: "ROAMTTY_VOICE_FIXTURE_STATE") }
         app.launch()
+        let alert = app.alerts.firstMatch
+        if alert.waitForExistence(timeout: 2) {
+            alert.buttons.firstMatch.tap()
+            _ = alert.waitForNonExistence(timeout: 3)
+        }
     }
 
-    /// Reopens the floating dock via `terminal-ghost` if an iOS system alert delayed launch past `dockHideSeconds`.
+    /// Reopens the floating dock via `terminal-ghost` if an alert or screenshot delay elapsed past `dockHideSeconds`.
     private func ensureVoiceDockButton(_ app: XCUIApplication, timeout: TimeInterval = 10) -> XCUIElement {
         let voiceBtn = app.buttons["terminal-voice"]
-        if voiceBtn.waitForExistence(timeout: 3) { return voiceBtn }
+        if voiceBtn.exists && voiceBtn.isHittable { return voiceBtn }
+        if voiceBtn.waitForExistence(timeout: 2), voiceBtn.isHittable { return voiceBtn }
         let ghost = app.buttons["terminal-ghost"]
-        if !ghost.waitForExistence(timeout: 3) {
+        if !ghost.waitForExistence(timeout: 2) {
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.3)).tap()
             _ = ghost.waitForExistence(timeout: 4)
         }
@@ -61,13 +67,13 @@ final class VoiceUITests: XCTestCase {
 
         // 1. Dock phone button beside desktop button in agy session.
         launchVoiceFixture(app, dockOpen: true)
-        let voiceBtn = ensureVoiceDockButton(app)
+        _ = ensureVoiceDockButton(app)
         XCTAssertTrue(app.buttons["terminal-desktop"].exists, "Desktop button stays beside phone button")
         Thread.sleep(forTimeInterval: 0.4)
         saveShot("01-voice-dock-phone")
 
-        // 2. Tap phone button -> Confirmation Bottom Sheet.
-        voiceBtn.tap()
+        // 2. Tap phone button -> Confirmation Bottom Sheet (re-open dock if 5s quiet timer elapsed during screenshot).
+        ensureVoiceDockButton(app).tap()
         let confirmBtn = app.buttons["voice-sheet-confirm"]
         XCTAssertTrue(confirmBtn.waitForExistence(timeout: 5), "Confirmation sheet must present")
         let cancelBtn = app.buttons["voice-sheet-cancel"]

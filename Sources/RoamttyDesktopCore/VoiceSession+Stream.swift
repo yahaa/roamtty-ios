@@ -68,7 +68,7 @@ extension VoiceSession {
             return .failed(.unsupportedSystem)
         }
         sync { _windowsHost = targetName.hasPrefix("windows-") }
-        if probe.version == nil, let failed = installHeadless(remote, build: build, target: targetName) { return failed }
+        if probe.version != manifest.version, let failed = installHeadless(remote, build: build, target: targetName) { return failed }
         var tries = 0
         while !isClosing && tries < 3 {
             tries += 1
@@ -125,6 +125,7 @@ extension VoiceSession {
             if let failed = installHeadless(remote, build: build, target: target) { return .finished(failed) }
             return .retry
         }
+        if status == 2 && s.isClosed { return .finished(.failed(.voiceUnsupportedByPlugin)) }
         if let status, s.isClosed { return .finished(.failed(.pluginStartFailedCode(status))) }
         return .finished(.dropped(nil))
     }

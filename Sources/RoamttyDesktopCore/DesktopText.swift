@@ -4,7 +4,7 @@
 public enum DesktopText: Equatable, Sendable {
     // Connection failures and notices.
     case openedElsewhere, cannotConnect, lostOver30s, cannotProbe, noDesktop, unsupportedSystem
-    case pluginStartFailed, pluginStartFailedCode(Int), pluginError(String), cannotReachServer, cannotReadCredentials
+    case pluginStartFailed, pluginStartFailedCode(Int), pluginError(String), voiceUnsupportedByPlugin, cannotReachServer, cannotReadCredentials
     case downloadFailed, checksumFailed, encoderFailed, hostWriteFailed
     case unlockOnComputer
     // Install and start log.
@@ -36,6 +36,7 @@ public enum DesktopText: Equatable, Sendable {
         case .pluginStartFailed: return ("桌面插件启动失败", "The desktop plugin didn't start")
         case .pluginStartFailedCode(let c): return ("桌面插件启动失败（退出码 \(c)）", "The desktop plugin didn't start (exit code \(c))")
         case .pluginError(let s): return ("桌面插件出错：\(s)", "Desktop plugin error: \(s)")
+        case .voiceUnsupportedByPlugin: return ("主机插件版本过旧，不支持语音模式，请更新插件", "Host plugin is outdated and does not support voice mode; please update the plugin")
         case .cannotReachServer: return ("无法连接服务器", "Could not connect to the server")
         case .cannotReadCredentials: return ("无法读取凭据，请重新导入密钥或保存密码。", "Could not read credentials. Import the key again or save the password.")
         case .downloadFailed: return ("下载桌面插件失败", "Couldn't download the desktop plugin")
