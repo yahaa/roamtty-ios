@@ -8,12 +8,18 @@ import RoamttyDesktopCore
 @MainActor final class DesktopStore: ObservableObject {
     @Published private(set) var controllers: [String: DesktopController] = [:]
     private var subscriptions: [String: AnyCancellable] = [:]
+    private(set) var voiceCallActive = false
     subscript(_ hostID: String) -> DesktopController? { controllers[hostID] }
     func put(_ c: DesktopController) {
+        c.setVoiceMuted(voiceCallActive)
         controllers[c.host.id] = c
         subscriptions[c.host.id] = c.$phase.removeDuplicates().sink { [weak self] _ in
             self?.objectWillChange.send()
         }
+    }
+    func setVoiceCallActive(_ active: Bool) {
+        voiceCallActive = active
+        controllers.values.forEach { $0.setVoiceMuted(active) }
     }
     func remove(_ hostID: String) {
         let removed = controllers.removeValue(forKey: hostID)
@@ -285,6 +291,7 @@ import RoamttyDesktopCore
     func setDisplay(_ i: Int) { objectWillChange.send(); session.setDisplay(i) }
     func setLockOnClose(_ on: Bool) { objectWillChange.send(); session.setLockOnClose(on); prefs.lockOnClose = on; onPrefs(prefs) }
     func setAudio(_ on: Bool) { objectWillChange.send(); session.setAudio(on); prefs.audio = on; onPrefs(prefs) }
+    func setVoiceMuted(_ muted: Bool) { audio.setVoiceMuted(muted) }
     func setPointerMode(_ mode: PointerMode) {
         page.pointerMode = mode
         prefs.pointerMode = mode == .mouse ? "mouse" : "touch"

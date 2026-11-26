@@ -73,6 +73,8 @@ import RoamttyTransport
     var onOpenLoopback: ((LoopbackUrl) -> Void)?
     var onFailure: ((Error) -> Void)?
     let terminalView: TerminalView
+    let voice = VoiceController()
+    private var voiceRelay: AnyCancellable?
 
     // MARK: Connection
 
@@ -168,6 +170,7 @@ import RoamttyTransport
         view.viewportChanged = { [weak self] in self?.queueCursorRefresh() }
         view.pasteStarted = { [weak self] bracketed in self?.clearModifiers(); self?.capturedPaste = TerminalPasteCapture(bracketed: bracketed) }
         view.pasteFinished = { [weak self] in self?.finishNativePaste() }
+        voiceRelay = voice.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         installGestures()
     }
     /// Fires before a change to what the screens outside this terminal show of it: the session list, the drawer
@@ -212,6 +215,7 @@ import RoamttyTransport
 
     func fail(_ error: Error) {
         pendingPaste = nil
+        voice.shutdown()
         stopAgentStatusPolling()
         end = SessionEnd(failure: error, wasConnected: startupSent)
         if (error as? RoamError) == .authentication { loginSnapshot.invalidateAuthentication() }
@@ -221,6 +225,7 @@ import RoamttyTransport
     }
     func close() {
         pendingPaste = nil; capturedPaste = nil
+        voice.shutdown()
         swipeHold?.cancel(); swipeHold = nil; swipeGeneration = nil
         scrollGeneration = nil; scrollAccumulator.reset(); stopScrollInertia()
         generation = UUID(); worker?.cancel(); worker = nil; mosh?.close(); mosh = nil

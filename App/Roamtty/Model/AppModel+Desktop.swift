@@ -170,8 +170,28 @@ extension AppModel {
         } catch { /* probe is best-effort */ }
     }
 
-    /// Desktops follow the phone onto another network once the first one opened.
+    /// Blocking SSH login for a `VoiceSession` worker thread.
+    nonisolated func syncVoiceLogin(host: Host, credentials: Credentials) -> DesktopLogin {
+        do {
+            let ssh = try DispatchQueue.main.sync { try self.logins.makeConnection(host, credentials: credentials, owner: "voice-\(host.id)") }
+            try ssh.connect()
+            return .host(SSHDesktopHost(connection: ssh))
+        } catch let error as RoamError {
+            if case .authentication = error {
+                return .failed(message: DispatchQueue.main.sync { self.text("认证失败", "Authentication failed") }, connecting: false)
+            }
+            return .failed(message: error.localizedDescription, connecting: true)
+        } catch {
+            return .failed(message: error.localizedDescription, connecting: true)
+        }
+    }
+
+    /// Desktops and active voice sessions follow the phone onto another network.
     func watchDesktopNetwork() {
-        desktopNetwork.start { [weak self] change in self?.desktopStore?.networkChanged(change) }
+        desktopNetwork.start { [weak self] change in
+            guard let self else { return }
+            self.desktopStore?.networkChanged(change)
+            self.runtimes.values.forEach { $0.voice.networkChanged(change) }
+        }
     }
 }

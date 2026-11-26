@@ -143,6 +143,32 @@ public enum WindowsDesktop {
         #"cmd /c ""%USERPROFILE%\.roamtty\bin\roamtty-desktop.exe" serve "# + args + "\""
     }
 
+    /// Headless `voice` subcommand through cmd /c so the binary stream passes cleanly.
+    public static func voiceCommand(_ args: String) -> String {
+        #"cmd /c ""%USERPROFILE%\.roamtty\bin\roamtty-desktop.exe" voice "# + args + "\""
+    }
+
+    /// Writes `%USERPROFILE%\.roamtty\agy.ps1` and `voice-mic` with `ANTIGRAVITY_MIC=127.0.0.1:<micPort>`.
+    public static func writeAgyLauncherCommand(micPort: Int) -> String? {
+        guard (1...65535).contains(micPort) else { return nil }
+        let addr = "127.0.0.1:\(micPort)"
+        let script = """
+        $d = "$env:USERPROFILE\\.roamtty"
+        New-Item -ItemType Directory -Force $d | Out-Null
+        Set-Content -Path "$d\\voice-mic" -Value \(quote(addr)) -Encoding UTF8 -NoNewline
+        $launcher = @"
+        # Roamtty: starts Antigravity CLI with voice mic forwarding when active.
+        `$env:ROAMTTY_AGENT = 'agy'
+        `$env:ANTIGRAVITY_MIC = '\(addr)'
+        & agy @args
+        exit `$LASTEXITCODE
+        "@
+        Set-Content -Path "$d\\agy.ps1" -Value $launcher -Encoding UTF8
+        exit 0
+        """
+        return PowerShell.command(script)
+    }
+
     private static func quote(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "''") + "'" }
 
     /// Stops a running agent (its exe is locked while it runs), checks `path` against `sha`, moves it into place.

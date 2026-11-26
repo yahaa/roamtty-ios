@@ -70,5 +70,50 @@ extension AppModel {
         controller.start()
         path = [.desktop(host.id)]
     }
+
+    /// Isolated offline UI fixture for Terminal `agy /voice` UI verification and simulator screenshots.
+    func installVoiceUIFixture(_ store: AppStore) throws {
+        guard ProcessInfo.processInfo.arguments.contains("--voice-ui-fixture"),
+              ProcessInfo.processInfo.environment["ROAMTTY_STORAGE_NAME"] == "VoiceUIFixture" else { return }
+        let env = ProcessInfo.processInfo.environment
+        if let language = env["ROAMTTY_VOICE_FIXTURE_LANGUAGE"] { settings.language = language }
+        settings.theme = .dark
+        settings.toolboxPinned = false
+        var host = Host(id: "voice-ui-host", name: "mac-studio", address: "127.0.0.1", port: 22, username: "zihua", auth: .password, mode: .tmux)
+        host.system = "MACOS"
+        host.desktop = "yes"
+        host.desktopProbedAt = Int64(Date().timeIntervalSince1970 * 1000)
+        try store.saveHost(host)
+        hosts = try store.hosts()
+
+        let record = SessionRecord(id: "voice-ui-session", hostID: host.id, mode: .tmux, title: "Antigravity · roamtty", external: false)
+        records = [record]
+        let runtime = SessionRuntime(record: record, host: host)
+        runtime.launchedAgent = .agy
+        runtime.phase = .connected
+        runtime.transportName = "SSH"
+        runtime.agentUsage = AgentSessionUsage(agent: .agy, model: "gemini-2.5-pro", contextUsed: 72_000, contextLimit: 200_000)
+        let banner = [
+            "", "",
+            "\u{1b}[90mAntigravity CLI v1.5.18 · Gemini 2.5 Pro · ~/work/roamtty\u{1b}[0m",
+            "",
+            "\u{1b}[33m›\u{1b}[0m 帮我看下 TerminalDock 里加电话按钮的改动点",
+            "",
+            "已定位 iOS \u{1b}[36mTerminalScreen+Dock.swift\u{1b}[0m 与 \u{1b}[36mGhostArt.swift\u{1b}[0m。",
+            "\u{1b}[90m· 新增 voiceDockButton，仅在 agy 会话显示\u{1b}[0m",
+            "\u{1b}[90m· 通话中复用 ToolboxPetArt，左手键盘换弯曲电话听筒\u{1b}[0m",
+            "\u{1b}[32m✓ 0 errors · ready\u{1b}[0m",
+            "",
+            "\u{1b}[90m────────────────────────────────────────────\u{1b}[0m",
+            "\u{1b}[33m>\u{1b}[0m "
+        ].joined(separator: "\r\n")
+        runtime.terminalView.feed(text: banner)
+        let state = env["ROAMTTY_VOICE_FIXTURE_STATE"]
+        let popover = env["ROAMTTY_VOICE_FIXTURE_POPOVER"] == "1"
+        let mode: VoiceMode = env["ROAMTTY_VOICE_FIXTURE_MODE"] == "dictate" ? .dictate : .live
+        runtime.voice.configureFixture(state: state, mode: mode, popover: popover)
+        runtimes[record.id] = runtime
+        path = [.terminal(record.id)]
+    }
 }
 #endif

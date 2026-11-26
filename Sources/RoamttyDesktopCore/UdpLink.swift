@@ -156,14 +156,14 @@ public final class UdpLink: @unchecked Sendable {
     }
 
     /// Sends a whole protocol frame; `reliable` ones are resent until the host acknowledges them.
-    public func send(_ frame: [UInt8], reliable: Bool) {
+    public func send(_ frame: [UInt8], reliable: Bool, fecRatio: Float? = nil) {
         // Ids are u32 on the wire (RACKs come back as u32): wrap the same way here, so they still match.
         let id: Int64 = locked {
             if reliable { defer { reliableSeq += 1 }; return (reliableSeq * 2 + 1) & 0xFFFF_FFFF }
             defer { plainSeq += 1 }; return (plainSeq * 2) & 0xFFFF_FFFF
         }
-        let frags = UdpWire.fragment(msg: id, flags: reliable ? UdpWire.FLAG_RELIABLE : 0, bytes: frame,
-                                     ratio: reliable && frame.count > UdpWire.SHARD ? 0.25 : 0)
+        let ratio = fecRatio ?? (reliable && frame.count > UdpWire.SHARD ? 0.25 : 0)
+        let frags = UdpWire.fragment(msg: id, flags: reliable ? UdpWire.FLAG_RELIABLE : 0, bytes: frame, ratio: ratio)
         if reliable { let now = clock(); locked { unacked[id] = Unacked(frags, now) } }
         frags.forEach { raw($0.encode()) }
     }
@@ -240,11 +240,11 @@ public final class UdpLink: @unchecked Sendable {
         sender.async { [transport] in transport.close() }
     }
 
-    /// Which client frames must arrive: everything except pointer moves, wheel, ACK and pings.
+    /// Which client frames must arrive: everything except pointer moves, wheel, ACK, pings, and live voice mic PCM.
     public static func reliable(_ frame: [UInt8]) -> Bool {
         guard let type = frame.first else { return true }
         switch Int(type) {
-        case DesktopProtocol.ACK, DesktopProtocol.PING, DesktopProtocol.PONG: return false
+        case DesktopProtocol.ACK, DesktopProtocol.PING, DesktopProtocol.PONG, VoiceProtocol.MIC_AUDIO: return false
         case DesktopProtocol.INPUT: return ![1, 2, 4].contains(frame.count > 4 ? Int(frame[4]) : 0)
         default: return true
         }

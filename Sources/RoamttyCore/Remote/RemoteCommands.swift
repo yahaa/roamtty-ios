@@ -95,4 +95,38 @@ public enum RemoteCommands {
         let target = "=" + sanitizeSessionName(name) + ":"
         return shell(pathSetup + "; tmux display-message -p -t " + shellQuote(target) + " '#{alternate_on}'")
     }
+    /// Sets a tmux session environment variable (e.g. `ANTIGRAVITY_MIC` for `agy /voice`).
+    public static func tmuxSetEnvironment(session: String, name: String, value: String) -> String? {
+        guard isValidEnvName(name) else { return nil }
+        let safe = sanitizeSessionName(session)
+        return shell(pathSetup + "; tmux set-environment -t \(safe) \(name) " + shellQuote(value))
+    }
+    /// Unsets a tmux session environment variable.
+    public static func tmuxUnsetEnvironment(session: String, name: String) -> String? {
+        guard isValidEnvName(name) else { return nil }
+        let safe = sanitizeSessionName(session)
+        return shell(pathSetup + "; tmux set-environment -u -t \(safe) \(name) 2>/dev/null || true")
+    }
+    /// Injects `ANTIGRAVITY_MIC=127.0.0.1:<micPort>` into `~/.roamtty/agy`, `~/.roamtty/voice-mic`,
+    /// and (when attached to tmux) runs `tmux set-environment -t <session> ANTIGRAVITY_MIC 127.0.0.1:<micPort>`.
+    public static func injectAntigravityMicScript(micPort: Int, tmuxSession: String? = nil) -> String? {
+        guard let addr = AgentHooks.voiceMicAddress(port: micPort) else { return nil }
+        let launcher = AgentHooks.agyLauncher(micPort: micPort)
+        var parts = [
+            pathSetup,
+            "mkdir -p \"$HOME/.roamtty\"",
+            "printf '%s\\n' \(shellQuote(addr)) > \"$HOME/.roamtty/voice-mic\"",
+            "printf '%s' \(shellQuote(launcher)) > \"$HOME/.roamtty/agy\" && chmod +x \"$HOME/.roamtty/agy\""
+        ]
+        if let session = tmuxSession, !session.isEmpty {
+            let safe = sanitizeSessionName(session)
+            parts.append("tmux set-environment -t \(safe) ANTIGRAVITY_MIC \(shellQuote(addr)) 2>/dev/null || true")
+        }
+        return parts.joined(separator: "\n") + "\n"
+    }
+    private static func isValidEnvName(_ name: String) -> Bool {
+        guard let first = name.unicodeScalars.first, first.isASCII,
+              CharacterSet.letters.contains(first) || first == "_" else { return false }
+        return name.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "_") }
+    }
 }

@@ -86,23 +86,30 @@ struct TerminalToolboxState {
     private(set) var awake = true
     private(set) var ringOpen = false
     private(set) var ringPinned = false
+    private(set) var voiceActive = false
     private var ghostDeadline: TimeInterval = 0
     private var ringDeadline: TimeInterval = 0
     private var dockDeadline: TimeInterval = 0
     private var dockHideStarted: TimeInterval = 0
     var dockVisible: Bool { pinned || expanded }
     var floatingDock: Bool { dockVisible && !pinned }
-    var ghostVisible: Bool { !dockVisible && (awake || ringOpen) }
-    /// Next idle expiry: floating dock first, else ring / ghost.
+    var ghostVisible: Bool { !dockVisible && (voiceActive || awake || ringOpen) }
+    /// Next idle expiry: floating dock first, else ring / ghost (ghost never auto-hides during an active voice call).
     var deadline: TimeInterval? {
         if floatingDock, Self.dockHideSeconds > 0 { return dockDeadline }
         if dockVisible { return nil }
-        return ringOpen ? (ringPinned ? ringDeadline : nil) : awake ? ghostDeadline : nil
+        if ringOpen { return ringPinned ? ringDeadline : nil }
+        if voiceActive { return nil }
+        return awake ? ghostDeadline : nil
     }
     /// Remaining fraction of the floating-dock quiet spell (1 → 0), for the collapse countdown ring.
     func dockHideProgress(at time: TimeInterval) -> CGFloat {
         guard floatingDock, Self.dockHideSeconds > 0, dockHideStarted > 0 else { return 1 }
         return CGFloat(max(0, min(1, 1 - (time - dockHideStarted) / Self.dockHideSeconds)))
+    }
+    mutating func setVoiceActive(_ active: Bool, at time: TimeInterval) {
+        voiceActive = active
+        if active { awake = true } else { wake(at: time) }
     }
     mutating func wake(at time: TimeInterval) { awake = true; ghostDeadline = time + 5; if ringPinned { ringDeadline = time + 4 } }
     mutating func workspaceTouch(at time: TimeInterval) { if !pinned { expanded = false }; wake(at: time) }
@@ -118,7 +125,7 @@ struct TerminalToolboxState {
     mutating func beginRing(at time: TimeInterval) { ringOpen = true; ringPinned = false; wake(at: time) }
     mutating func pinRing(at time: TimeInterval) { ringOpen = true; ringPinned = true; wake(at: time) }
     mutating func completeRing(at time: TimeInterval) { closeRing(); wake(at: time) }
-    mutating func dismissRing() { closeRing(); awake = false }
+    mutating func dismissRing() { closeRing(); if !voiceActive { awake = false } }
     mutating func closeRing() { ringOpen = false; ringPinned = false }
     mutating func expire(at time: TimeInterval) {
         if floatingDock, Self.dockHideSeconds > 0, dockDeadline > 0, time >= dockDeadline {
@@ -128,7 +135,7 @@ struct TerminalToolboxState {
             return
         }
         guard !dockVisible else { return }
-        if ringPinned && time >= ringDeadline { dismissRing() } else if !ringOpen && time >= ghostDeadline { awake = false }
+        if ringPinned && time >= ringDeadline { dismissRing() } else if !ringOpen && !voiceActive && time >= ghostDeadline { awake = false }
     }
     private mutating func armDockHide(at time: TimeInterval) {
         guard !pinned, Self.dockHideSeconds > 0 else { clearDockHide(); return }

@@ -23,6 +23,8 @@ final class DesktopAudioPlayer: DesktopAudioSink, @unchecked Sendable {
     private let muted: Bool
 
     private let lock = NSLock()
+    /// Temporarily silenced while an interactive terminal voice call is active, protecting VPIO AEC.
+    private var _voiceMuted = false
     /// The end of what was scheduled, on the player's timeline (frames since `play`); only on `queue`.
     private var scheduledEnd: Int64 = 0
     private var _packets: Int64 = 0, _dropped: Int64 = 0, _cushions: Int64 = 0, _queuedMs = 0, _targetMs = 0
@@ -45,12 +47,26 @@ final class DesktopAudioPlayer: DesktopAudioSink, @unchecked Sendable {
     var targetMs: Int { lock.withLock { _targetMs } }
     var level: Level { lock.withLock { _level } }
     var rate: Double { queue.sync { jitter.rate } }
+    var voiceMuted: Bool { lock.withLock { _voiceMuted } }
 
-    func submit(_ audio: Audio) { queue.async { self.play(audio) } }
+    func setVoiceMuted(_ muted: Bool) {
+        let changed = lock.withLock { () -> Bool in
+            guard _voiceMuted != muted else { return false }
+            _voiceMuted = muted
+            return true
+        }
+        if changed && muted { queue.async { self.teardown() } }
+    }
+
+    func submit(_ audio: Audio) {
+        guard !lock.withLock({ _voiceMuted }) else { return }
+        queue.async { self.play(audio) }
+    }
 
     func stop() { queue.async { self.teardown() } }
 
     private func play(_ audio: Audio) {
+        guard !lock.withLock({ _voiceMuted }) else { return }
         if engine?.isRunning != true {
             // First packet, or an interruption (a call) stopped the engine: start over.
             teardown()
