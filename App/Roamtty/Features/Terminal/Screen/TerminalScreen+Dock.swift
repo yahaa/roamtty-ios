@@ -5,14 +5,15 @@ import RoamttyCore
 /// The toolbox: the dock of controls (floating or pinned), the pet's arrow keys, and the dock's session and
 /// settings menus.
 extension TerminalScreen {
-    func cursorFrame() -> CGRect? {
+    func cursorFrame(in viewport: CGSize) -> CGRect? {
         guard let row = runtime.cursorRowBounds else { return nil }
+        let inset = Self.inset(landscape: viewport.width > viewport.height)
         let height: CGFloat = 32, width: CGFloat = keyboardVisible ? 80 : 40
-        let y = Self.inset.top + row.midY
-        return CGRect(x: runtime.terminalView.bounds.width + Self.inset.leading + Self.inset.trailing - width, y: y - height / 2, width: width, height: height)
+        let y = inset.top + row.midY
+        return CGRect(x: runtime.terminalView.bounds.width + inset.leading + inset.trailing - width, y: y - height / 2, width: width, height: height)
     }
     func petCenter(in viewport: CGSize) -> CGPoint {
-        let frame = TerminalDockGeometry.frame(viewport: viewport, content: CGSize(width: 48, height: 48), avoiding: cursorFrame())
+        let frame = TerminalDockGeometry.frame(viewport: viewport, content: CGSize(width: 48, height: 48), avoiding: cursorFrame(in: viewport))
         return CGPoint(x: frame.midX, y: frame.midY)
     }
     /// Up above the pet, Down below it and Left to its left; the pet stays put between them.
@@ -34,7 +35,7 @@ extension TerminalScreen {
     func dock(in viewport: CGSize, twoColumns: Bool, reserved: Bool) -> some View {
         let rows = twoColumns ? 1 + (dockControlCount + 1) / 2 : 2 + dockControlCount
         let width: CGFloat = twoColumns ? 96 : 48, height = CGFloat(rows) * 48
-        let frame = TerminalDockGeometry.frame(viewport: viewport, content: CGSize(width: width, height: height + 12), endInset: reserved ? 0 : 8, avoiding: reserved ? nil : cursorFrame())
+        let frame = TerminalDockGeometry.frame(viewport: viewport, content: CGSize(width: width, height: height + 12), endInset: reserved ? 0 : 8, avoiding: reserved ? nil : cursorFrame(in: viewport))
         return ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 0) {
                 if twoColumns {

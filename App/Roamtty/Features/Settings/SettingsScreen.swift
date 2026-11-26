@@ -83,7 +83,7 @@ struct SettingsScreen: View {
         Panel(title: model.text("终端", "Terminal")) {
             Picker(model.text("字体", "Font"), selection: $model.settings.font) {
                 Text(model.text("系统等宽", "System monospace")).tag(TerminalFontSelection.system).accessibilityIdentifier("settings-font-system")
-                ForEach(TerminalFontSelection.bundled, id: \.self) { name in Text(name.replacingOccurrences(of: "-Regular", with: "")).tag(name) }
+                ForEach(TerminalFontSelection.bundled, id: \.self) { name in Text(fonts.valueLabel(name, english: model.english)).tag(name) }
                 if let custom = fonts.custom { Text(custom.displayName).tag(TerminalFontSelection.custom).accessibilityIdentifier("settings-font-custom") }
             }.padding(16).panelDivider().accessibilityIdentifier("settings-font").accessibilityValue(fonts.valueLabel(model.settings.font, english: model.english))
             Button {
