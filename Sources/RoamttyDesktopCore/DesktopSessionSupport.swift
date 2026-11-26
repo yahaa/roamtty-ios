@@ -1,20 +1,48 @@
 import Foundation
 
 /// Frames for the SSH channel, written in order by the stream's writer thread.
+/// Bounds queued live voice `MIC_AUDIO` frames by dropping oldest mic chunks under backpressure
+/// while keeping control frames (`SPK_ACK`, `CONFIG`, `PING`) intact.
 final class DesktopOutQueue {
+    static let maxQueuedMicFrames = 20
+
     private let cond = NSCondition()
     private var items: [[UInt8]] = []
+    private var queuedMicFrames = 0
     private var closed = false
 
-    func send(_ b: [UInt8]) { cond.lock(); if !closed { items.append(b); cond.signal() }; cond.unlock() }
-    func close() { cond.lock(); closed = true; cond.broadcast(); cond.unlock() }
+    func send(_ b: [UInt8]) {
+        cond.lock()
+        if !closed {
+            if b.first == UInt8(VoiceProtocol.MIC_AUDIO) {
+                while queuedMicFrames >= Self.maxQueuedMicFrames,
+                      let oldest = items.firstIndex(where: { $0.first == UInt8(VoiceProtocol.MIC_AUDIO) }) {
+                    items.remove(at: oldest)
+                    queuedMicFrames -= 1
+                }
+                queuedMicFrames += 1
+            }
+            items.append(b)
+            cond.signal()
+        }
+        cond.unlock()
+    }
+
+    func close() {
+        cond.lock()
+        closed = true
+        items.removeAll()
+        queuedMicFrames = 0
+        cond.broadcast()
+        cond.unlock()
+    }
 
     /// Everything queued, or nil once closed.
     func take() -> [[UInt8]]? {
         cond.lock(); defer { cond.unlock() }
         while items.isEmpty && !closed { cond.wait() }
         if closed { return nil }
-        let out = items; items.removeAll(); return out
+        let out = items; items.removeAll(); queuedMicFrames = 0; return out
     }
 }
 

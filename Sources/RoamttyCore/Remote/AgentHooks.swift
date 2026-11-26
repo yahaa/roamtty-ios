@@ -181,27 +181,6 @@ public enum AgentHooks {
         return (lines + launcherEnd(.agy)).joined(separator: "\n") + "\n"
     }
 
-    /// Windows PowerShell launcher (`%USERPROFILE%\.roamtty\agy.ps1`) with `ANTIGRAVITY_MIC` injection.
-    public static func agyWindowsLauncher(micPort: Int?) -> String {
-        var lines = [
-            "# Roamtty: starts Antigravity CLI with voice mic forwarding when active.",
-            "$env:ROAMTTY_AGENT = 'agy'"
-        ]
-        if let addr = voiceMicAddress(port: micPort) {
-            lines.append("$env:ANTIGRAVITY_MIC = '\(addr)'")
-        } else {
-            lines.append("if (-not $env:ANTIGRAVITY_MIC) {")
-            lines.append("  if (Test-Path \"$env:USERPROFILE\\.roamtty\\voice-mic\") {")
-            lines.append("    $env:ANTIGRAVITY_MIC = (Get-Content \"$env:USERPROFILE\\.roamtty\\voice-mic\" -Raw).Trim()")
-            lines.append("  }")
-            lines.append("  if (-not $env:ANTIGRAVITY_MIC) { $env:ANTIGRAVITY_MIC = '\(defaultAntigravityMic)' }")
-            lines.append("}")
-        }
-        lines.append("& agy @args")
-        lines.append("exit $LASTEXITCODE")
-        return lines.joined(separator: "\n") + "\n"
-    }
-
     /// Loopback `ANTIGRAVITY_MIC` address for a valid port, nil otherwise.
     public static func voiceMicAddress(port: Int?) -> String? {
         guard let port, (1...65535).contains(port) else { return nil }

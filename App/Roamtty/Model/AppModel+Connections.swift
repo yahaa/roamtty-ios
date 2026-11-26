@@ -10,6 +10,9 @@ extension AppModel {
         logins.invalidateHost(hostID)
         monitor.stop(hostID); cancelLaunch(hostID)
         pool.drop(hostID)
+        for runtime in runtimes.values where runtime.host.id == hostID {
+            runtime.voice.shutdown()
+        }
         for record in records where record.hostID == hostID {
             cancelLaunch(record.id)
             if let runtime = runtimes[record.id], runtime.phase.active && runtime.phase != .connected { runtime.close() }

@@ -148,14 +148,16 @@ public enum WindowsDesktop {
         #"cmd /c ""%USERPROFILE%\.roamtty\bin\roamtty-desktop.exe" voice "# + args + "\""
     }
 
-    /// Writes `%USERPROFILE%\.roamtty\voice-mic` and dynamic `agy.ps1` (defaulting to `127.0.0.1:24713`).
+    /// Writes `%USERPROFILE%\.roamtty\voice-mic` atomically and dynamic `agy.ps1` (defaulting to `127.0.0.1:24713`).
     public static func writeAgyLauncherCommand(micPort: Int) -> String? {
         guard (1...65535).contains(micPort) else { return nil }
         let addr = "127.0.0.1:\(micPort)"
         let script = """
         $d = "$env:USERPROFILE\\.roamtty"
         New-Item -ItemType Directory -Force $d | Out-Null
-        Set-Content -Path "$d\\voice-mic" -Value \(quote(addr)) -Encoding UTF8 -NoNewline
+        $micTmp = "$d\\voice-mic.$PID.tmp"
+        Set-Content -Path $micTmp -Value \(quote(addr)) -Encoding UTF8 -NoNewline
+        Move-Item -Force $micTmp "$d\\voice-mic"
         $launcher = @"
         # Roamtty: starts Antigravity CLI with voice mic forwarding when active.
         `$env:ROAMTTY_AGENT = 'agy'
@@ -165,10 +167,13 @@ public enum WindowsDesktop {
           }
           if (-not `$env:ANTIGRAVITY_MIC) { `$env:ANTIGRAVITY_MIC = '127.0.0.1:24713' }
         }
-        & agy @args
+        `$cmd = Get-Command agy.exe, agy.cmd, agy -CommandType Application -ErrorAction SilentlyContinue | Where-Object { `$_.Source -ne `$PSCommandPath } | Select-Object -First 1
+        if (`$cmd) { & `$cmd.Source @args } else { & agy @args }
         exit `$LASTEXITCODE
         "@
-        Set-Content -Path "$d\\agy.ps1" -Value $launcher -Encoding UTF8
+        $psTmp = "$d\\agy.$PID.tmp"
+        Set-Content -Path $psTmp -Value $launcher -Encoding UTF8
+        Move-Item -Force $psTmp "$d\\agy.ps1"
         exit 0
         """
         return PowerShell.command(script)

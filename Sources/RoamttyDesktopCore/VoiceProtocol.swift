@@ -56,7 +56,8 @@ public enum VoiceProtocol {
 
     public static func spkAck(streamId: UInt32, ok: Bool, error: String = "") -> [UInt8] {
         var payload = [UInt8]()
-        let errBytes = ok ? [] : sanitizeErrMsg(error)
+        let sanitized = ok ? [] : sanitizeErrMsg(error)
+        let errBytes = (!ok && sanitized.isEmpty) ? Array("speaker error".utf8) : sanitized
         payload.reserveCapacity(5 + errBytes.count)
         appendU32LE(streamId, to: &payload)
         payload.append(ok ? 1 : 0)
@@ -83,9 +84,7 @@ public enum VoiceProtocol {
             return .micStop(streamId: id)
         case SPK_START:
             guard p.count >= 9, let id = readU32LE(p, at: 0), let rate = readU32LE(p, at: 4) else { return nil }
-            let channels = p[8]
-            guard speakerRateRange.contains(rate), channels == 1 else { return nil }
-            return .spkStart(streamId: id, sampleRate: rate, channels: channels)
+            return .spkStart(streamId: id, sampleRate: rate, channels: p[8])
         case SPK_AUDIO:
             guard p.count >= 4, let id = readU32LE(p, at: 0) else { return nil }
             return .spkAudio(streamId: id, pcm: Array(p[4...]))

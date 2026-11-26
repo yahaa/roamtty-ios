@@ -125,6 +125,7 @@ extension AppModel {
     func closeSession(_ record: SessionRecord) {
         if path.last == .terminal(record.id) { leaveTerminal() }
         let runtime = runtimes[record.id]
+        runtime?.voice.shutdown()
         guard record.mode == .tmux && !record.external else {
             cancelLaunch(record.id); runtime?.close(); removeSession(record); return
         }

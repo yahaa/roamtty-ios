@@ -149,6 +149,13 @@ import RoamttyTransport
         desktopStore?.setVoiceCallActive(anyActive)
     }
 
+    /// Stops any active or starting voice call on other sessions so only one call owns the audio session.
+    func stopOtherVoiceCalls(except sessionID: String) {
+        for (id, runtime) in runtimes where id != sessionID && runtime.voice.isBusy {
+            runtime.voice.shutdown()
+        }
+    }
+
     // MARK: Presentation
 
     /// Presents `next` once the sheet on screen has gone.

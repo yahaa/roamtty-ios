@@ -177,14 +177,25 @@ extension AppModel {
         } catch { /* probe is best-effort */ }
     }
 
-    /// Blocking SSH login for a `VoiceSession` worker thread.
-    nonisolated func syncVoiceLogin(host: Host, credentials: Credentials) -> DesktopLogin {
+    /// Blocking SSH login for a `VoiceSession` worker thread; always re-reads the latest host & credentials.
+    nonisolated func syncVoiceLogin(hostID: String, owner: String) -> DesktopLogin {
+        enum Lookup { case missingHost, noCredentials, ready(Host, Credentials) }
+        let lookup: Lookup = DispatchQueue.main.sync {
+            guard let host = self.host(hostID) else { return .missingHost }
+            guard let creds = self.logins.silentCredentials(for: host) else { return .noCredentials }
+            return .ready(host, creds)
+        }
+        guard case .ready(let host, let credentials) = lookup else {
+            if case .noCredentials = lookup { return .noCredentials }
+            return .failed(message: nil, connecting: false)
+        }
         do {
-            let ssh = try DispatchQueue.main.sync { try self.logins.makeConnection(host, credentials: credentials, owner: "voice-\(host.id)") }
+            let ssh = try DispatchQueue.main.sync { try self.logins.makeConnection(host, credentials: credentials, owner: owner) }
             try ssh.connect()
             return .host(SSHDesktopHost(connection: ssh))
         } catch let error as RoamError {
             if case .authentication = error {
+                DispatchQueue.main.sync { self.logins.rejectLogin(hostID) }
                 return .failed(message: DispatchQueue.main.sync { self.text("认证失败", "Authentication failed") }, connecting: false)
             }
             return .failed(message: error.localizedDescription, connecting: true)

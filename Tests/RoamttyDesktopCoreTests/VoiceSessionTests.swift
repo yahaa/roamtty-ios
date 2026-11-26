@@ -284,7 +284,7 @@ final class VoiceSessionTests: XCTestCase {
     }
 }
 
-private final class FakeVoiceAudioIO: VoiceAudioIO, @unchecked Sendable {
+final class FakeVoiceAudioIO: VoiceAudioIO, @unchecked Sendable {
     struct StartedSpeaker: Equatable { let streamId: UInt32; let sampleRate: UInt32 }
     struct PlayedChunk: Equatable { let streamId: UInt32; let pcm: [UInt8] }
 

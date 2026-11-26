@@ -9,20 +9,22 @@ extension VoiceSession {
     }
 
     private enum StartStep { case finished(Outcome), retry }
+    private enum HelloRead { case line(String), eof, timedOut }
 
     func runLoop() {
+        defer { audioIO?.stopAll() }
         var recoveringSince: Int64?
         while !isClosing {
             let outcome = attempt()
             switch outcome {
             case .closed: setPhase(.idle)
-            case .kicked: setPhase(.failed(message: text(.openedElsewhere)))
+            case .kicked: setPhase(.failed(message: text(.voiceOpenedElsewhere)))
             case .failed(let t): setPhase(.failed(message: text(t)))
             case .dropped(let t):
-                if !sync({ everConnected }) { setPhase(.failed(message: text(t ?? .cannotConnect))); break }
+                if !sync({ everConnected }) { setPhase(.failed(message: text(t ?? .voiceCannotConnect))); break }
                 let since = recoveringSince ?? Self.nowMs()
                 recoveringSince = since
-                if Self.nowMs() - since > timings.recoverLimitMs { setPhase(.failed(message: text(.lostOver30s))); break }
+                if Self.nowMs() - since > timings.recoverLimitMs { setPhase(.failed(message: text(.voiceConnectionLost))); break }
                 setPhase(.recovering(sinceMs: since))
                 pause(ms: timings.recoverRetryMs)
                 continue
@@ -61,7 +63,7 @@ extension VoiceSession {
 
     private func loggedIn(_ remote: DesktopHost) -> Outcome {
         // Headless voice does NOT require a graphical desktop or console login.
-        guard let probe = DesktopProbeScript.probe(remote) else { return .failed(.cannotProbe) }
+        guard let probe = DesktopProbeScript.probe(remote) else { return .failed(.voiceCannotProbe) }
         if isClosing { return .closed }
         guard let targetName = PluginManifest.targetFor(probe.uname),
               let build = DesktopPluginInstaller.Build.pinned(manifest, target: targetName) else {
@@ -77,7 +79,7 @@ extension VoiceSession {
             case .retry: break
             }
         }
-        return isClosing ? .closed : .failed(.pluginStartFailed)
+        return isClosing ? .closed : .failed(.voicePluginStartFailed)
     }
 
     private func startPlugin(_ remote: DesktopHost, build: DesktopPluginInstaller.Build, target: String) -> StartStep {
@@ -85,7 +87,16 @@ extension VoiceSession {
         guard let s = remote.openStream(voiceCommand()) else { return .finished(.dropped(nil)) }
         sync { stream = s }
         var parser = FrameParser()
-        guard let first = readHello(s, &parser) else { return pluginSaidNothing(s, remote: remote, build: build, target: target) }
+        let first: String
+        switch readHello(s, &parser) {
+        case .line(let line): first = line
+        case .eof: return pluginSaidNothing(s, remote: remote, build: build, target: target)
+        case .timedOut:
+            s.close()
+            sync { stream = nil }
+            return .finished(isClosing ? .closed : .dropped(.voiceHelloTimeout))
+        }
+        if isClosing { s.close(); sync { stream = nil }; return .finished(.closed) }
         switch VoiceProtocol.parseStart(first) {
         case .failed(let code, let detail, _, _):
             s.close()
@@ -93,7 +104,7 @@ extension VoiceSession {
                 if let failed = installHeadless(remote, build: build, target: target) { return .finished(failed) }
                 return .retry
             }
-            return .finished(.failed(.pluginError(detail ?? code)))
+            return .finished(.failed(.voicePluginError(detail ?? code)))
         case .ready(let hello):
             let outcome = runStream(s, remote: remote, hello: hello, parser: parser)
             if isClosing {
@@ -103,22 +114,43 @@ extension VoiceSession {
         }
     }
 
-    private func readHello(_ s: DesktopStream, _ parser: inout FrameParser) -> String? {
-        while true {
+    private func readHello(_ s: DesktopStream, _ parser: inout FrameParser) -> HelloRead {
+        let lock = NSLock()
+        var done = false
+        var timedOut = false
+        let timeoutMs = max(1, timings.helloTimeoutMs)
+        let watchdog = DispatchWorkItem {
+            let shouldClose: Bool = lock.withLock {
+                guard !done else { return false }
+                timedOut = true
+                return true
+            }
+            if shouldClose { s.close() }
+        }
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + .milliseconds(Int(timeoutMs)), execute: watchdog)
+        defer {
+            lock.withLock { done = true }
+            watchdog.cancel()
+        }
+        while !isClosing {
             let bytes = s.read(maxBytes: 64 * 1024)
-            if bytes.isEmpty { return nil }
+            if lock.withLock({ timedOut }) { return .timedOut }
+            if bytes.isEmpty { return .eof }
             parser.push(bytes)
             switch parser.next() {
-            case .hello(let line): return line
-            case .tooLong: return nil
+            case .hello(let line): return .line(line)
+            case .tooLong: return .eof
             default: continue
             }
         }
+        return .eof
     }
 
     private func pluginSaidNothing(_ s: DesktopStream, remote: DesktopHost, build: DesktopPluginInstaller.Build, target: String) -> StartStep {
+        if isClosing { s.close(); sync { stream = nil }; return .finished(.closed) }
         let deadline = Self.nowMs() + timings.exitWaitMs
-        while !s.isClosed && Self.nowMs() < deadline { Thread.sleep(forTimeInterval: 0.03) }
+        while !s.isClosed && !isClosing && Self.nowMs() < deadline { Thread.sleep(forTimeInterval: 0.03) }
+        if isClosing { s.close(); sync { stream = nil }; return .finished(.closed) }
         let status = s.exitStatus
         let errors = s.errorOutput.trimmingCharacters(in: .whitespacesAndNewlines)
         s.close()
@@ -130,14 +162,14 @@ extension VoiceSession {
             return .retry
         }
         if status == 2 && s.isClosed { return .finished(.failed(.voiceUnsupportedByPlugin)) }
-        if let status, s.isClosed { return .finished(.failed(.pluginStartFailedCode(status))) }
+        if let status, s.isClosed { return .finished(.failed(.voicePluginStartFailedCode(status))) }
         return .finished(.dropped(nil))
     }
 
     private func installHeadless(_ remote: DesktopHost, build: DesktopPluginInstaller.Build, target: String) -> Outcome? {
         sync { installAttempted = true }
         setPhase(.connecting(step: .install))
-        line(text(.installing(version: build.version, target: target)))
+        line(text(.voiceInstalling(version: build.version, target: target)))
         let installer = DesktopPluginInstaller(
             remote: remote, fetch: fetch,
             onStep: { [weak self] step in guard let self else { return }; self.line(self.text(.step(step))) },
@@ -145,28 +177,26 @@ extension VoiceSession {
         )
         switch installer.install(build, headless: true) {
         case .installed: return nil
-        case .failed(let reason, _): return .failed(DesktopText.installFailure(reason))
+        case .failed(let reason, _): return .failed(DesktopText.voiceInstallFailure(reason))
         }
     }
 
     private func runStream(_ s: DesktopStream, remote: DesktopHost, hello: VoiceHello, parser: FrameParser) -> Outcome {
         let windows = sync {
             _hello = hello
-            sessionId = hello.session
-            resumeToken = hello.resumeToken
+            if !hello.session.isEmpty { sessionId = hello.session }
+            if !hello.resumeToken.isEmpty { resumeToken = hello.resumeToken }
             everConnected = true
             ping = DesktopPingClock()
+            sshEofDuringClose = false
             return _windowsHost
         }
         // Always (re-)inject ANTIGRAVITY_MIC on hello so even a fresh fallback port after resume takes effect.
         injectMicPort(remote, hello.micPort, windows)
+        if isClosing { s.close(); sync { stream = nil }; return .closed }
         callbackQueue.async { self.onHello?(hello) }
 
         let queue = DesktopOutQueue()
-        sync { outgoing = queue }
-        startUdp(hello, queue)
-        setPhase(.ready(micPort: hello.micPort, udp: sync { link?.alive ?? false }))
-
         let writer = Thread {
             while let batch = queue.take() {
                 do { for b in batch { try s.write(b) } } catch { s.close(); break }
@@ -174,6 +204,10 @@ extension VoiceSession {
         }
         writer.name = "roamtty.voice.writer"
         writer.start()
+
+        sync { outgoing = queue }
+        startUdp(hello, queue)
+        if !isClosing { setPhase(.ready(micPort: hello.micPort, udp: sync { link?.alive ?? false })) }
 
         let ticker = DesktopTicker(intervalMs: timings.tickMs) { [weak self] in self?.tick() }
         readFrames(s, parser: parser)
@@ -189,6 +223,10 @@ extension VoiceSession {
             key: offer.key, transport: transport,
             onFrame: { [weak self] f in if let msg = VoiceProtocol.decode(f) { self?.handle(msg) } },
             onVideoLost: {},
+            onGiveUp: { [weak self] frame in
+                guard let self, !self.isClosing else { return }
+                self.sync({ self.outgoing })?.send(frame)
+            },
             log: { [weak self] in self?.line($0) }
         )
         if config.testLoss > 0 {
@@ -202,15 +240,18 @@ extension VoiceSession {
 
     private func readFrames(_ s: DesktopStream, parser initial: FrameParser) {
         var parser = initial
-        while !isClosing {
+        while !sync({ kicked }) {
             while let item = parser.next() {
                 guard case .frame(let f) = item else { return }
-                if let msg = VoiceProtocol.decode(f) { handle(msg) }
-                if sync({ kicked || closing }) { return }
+                if !isClosing, let msg = VoiceProtocol.decode(f) { handle(msg) }
+                if sync({ kicked }) { return }
             }
             let bytes = s.read(maxBytes: 64 * 1024)
-            if bytes.isEmpty { return }
-            parser.push(bytes)
+            if bytes.isEmpty {
+                sync { sshEofDuringClose = closing }
+                return
+            }
+            if !isClosing { parser.push(bytes) }
         }
     }
 
@@ -221,9 +262,17 @@ extension VoiceSession {
     }
 
     private func endStream(_ s: DesktopStream, _ queue: DesktopOutQueue, _ ticker: DesktopTicker) -> Outcome {
+        let graceDeadline: Date? = sync {
+            guard closing, !sshEofDuringClose, link?.alive == true else { return nil }
+            return shutdownGraceUntil
+        }
+        if let deadline = graceDeadline {
+            waitUntilDate(deadline)
+        }
         let l: UdpLink? = sync {
             outgoing = nil; stream = nil
             activeMicStreamId = nil; activeSpkStreamId = nil
+            shutdownGraceUntil = nil; sshEofDuringClose = false
             let l = link; link = nil; return l
         }
         audioIO?.stopAll()
@@ -237,6 +286,7 @@ extension VoiceSession {
     }
 
     private func tick() {
+        guard !isClosing else { return }
         let nowUs = Self.nowUs()
         if let p = sync({ ping.due(nowUs: nowUs) }) { sendFrame(VoiceProtocol.ping(p), reliable: false) }
         if let p = sync({ ping.resendIfLate(nowUs: nowUs, lateMs: DesktopSession.POOR_MS) }) {
@@ -249,30 +299,35 @@ extension VoiceSession {
     }
 
     func handle(_ message: VoiceServerMessage) {
+        handleLock.lock()
+        defer { handleLock.unlock() }
+        guard !isClosing else { return }
         switch message {
         case .micStart(let id, let rate, let ch):
-            sync { activeMicStreamId = id }
+            let accepted = sync { () -> Bool in
+                guard !closing else { return false }
+                activeMicStreamId = id; return true
+            }
+            guard accepted else { return }
             audioIO?.startMic(streamId: id, sampleRate: rate, channels: ch) { [weak self] streamId, pcm in
                 self?.sendMicPcm(streamId: streamId, pcm: pcm)
             }
+            if isClosing { audioIO?.stopAll(); return }
             emit(.micStarted(streamId: id, sampleRate: rate))
         case .micStop(let id):
             let matched = sync { () -> Bool in
                 guard activeMicStreamId == id else { return false }
                 activeMicStreamId = nil; return true
             }
-            if matched {
-                audioIO?.stopMic(streamId: id)
-                emit(.micStopped(streamId: id))
-            }
+            if matched { audioIO?.stopMic(streamId: id); emit(.micStopped(streamId: id)) }
         case .spkStart(let id, let rate, let ch):
             handleSpeakerStart(streamId: id, sampleRate: rate, channels: ch)
         case .spkAudio(let id, let pcm):
-            guard sync({ activeSpkStreamId == id }) else { return }
+            guard sync({ !closing && activeSpkStreamId == id }) else { return }
             audioIO?.playSpeaker(streamId: id, pcm: pcm)
             emit(.speakerAudio(streamId: id, bytes: pcm.count))
         case .spkClear(let id):
-            guard sync({ activeSpkStreamId == id }) else { return }
+            guard sync({ !closing && activeSpkStreamId == id }) else { return }
             audioIO?.clearSpeaker(streamId: id)
             emit(.speakerCleared(streamId: id))
         case .spkStop(let id):
@@ -280,10 +335,7 @@ extension VoiceSession {
                 guard activeSpkStreamId == id else { return false }
                 activeSpkStreamId = nil; return true
             }
-            if matched {
-                audioIO?.stopSpeaker(streamId: id)
-                emit(.speakerStopped(streamId: id))
-            }
+            if matched { audioIO?.stopSpeaker(streamId: id); emit(.speakerStopped(streamId: id)) }
         case .state(let st):
             if st.kicked { let s = sync { kicked = true; return stream }; s?.close(); wakeAll() }
             if let e = st.error { line(e) }
@@ -296,13 +348,24 @@ extension VoiceSession {
     }
 
     private func handleSpeakerStart(streamId: UInt32, sampleRate: UInt32, channels: UInt8) {
+        guard !isClosing else { return }
+        guard VoiceProtocol.speakerRateRange.contains(sampleRate), channels == 1 else {
+            let err = "unsupported format \(sampleRate)Hz \(channels)ch"
+            sendFrame(VoiceProtocol.spkAck(streamId: streamId, ok: false, error: err), reliable: true, fecRatio: 1.0)
+            return
+        }
         let result = audioIO?.startSpeaker(streamId: streamId, sampleRate: sampleRate, channels: channels) ?? .success(())
         switch result {
         case .success:
-            sync { activeSpkStreamId = streamId }
+            let accepted = sync { () -> Bool in
+                guard !closing else { return false }
+                activeSpkStreamId = streamId; return true
+            }
+            guard accepted else { audioIO?.stopAll(); return }
             sendFrame(VoiceProtocol.spkAck(streamId: streamId, ok: true), reliable: true, fecRatio: 1.0)
             emit(.speakerStarted(streamId: streamId, sampleRate: sampleRate))
         case .failure(let error):
+            guard !isClosing else { return }
             sendFrame(VoiceProtocol.spkAck(streamId: streamId, ok: false, error: error.description), reliable: true, fecRatio: 1.0)
         }
     }

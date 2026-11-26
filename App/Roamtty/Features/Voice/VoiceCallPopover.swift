@@ -9,14 +9,15 @@ struct VoiceCallPopover: View {
     @ObservedObject var voice: VoiceController
     let anchor: CGPoint
     let viewport: CGSize
+    let safeArea: EdgeInsets
     let onMute: () -> Void
     let onCycleRoute: () -> Void
     let onOpenDock: () -> Void
     let onHangup: () -> Void
     let onDismiss: () -> Void
 
-    private static let bubbleWidth: CGFloat = 236
     private static let hangupTint = Color(red: 1.0, green: 0.48, blue: 0.44)
+    private var bubbleWidth: CGFloat { voice.mode == .dictate ? 148 : 236 }
 
     private var statusColor: Color {
         switch voice.ghostState {
@@ -36,8 +37,13 @@ struct VoiceCallPopover: View {
     }
 
     var body: some View {
-        let x = max(Self.bubbleWidth / 2 + 12, min(anchor.x - 34 - Self.bubbleWidth / 2, viewport.width - Self.bubbleWidth / 2 - 12))
-        let y = max(72, min(anchor.y, viewport.height - 72))
+        let halfW = bubbleWidth / 2
+        let minX = safeArea.leading + halfW + 12
+        let maxX = max(minX, viewport.width - safeArea.trailing - halfW - 12)
+        let x = max(minX, min(anchor.x - 34 - halfW, maxX))
+        let topMin = safeArea.top + 56
+        let bottomMax = max(topMin, viewport.height - safeArea.bottom - 56)
+        let y = max(topMin, min(anchor.y, bottomMax))
         ZStack(alignment: .topLeading) {
             Color.clear
                 .contentShape(Rectangle())
@@ -51,7 +57,7 @@ struct VoiceCallPopover: View {
             .padding(.horizontal, 12)
             .padding(.top, 11)
             .padding(.bottom, 10)
-            .frame(width: Self.bubbleWidth)
+            .frame(width: bubbleWidth)
             .background(Palette.surface.opacity(0.95), in: RoundedRectangle(cornerRadius: 20))
             .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.foreground.opacity(0.09), lineWidth: 1))
             .shadow(color: .black.opacity(0.45), radius: 18, y: 8)
@@ -86,27 +92,32 @@ struct VoiceCallPopover: View {
 
     private var actionsRow: some View {
         HStack(spacing: 6) {
-            actionTile(
-                icon: voice.isMuted ? "mic.slash.fill" : "mic.fill",
-                label: voice.isMuted ? model.text("取消静音", "Unmute") : model.text("静音", "Mute"),
-                fg: voice.isMuted ? Palette.warning : Palette.foreground,
-                bg: voice.isMuted ? Palette.warning.opacity(0.2) : Palette.raised,
-                id: "voice-pop-mute",
-                action: onMute
-            )
-            actionTile(
-                icon: routeIcon,
-                label: voice.routeLabel(voice.audioRoute, english: model.english),
-                fg: Palette.foreground,
-                bg: Palette.raised,
-                id: "voice-pop-route",
-                action: onCycleRoute
-            )
+            if voice.mode == .live {
+                actionTile(
+                    icon: voice.isMuted ? "mic.slash.fill" : "mic.fill",
+                    label: voice.isMuted ? model.text("取消静音", "Unmute") : model.text("静音", "Mute"),
+                    fg: voice.isMuted ? Palette.warning : Palette.foreground,
+                    bg: voice.isMuted ? Palette.warning.opacity(0.2) : Palette.raised,
+                    enabled: voice.canToggleMute,
+                    id: "voice-pop-mute",
+                    action: onMute
+                )
+                actionTile(
+                    icon: routeIcon,
+                    label: voice.routeLabel(voice.audioRoute, english: model.english),
+                    fg: Palette.foreground,
+                    bg: Palette.raised,
+                    enabled: true,
+                    id: "voice-pop-route",
+                    action: onCycleRoute
+                )
+            }
             actionTile(
                 icon: "ellipsis.rectangle",
                 label: model.text("操作栏", "Dock"),
                 fg: Palette.foreground,
                 bg: Palette.raised,
+                enabled: true,
                 id: "voice-pop-dock",
                 action: onOpenDock
             )
@@ -115,13 +126,14 @@ struct VoiceCallPopover: View {
                 label: model.text("挂断", "Hang up"),
                 fg: Self.hangupTint,
                 bg: Self.hangupTint.opacity(0.2),
+                enabled: true,
                 id: "voice-pop-hangup",
                 action: onHangup
             )
         }
     }
 
-    private func actionTile(icon: String, label: String, fg: Color, bg: Color, id: String, action: @escaping () -> Void) -> some View {
+    private func actionTile(icon: String, label: String, fg: Color, bg: Color, enabled: Bool, id: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 4) {
                 Image(systemName: icon).font(.system(size: 15, weight: .semibold))
@@ -132,8 +144,10 @@ struct VoiceCallPopover: View {
             .padding(.vertical, 8)
             .padding(.horizontal, 2)
             .background(bg, in: RoundedRectangle(cornerRadius: 13))
+            .opacity(enabled ? 1 : 0.42)
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
         .accessibilityLabel(label)
         .accessibilityIdentifier(id)
     }

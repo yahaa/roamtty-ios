@@ -146,6 +146,7 @@ extension SessionRuntime {
     /// Restarts the tmux pane in its folder and types its foreground program again; false when tmux was not reached.
     func restartPane() async -> Bool {
         guard record.mode == .tmux, phase == .connected, let ssh = await sideConnection() else { return false }
+        voice.shutdown()
         let command = RemoteCommands.restartPane(record.remoteName), cancellation = lifetimeCancellation
         guard let result = try? await ssh.run(command, timeout: 10, cancellation: cancellation), result.status == 0 else { return false }
         let program = result.trimmedText

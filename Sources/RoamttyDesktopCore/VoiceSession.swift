@@ -24,10 +24,11 @@ public final class VoiceSession: @unchecked Sendable {
     }
 
     public struct Timings: Sendable {
-        public var recoverLimitMs: Int64 = 30_000
+        public var recoverLimitMs: Int64 = 290_000
         public var recoverRetryMs: Int64 = 1_000
         public var tickMs: Int64 = 250
         public var exitWaitMs: Int64 = 3_000
+        public var helloTimeoutMs: Int64 = 25_000
         public var shutdownGraceMs: Int64 = 120
         public init() {}
     }
@@ -50,6 +51,7 @@ public final class VoiceSession: @unchecked Sendable {
     public var onEnded: ((VoiceSession) -> Void)?
 
     private let lock = NSRecursiveLock()
+    let handleLock = NSRecursiveLock()
     private let wake = NSCondition()
     func sync<T>(_ body: () -> T) -> T { lock.lock(); defer { lock.unlock() }; return body() }
 
@@ -63,6 +65,8 @@ public final class VoiceSession: @unchecked Sendable {
     var kicked = false
     var everConnected = false
     var installAttempted = false
+    var shutdownGraceUntil: Date?
+    var sshEofDuringClose = false
 
     var host: DesktopHost?
     var stream: DesktopStream?
@@ -94,10 +98,10 @@ public final class VoiceSession: @unchecked Sendable {
         self.makeUdp = makeUdp
         let tmux = config.tmuxSession
         self.injectMicPort = injectMicPort ?? { host, port, windows in
-            Self.defaultInjectMicPort(host: host, port: port, windows: windows, tmuxSession: tmux)
+            Self.runMicPortOp(host: host, port: port, windows: windows, tmuxSession: tmux)
         }
         self.clearMicPort = clearMicPort ?? { host, windows in
-            Self.defaultClearMicPort(host: host, windows: windows, tmuxSession: tmux)
+            Self.runMicPortOp(host: host, port: nil, windows: windows, tmuxSession: tmux)
         }
     }
 
@@ -125,6 +129,7 @@ public final class VoiceSession: @unchecked Sendable {
         let go: Bool = sync {
             if running { return false }
             running = true; closing = false; kicked = false; installAttempted = false
+            shutdownGraceUntil = nil; sshEofDuringClose = false
             return true
         }
         guard go else { return }
@@ -140,7 +145,14 @@ public final class VoiceSession: @unchecked Sendable {
         var q: DesktopOutQueue?
         var h: DesktopHost?
         var wasRunning = false
+        var alreadyClosing = false
+        var sendShutdown = false
+        let graceMs = max(0, timings.shutdownGraceMs)
         sync {
+            if closing {
+                alreadyClosing = true
+                return
+            }
             closing = true
             activeMicStreamId = nil
             activeSpkStreamId = nil
@@ -149,16 +161,21 @@ public final class VoiceSession: @unchecked Sendable {
             q = outgoing
             h = host
             wasRunning = running
+            sendShutdown = (q != nil || (l?.alive ?? false))
+            if sendShutdown {
+                shutdownGraceUntil = Date().addingTimeInterval(Double(graceMs) / 1000)
+            }
         }
         audioIO?.stopAll()
-        if s != nil || (l?.alive ?? false) {
+        if alreadyClosing { wakeAll(); return }
+        if sendShutdown {
             let shutdownFrame = VoiceProtocol.config(["shutdown": true])
             if let l, l.alive { l.send(shutdownFrame, reliable: true, fecRatio: 1.0) }
             q?.send(shutdownFrame)
-            let graceMs = max(0, timings.shutdownGraceMs)
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + .milliseconds(Int(graceMs))) {
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + .milliseconds(Int(graceMs))) { [weak self] in
                 s?.close()
                 l?.close()
+                self?.wakeAll()
             }
         } else {
             s?.close()
@@ -243,46 +260,51 @@ public final class VoiceSession: @unchecked Sendable {
         wake.unlock()
     }
 
-    func wakeAll() { wake.lock(); wake.broadcast(); wake.unlock() }
-
-    private static func defaultInjectMicPort(host: DesktopHost, port: Int, windows: Bool, tmuxSession: String?) {
-        guard (1...65535).contains(port) else { return }
-        if windows {
-            if let cmd = WindowsDesktop.writeAgyLauncherCommand(micPort: port) {
-                _ = host.runCommand(cmd, timeout: 10) { _ in }
-            }
-            return
-        }
-        let addr = "127.0.0.1:\(port)"
-        var lines = [
-            "PATH=\"$PATH:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/home/linuxbrew/.linuxbrew/bin:/snap/bin\"; export PATH",
-            "mkdir -p \"$HOME/.roamtty\"",
-            "printf '%s\\n' '\(addr)' > \"$HOME/.roamtty/voice-mic\""
-        ]
-        if let raw = tmuxSession, !raw.isEmpty {
-            let safe = String(raw.unicodeScalars.filter { CharacterSet.letters.contains($0) || CharacterSet.decimalDigits.contains($0) || $0 == "-" || $0 == "_" }.prefix(64))
-            if !safe.isEmpty {
-                lines.append("tmux set-environment -t \(safe) ANTIGRAVITY_MIC '\(addr)' 2>/dev/null || true")
-            }
-        }
-        _ = host.run(lines.joined(separator: "\n") + "\n", timeout: 10) { _ in }
+    func waitUntilDate(_ deadline: Date) {
+        wake.lock()
+        while !sync({ sshEofDuringClose }) && Date() < deadline { _ = wake.wait(until: deadline) }
+        wake.unlock()
     }
 
-    private static func defaultClearMicPort(host: DesktopHost, windows: Bool, tmuxSession: String?) {
+    func wakeAll() { wake.lock(); wake.broadcast(); wake.unlock() }
+
+    private static func runMicPortOp(host: DesktopHost, port: Int?, windows: Bool, tmuxSession: String?) {
+        if let port, !(1...65535).contains(port) { return }
         if windows {
-            _ = host.runCommand(WindowsDesktop.clearAgyLauncherCommand(), timeout: 5) { _ in }
+            if let port {
+                if let cmd = WindowsDesktop.writeAgyLauncherCommand(micPort: port) {
+                    _ = host.runCommand(cmd, timeout: 10) { _ in }
+                }
+            } else {
+                _ = host.runCommand(WindowsDesktop.clearAgyLauncherCommand(), timeout: 5) { _ in }
+            }
             return
         }
         var lines = [
-            "PATH=\"$PATH:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/home/linuxbrew/.linuxbrew/bin:/snap/bin\"; export PATH",
-            "rm -f \"$HOME/.roamtty/voice-mic\""
+            "PATH=\"$PATH:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/home/linuxbrew/.linuxbrew/bin:/snap/bin\"; export PATH"
         ]
+        if let port {
+            let addr = "127.0.0.1:\(port)"
+            lines.append("mkdir -p \"$HOME/.roamtty\"")
+            lines.append(
+                "tmp=$(mktemp \"$HOME/.roamtty/voice-mic.XXXXXX\") && " +
+                "{ printf '%s\\n' '\(addr)' > \"$tmp\" && mv -f \"$tmp\" \"$HOME/.roamtty/voice-mic\" || { rm -f \"$tmp\"; false; }; }"
+            )
+        } else {
+            lines.append("rm -f \"$HOME/.roamtty/voice-mic\"")
+        }
         if let raw = tmuxSession, !raw.isEmpty {
-            let safe = String(raw.unicodeScalars.filter { CharacterSet.letters.contains($0) || CharacterSet.decimalDigits.contains($0) || $0 == "-" || $0 == "_" }.prefix(64))
+            let safe = String(raw.unicodeScalars.filter {
+                CharacterSet.letters.contains($0) || CharacterSet.decimalDigits.contains($0) || $0 == "-" || $0 == "_"
+            }.prefix(64))
             if !safe.isEmpty {
-                lines.append("tmux set-environment -u -t \(safe) ANTIGRAVITY_MIC 2>/dev/null || true")
+                if let port {
+                    lines.append("tmux set-environment -t =\(safe) ANTIGRAVITY_MIC '127.0.0.1:\(port)' 2>/dev/null || true")
+                } else {
+                    lines.append("tmux set-environment -u -t =\(safe) ANTIGRAVITY_MIC 2>/dev/null || true")
+                }
             }
         }
-        _ = host.run(lines.joined(separator: "\n") + "\n", timeout: 5) { _ in }
+        _ = host.run(lines.joined(separator: "\n") + "\n", timeout: port == nil ? 5 : 10) { _ in }
     }
 }

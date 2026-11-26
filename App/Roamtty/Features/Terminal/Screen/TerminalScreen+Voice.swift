@@ -20,7 +20,7 @@ extension TerminalScreen {
             runtime.controlArmed = false
             runtime.shiftArmed = false
             if inCall {
-                toolbox.collapseDock(at: now)
+                collapseDockSyncingPin()
                 withAnimation(.easeOut(duration: 0.18)) { runtime.voice.popoverOpen = true }
             } else {
                 _ = runtime.terminalView.resignFirstResponder()
@@ -52,12 +52,13 @@ extension TerminalScreen {
     }
 
     @ViewBuilder
-    func voiceCallOverlay(in viewport: CGSize, center: CGPoint) -> some View {
+    func voiceCallOverlay(in viewport: CGSize, safeArea: EdgeInsets, center: CGPoint) -> some View {
         if runtime.voice.active && runtime.voice.popoverOpen && !toolbox.dockVisible && !toolbox.ringOpen {
             VoiceCallPopover(
                 voice: runtime.voice,
                 anchor: center,
                 viewport: viewport,
+                safeArea: safeArea,
                 onMute: { runtime.voice.toggleMute(runtime: runtime, english: model.english) },
                 onCycleRoute: { runtime.voice.cycleAudioRoute(english: model.english) },
                 onOpenDock: {
@@ -98,13 +99,25 @@ extension TerminalScreen {
             onCancel: { voiceSheet = false },
             onConfirm: { mode, route in
                 voiceSheet = false
-                toolbox.collapseDock(at: now)
+                collapseDockSyncingPin()
                 runtime.voice.startCall(mode: mode, route: route, runtime: runtime, model: model)
             }
         )
         .environmentObject(model)
-        .presentationDetents([.height(412), .medium])
+        .onPreferenceChange(VoiceSheetHeightKey.self) { height in
+            if height > 0 { voiceSheetHeight = ceil(height) }
+        }
+        .presentationDetents([.height(max(360, voiceSheetHeight)), .large])
         .presentationDragIndicator(.visible)
+    }
+
+    func collapseDockSyncingPin() {
+        let wasPinned = toolbox.pinned
+        toolbox.collapseDock(at: now)
+        if wasPinned || model.settings.toolboxPinned {
+            model.settings.toolboxPinned = false
+            model.saveSettings()
+        }
     }
 
     func handleGhostTap() {

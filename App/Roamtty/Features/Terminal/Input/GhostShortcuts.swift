@@ -87,17 +87,21 @@ struct GhostShortcuts: View {
                 .scaleEffect(pressed ? 0.86 : 1).animation(.spring(response: 0.18, dampingFraction: 0.4), value: pressed)
                 .allowsHitTesting(false).position(anchor)
             if voiceState.isCall, let tag = voiceStatusTag, !voicePopoverOpen, !toolbox.ringOpen {
+                let rightEdge = max(48, min(anchor.x + 27, viewport.width - 8))
                 Text(tag)
                     .font(.system(size: 10, weight: .semibold))
                     .monospacedDigit()
+                    .lineLimit(1)
+                    .fixedSize()
                     .foregroundStyle(statusTagColor)
                     .padding(.horizontal, 7).padding(.vertical, 2)
                     .background(Palette.background.opacity(0.9), in: Capsule())
                     .overlay(Capsule().stroke(statusTagColor.opacity(0.42), lineWidth: 1))
                     .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
-                    .allowsHitTesting(false)
-                    .position(x: min(anchor.x, viewport.width - 36), y: min(anchor.y + 34, viewport.height - 14))
                     .accessibilityIdentifier("pet-voice-tag")
+                    .frame(width: rightEdge, alignment: .trailing)
+                    .allowsHitTesting(false)
+                    .position(x: rightEdge / 2, y: min(anchor.y + 36, viewport.height - 16))
             }
             GhostControl(label: accessibilityTitle,
                          onTouch: { toolbox.wake(at: now) },

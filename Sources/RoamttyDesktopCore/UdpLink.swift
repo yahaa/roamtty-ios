@@ -25,12 +25,14 @@ public protocol UdpTransport: AnyObject {
 /// so the main thread (touches become pointer input there) never does network I/O.
 public final class UdpLink: @unchecked Sendable {
     public static let ALIVE_US: Int64 = 3_000_000
+    private static let maxPendingMicSends = 24
 
     private let crypto: UdpCrypto
     private let transport: UdpTransport
     private let clock: () -> Int64
     private let onFrame: (Frame) -> Void
     private let onVideoLost: () -> Void
+    private let onGiveUp: (([UInt8]) -> Void)?
     private let log: (String) -> Void
     private let lock = NSLock()
     private let sender = DispatchQueue(label: "desktop-udp-send")
@@ -43,9 +45,12 @@ public final class UdpLink: @unchecked Sendable {
     private var plainSeq: Int64 = 1
     private var replay = ReplayWindow()
     private let reasm = Reassembler()
-    private final class Unacked { let frags: [Packet.Frag]; var at: Int64; var tries: Int
-        init(_ f: [Packet.Frag], _ at: Int64) { frags = f; self.at = at; tries = 0 } }
+    private final class Unacked {
+        let frame: [UInt8]; let frags: [Packet.Frag]; var at: Int64; var tries: Int
+        init(_ frame: [UInt8], _ f: [Packet.Frag], _ at: Int64) { self.frame = frame; frags = f; self.at = at; tries = 0 }
+    }
     private var unacked: [Int64: Unacked] = [:]
+    private var pendingMicSends = 0
     private struct NackKey: Hashable { let msg: Int64; let block: Int }
     /// NACKs sent per (msg, block) and when: repeated every max(2×RTT, 30 ms), three times at most.
     private var nacked: [NackKey: (count: Int, at: Int64)] = [:]
@@ -73,12 +78,14 @@ public final class UdpLink: @unchecked Sendable {
 
     /// `clock`: a monotonic clock in microseconds.
     public init(key: [UInt8], transport: UdpTransport, clock: @escaping () -> Int64 = UdpLink.monotonicUs,
-                onFrame: @escaping (Frame) -> Void, onVideoLost: @escaping () -> Void, log: @escaping (String) -> Void = { _ in }) {
+                onFrame: @escaping (Frame) -> Void, onVideoLost: @escaping () -> Void,
+                onGiveUp: (([UInt8]) -> Void)? = nil, log: @escaping (String) -> Void = { _ in }) {
         crypto = UdpCrypto(key: key)
         self.transport = transport
         self.clock = clock
         self.onFrame = onFrame
         self.onVideoLost = onVideoLost
+        self.onGiveUp = onGiveUp
         self.log = log
         transport.onReceive = { [weak self] in self?.receive($0) }
     }
@@ -139,10 +146,17 @@ public final class UdpLink: @unchecked Sendable {
         }
     }
 
-    private func raw(_ plain: [UInt8]) {
-        if locked({ closed }) { return }
+    private func raw(_ plain: [UInt8], isMic: Bool = false) {
+        if locked({ closed }) {
+            if isMic { locked { pendingMicSends = max(0, pendingMicSends - 1) } }
+            return
+        }
         sender.async { [self] in
-            let (isClosed, s) = locked { () -> (Bool, UInt64) in defer { seq += 1 }; return (closed, seq) }
+            let (isClosed, s) = locked { () -> (Bool, UInt64) in
+                if isMic { pendingMicSends = max(0, pendingMicSends - 1) }
+                defer { seq += 1 }
+                return (closed, seq)
+            }
             if isClosed { return }
             let packet = crypto.seal(dir: UdpWire.DIR_C2S, seq: s, plain)
             if dropRate > 0 && Double.random(in: 0..<1) < dropRate { return }
@@ -158,14 +172,39 @@ public final class UdpLink: @unchecked Sendable {
     /// Sends a whole protocol frame; `reliable` ones are resent until the host acknowledges them.
     public func send(_ frame: [UInt8], reliable: Bool, fecRatio: Float? = nil) {
         // Ids are u32 on the wire (RACKs come back as u32): wrap the same way here, so they still match.
+        let isMic = !reliable && frame.first == UInt8(VoiceProtocol.MIC_AUDIO)
+        let ratio = fecRatio ?? (reliable && frame.count > UdpWire.SHARD ? 0.25 : 0)
         let id: Int64 = locked {
             if reliable { defer { reliableSeq += 1 }; return (reliableSeq * 2 + 1) & 0xFFFF_FFFF }
             defer { plainSeq += 1 }; return (plainSeq * 2) & 0xFFFF_FFFF
         }
-        let ratio = fecRatio ?? (reliable && frame.count > UdpWire.SHARD ? 0.25 : 0)
         let frags = UdpWire.fragment(msg: id, flags: reliable ? UdpWire.FLAG_RELIABLE : 0, bytes: frame, ratio: ratio)
-        if reliable { let now = clock(); locked { unacked[id] = Unacked(frags, now) } }
-        frags.forEach { raw($0.encode()) }
+        if isMic {
+            let accept: Bool = locked {
+                guard !closed, pendingMicSends < Self.maxPendingMicSends else { return false }
+                pendingMicSends += frags.count
+                return true
+            }
+            guard accept else { return }
+        }
+        if reliable { let now = clock(); locked { unacked[id] = Unacked(frame, frags, now) } }
+        frags.forEach { raw($0.encode(), isMic: isMic) }
+    }
+
+    private func collectUnackedLocked(now t: Int64, resendAfter: Int64) -> (resend: [[Packet.Frag]], gaveUp: [[UInt8]]) {
+        var resend: [[Packet.Frag]] = []
+        var gaveUp: [[UInt8]] = []
+        for (id, u) in unacked {
+            if t - u.at < resendAfter { continue }
+            if u.tries >= 10 {
+                unacked[id] = nil
+                gaveUp.append(u.frame)
+                continue
+            }
+            u.tries += 1; u.at = t
+            resend.append(u.frags)
+        }
+        return (resend, gaveUp)
     }
 
     /// The periodic work; `start` calls it every 20 ms. Public for tests with a manual clock.
@@ -178,14 +217,12 @@ public final class UdpLink: @unchecked Sendable {
         let rtt = Int64(locked { rttMsValue } ?? 50) * 1000
         let resendAfter = max(2 * rtt, 80_000)
         var resend: [[Packet.Frag]] = []
+        var gaveUp: [[UInt8]] = []
         var nackOut: [Packet] = []
         let (reports, lost): ([Report], [Int64]) = locked {
-            for (id, u) in unacked {
-                if t - u.at < resendAfter { continue }
-                if u.tries >= 10 { unacked[id] = nil; continue }
-                u.tries += 1; u.at = t
-                resend.append(u.frags)
-            }
+            let collected = collectUnackedLocked(now: t, resendAfter: resendAfter)
+            resend = collected.resend
+            gaveUp = collected.gaveUp
             // A retransmit only beats the next frame when the round trip is under about two frames.
             let missing = rtt < 40_000 ? reasm.missing(nowUs: t, fallbackUs: max(100_000, 3 * rtt)) : []
             let reports = reasm.takeReports(nowUs: t)
@@ -213,6 +250,7 @@ public final class UdpLink: @unchecked Sendable {
             return (reports, lost)
         }
         resend.forEach { $0.forEach { raw($0.encode()) } }
+        if let onGiveUp { gaveUp.forEach(onGiveUp) }
         nackOut.forEach { raw($0.encode()) }
         stride(from: 0, to: reports.count, by: 40).forEach { raw(Packet.feedback(reports: Array(reports[$0..<min($0 + 40, reports.count)])).encode()) }
         if !lost.isEmpty { onVideoLost() }

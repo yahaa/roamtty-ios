@@ -1,5 +1,5 @@
 {
-  "baseUrl": "https://github.com/yahaa/roamtty-desktop/releases/download/v0.9.9/",
+  "baseUrl": "https://github.com/yahaa/roamtty-desktop/releases/download/v0.9.10/",
   "openh264": "2.6.0",
   "proto": {
     "max": 1,
@@ -8,29 +8,29 @@
   "targets": {
     "linux-aarch64": {
       "file": "linux-aarch64.gz",
-      "sha256": "f94c811fe749093fbf016d341b6c0ebb4d03a940ab1b9ddb0a7231c7f2f47861",
-      "size": 1857240
+      "sha256": "461235b7884b8db625e2982b52be6e37d4d81fc159883305d752210ac7f6008f",
+      "size": 1881816
     },
     "linux-x86_64": {
       "file": "linux-x86_64.gz",
-      "sha256": "0a81be0cab57aac4676b3982cf2cc7766cb38bcc60cd3041835af768e3a0c43a",
-      "size": 2035592
+      "sha256": "4e279c8b909de3884b0a0e86c52fb0c34a12c8355f8607128a202fb8d18ef323",
+      "size": 2056808
     },
     "macos-universal": {
       "file": "macos-universal.zip",
-      "sha256": "7ba5f5bfe61f65e750a5d2875218fa2ca61ea436afd281874063103eb182180d",
-      "size": 1417463
+      "sha256": "941f386ea496329d753211171fec0d1c1ffac82226678992bc5c9561865b0b82",
+      "size": 1438167
     },
     "windows-arm64": {
       "file": "windows-arm64.exe",
-      "sha256": "f4e9db10284f7d3db556b036ba7c105127fcb34337f7863fef186584c33b5a08",
-      "size": 1726976
+      "sha256": "2f42d5d3970414329289a03bb77cdc88cd1f17e71e2c441e842606e916e8c80a",
+      "size": 1744384
     },
     "windows-x64": {
       "file": "windows-x64.exe",
-      "sha256": "1f41a1e1050bbf6aeb9aab94a5cc16d67d5f9bf0a834dfb25b8e1a7f3f84716b",
-      "size": 1748480
+      "sha256": "830f0cf3f724411f815fa40e0bcf845cc1396848264ac4952c5aa6ab5255ae9a",
+      "size": 1764864
     }
   },
-  "version": "0.9.9"
+  "version": "0.9.10"
 }

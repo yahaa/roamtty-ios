@@ -44,14 +44,6 @@ final class VoiceLauncherAndGhostTests: XCTestCase {
         proc2.environment = env
         try proc2.run(); proc2.waitUntilExit()
         XCTAssertEqual(try String(contentsOf: seen, encoding: .utf8), "agy|127.0.0.1:31234")
-
-        // Windows PowerShell launcher injects $env:ANTIGRAVITY_MIC both when explicit and by default.
-        let ps = AgentHooks.agyWindowsLauncher(micPort: 24713)
-        XCTAssertTrue(ps.contains("$env:ANTIGRAVITY_MIC = '127.0.0.1:24713'"))
-        XCTAssertTrue(ps.contains("& agy @args"))
-        let psDefault = AgentHooks.agyWindowsLauncher(micPort: nil)
-        XCTAssertTrue(psDefault.contains("voice-mic"))
-        XCTAssertTrue(psDefault.contains("'127.0.0.1:24713'"))
     }
 
     func testTmuxSetEnvironmentAndInjectScriptRunExpectedTmuxCommand() throws {
@@ -77,12 +69,14 @@ final class VoiceLauncherAndGhostTests: XCTestCase {
         XCTAssertEqual(proc.terminationStatus, 0)
 
         let tmuxArgs = try String(contentsOf: logFile, encoding: .utf8)
-        XCTAssertTrue(tmuxArgs.contains("set-environment|-t|roamtty-abcrm|ANTIGRAVITY_MIC|127.0.0.1:24713|"), tmuxArgs)
+        XCTAssertTrue(tmuxArgs.contains("set-environment|-t|=roamtty-abcrm|ANTIGRAVITY_MIC|127.0.0.1:24713|"), tmuxArgs)
         let launcherContent = try String(contentsOf: dir.appendingPathComponent(".roamtty/agy"), encoding: .utf8)
         XCTAssertTrue(launcherContent.contains("voice-mic"))
         XCTAssertTrue(launcherContent.contains("export ANTIGRAVITY_MIC=127.0.0.1:24713"))
         let voiceMic = try String(contentsOf: dir.appendingPathComponent(".roamtty/voice-mic"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
         XCTAssertEqual(voiceMic, "127.0.0.1:24713")
+        let files = try FileManager.default.contentsOfDirectory(atPath: dir.appendingPathComponent(".roamtty").path)
+        XCTAssertFalse(files.contains { $0.hasPrefix("voice-mic.") || $0.hasPrefix("agy.") }, "atomic mktemp+mv must leave no temp files")
 
         // Clear removes transient voice-mic and unsets tmux override while keeping the default 24713 launcher.
         let clearScript = RemoteCommands.clearAntigravityMicScript(tmuxSession: "roamtty-abc;rm")
@@ -94,10 +88,11 @@ final class VoiceLauncherAndGhostTests: XCTestCase {
         XCTAssertEqual(procClear.terminationStatus, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent(".roamtty/voice-mic").path))
         let clearedTmux = try String(contentsOf: logFile, encoding: .utf8)
-        XCTAssertTrue(clearedTmux.contains("set-environment|-u|-t|roamtty-abcrm|ANTIGRAVITY_MIC|"), clearedTmux)
+        XCTAssertTrue(clearedTmux.contains("set-environment|-u|-t|=roamtty-abcrm|ANTIGRAVITY_MIC|"), clearedTmux)
 
         XCTAssertNil(RemoteCommands.tmuxSetEnvironment(session: "s", name: "BAD;NAME", value: "1"))
-        XCTAssertNotNil(RemoteCommands.tmuxSetEnvironment(session: "s", name: "ANTIGRAVITY_MIC", value: "127.0.0.1:24713"))
+        let exactSet = try XCTUnwrap(RemoteCommands.tmuxSetEnvironment(session: "s", name: "ANTIGRAVITY_MIC", value: "127.0.0.1:24713"))
+        XCTAssertTrue(exactSet.contains("-t =s"))
     }
 
     func testGhostVoiceStatesAndReduceMotionAccessibility() {

@@ -10,6 +10,7 @@ import RoamttyTransport
 /// auto-mutes `DesktopAudioPlayer` to protect VPIO AEC, and drives the Ghost pet & popover UI.
 @MainActor final class VoiceController: ObservableObject {
     @Published private(set) var active = false
+    @Published private(set) var recovering = false
     @Published private(set) var mode: VoiceMode = .live
     @Published private(set) var audioRoute: VoiceAudioRoute = .speaker
     @Published private(set) var ghostState: GhostVoiceState = .idle
@@ -23,6 +24,9 @@ import RoamttyTransport
 
     private var session: VoiceSession?
     private var audioEngine: VoiceAudioEngine?
+    private var startTask: Task<Void, Never>?
+    private var startGeneration: UInt64 = 0
+    private var loginOwner: String?
     private var elapsedTimer: Task<Void, Never>?
     private var speakerQuietTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
@@ -34,16 +38,17 @@ import RoamttyTransport
     private var fixtureMode = false
     #endif
 
-    var formattedElapsed: String {
-        String(format: "%02d:%02d", elapsedSeconds / 60, elapsedSeconds % 60)
-    }
+    var isBusy: Bool { active || startTask != nil }
+    var canToggleMute: Bool { active && mode == .live && ghostState != .connecting }
+    var formattedElapsed: String { String(format: "%02d:%02d", elapsedSeconds / 60, elapsedSeconds % 60) }
 
     /// Compact micro-tag below the phone-holding pet when the control popover is closed.
     func petStatusTag(english: Bool) -> String? {
         guard active else { return nil }
         switch ghostState {
         case .idle: return nil
-        case .connecting: return english ? "Connecting…" : "连接中…"
+        case .connecting:
+            return recovering ? (english ? "Reconnecting…" : "重连中…") : (english ? "Connecting…" : "连接中…")
         case .muted: return english ? "Muted" : "已静音"
         case .speaking: return english ? "Speaking" : "AI 回复中"
         case .listening:
@@ -54,7 +59,8 @@ import RoamttyTransport
 
     func popoverStatusLabel(english: Bool) -> String {
         switch ghostState {
-        case .idle, .connecting: return english ? "Connecting…" : "正在接通…"
+        case .idle, .connecting:
+            return recovering ? (english ? "Reconnecting…" : "正在重连…") : (english ? "Connecting…" : "正在接通…")
         case .listening:
             return mode == .dictate
                 ? (english ? "Dictating" : "正在听写")
@@ -73,40 +79,46 @@ import RoamttyTransport
     }
 
     func startCall(mode: VoiceMode, route: VoiceAudioRoute, runtime: SessionRuntime, model: AppModel) {
+        model.stopOtherVoiceCalls(except: runtime.record.id)
         #if DEBUG
         if fixtureMode {
             startFixtureCall(mode: mode, route: route, english: model.english)
             return
         }
         #endif
-        Task { await startCallAsync(mode: mode, route: route, runtime: runtime, model: model) }
+        stopInternal(sendHangup: false)
+        let generation = startGeneration
+        startTask = Task { @MainActor [weak self, weak runtime, weak model] in
+            guard let self, let runtime, let model else { return }
+            await self.startCallAsync(generation: generation, mode: mode, route: route, runtime: runtime, model: model)
+        }
     }
 
-    private func startCallAsync(mode: VoiceMode, route: VoiceAudioRoute, runtime: SessionRuntime, model: AppModel) async {
+    private func startCallAsync(generation: UInt64, mode: VoiceMode, route: VoiceAudioRoute, runtime: SessionRuntime, model: AppModel) async {
+        defer { if startGeneration == generation { startTask = nil } }
         let granted = await VoiceAudioEngine.requestMicrophonePermission()
+        guard !Task.isCancelled, startGeneration == generation else { return }
         guard granted else {
             errorMessage = model.text("未获得麦克风权限，请在系统设置中允许访问。", "Microphone permission was denied. Enable it in Settings.")
             return
         }
-        stopInternal(sendHangup: false)
-        boundRuntime = runtime
-        boundModel = model
-        self.mode = mode
-        self.audioRoute = route
-        self.active = true
-        self.isMuted = false
-        self.elapsedSeconds = 0
-        self.popoverOpen = false
-        self.errorMessage = nil
-        self.startKeySent = false
-        self.ghostState = .connecting
+        let owner = "voice-\(runtime.record.id)"
+        boundRuntime = runtime; boundModel = model; loginOwner = owner
+        self.mode = mode; self.audioRoute = route; self.active = true; self.recovering = false
+        self.isMuted = false; self.elapsedSeconds = 0; self.popoverOpen = false
+        self.errorMessage = nil; self.startKeySent = false; self.ghostState = .connecting
         model.setVoiceCallActive(true)
         showToast(model.text("正在连接 agy 语音通道…", "Connecting agy voice channel…"))
 
         do {
-            let credentials = try await model.logins.credentials(for: runtime.host)
+            let latestHost = model.host(runtime.host.id) ?? runtime.host
+            _ = try await model.logins.credentials(for: latestHost, owner: owner)
+            guard !Task.isCancelled, startGeneration == generation else {
+                if startGeneration == generation { cleanupAfterEnd() }
+                return
+            }
             let manifest = try model.desktopManifest()
-            let voiceSession = buildVoiceSession(runtime: runtime, model: model, credentials: credentials, manifest: manifest)
+            let voiceSession = buildVoiceSession(runtime: runtime, host: latestHost, model: model, owner: owner, manifest: manifest)
             let engine = makeAudioEngine(route: route)
             engine.prepareSession(route: route)
             voiceSession.audioIO = engine
@@ -116,13 +128,16 @@ import RoamttyTransport
             voiceSession.start()
             model.watchDesktopNetwork()
         } catch {
+            guard startGeneration == generation else { return }
             stopInternal(sendHangup: false)
-            errorMessage = error.localizedDescription
+            if !(error is CancellationError) && (error as? RoamError) != .cancelled {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
-    private func buildVoiceSession(runtime: SessionRuntime, model: AppModel, credentials: Credentials, manifest: PluginManifest) -> VoiceSession {
-        let host = runtime.host
+    private func buildVoiceSession(runtime: SessionRuntime, host: Host, model: AppModel, owner: String, manifest: PluginManifest) -> VoiceSession {
+        let hostID = host.id
         let tmux = runtime.record.mode == .tmux ? runtime.record.remoteName : nil
         var config = VoiceSession.Config(hostName: host.name, address: host.hostname, tmuxSession: tmux)
         config.english = model.english
@@ -131,13 +146,11 @@ import RoamttyTransport
             manifest: manifest,
             login: { [weak model] in
                 guard let model else { return .failed(message: nil, connecting: false) }
-                return model.syncVoiceLogin(host: host, credentials: credentials)
+                return model.syncVoiceLogin(hostID: hostID, owner: owner)
             },
             injectMicPort: { remote, port, windows in
                 if windows {
-                    if let cmd = WindowsDesktop.writeAgyLauncherCommand(micPort: port) {
-                        _ = remote.runCommand(cmd, timeout: 10) { _ in }
-                    }
+                    if let cmd = WindowsDesktop.writeAgyLauncherCommand(micPort: port) { _ = remote.runCommand(cmd, timeout: 10) { _ in } }
                 } else if let script = RemoteCommands.injectAntigravityMicScript(micPort: port, tmuxSession: tmux) {
                     _ = remote.run(script, timeout: 10) { _ in }
                 }
@@ -146,8 +159,7 @@ import RoamttyTransport
                 if windows {
                     _ = remote.runCommand(WindowsDesktop.clearAgyLauncherCommand(), timeout: 5) { _ in }
                 } else {
-                    let script = RemoteCommands.clearAntigravityMicScript(tmuxSession: tmux)
-                    _ = remote.run(script, timeout: 5) { _ in }
+                    _ = remote.run(RemoteCommands.clearAntigravityMicScript(tmuxSession: tmux), timeout: 5) { _ in }
                 }
             }
         )
@@ -159,9 +171,7 @@ import RoamttyTransport
         engine.onMicLevel = { [weak self] level in
             Task { @MainActor in
                 guard let self, self.active, !self.isMuted else { return }
-                if case .listening = self.ghostState {
-                    self.ghostState = .listening(level: Double(level))
-                }
+                if case .listening = self.ghostState { self.ghostState = .listening(level: Double(level)) }
             }
         }
         engine.onSpeakerLevel = { [weak self] level in
@@ -177,15 +187,15 @@ import RoamttyTransport
     }
 
     private func observe(_ voiceSession: VoiceSession, runtime: SessionRuntime, model: AppModel) {
-        voiceSession.onPhase = { [weak self, weak voiceSession] phase in
+        voiceSession.onPhase = { [weak self, weak voiceSession, weak runtime, weak model] phase in
             Task { @MainActor in
-                guard let self, self.session === voiceSession else { return }
+                guard let self, let voiceSession, let runtime, let model, self.session === voiceSession else { return }
                 self.handlePhase(phase, runtime: runtime, model: model)
             }
         }
-        voiceSession.onEvent = { [weak self, weak voiceSession] event in
+        voiceSession.onEvent = { [weak self, weak voiceSession, weak model] event in
             Task { @MainActor in
-                guard let self, self.session === voiceSession else { return }
+                guard let self, let voiceSession, let model, self.session === voiceSession else { return }
                 self.handleStreamEvent(event, model: model)
             }
         }
@@ -201,11 +211,14 @@ import RoamttyTransport
         switch phase {
         case .idle:
             cleanupAfterEnd()
-        case .connecting, .recovering:
+        case .connecting:
+            recovering = false
+            if active { ghostState = .connecting }
+        case .recovering:
+            recovering = true
             if active { ghostState = .connecting }
         case .ready(let port, let udp):
-            micPort = port
-            onUdp = udp
+            recovering = false; micPort = port; onUdp = udp
             model.markDesktopPluginInstalled(for: runtime.host.id)
             if !startKeySent {
                 startKeySent = true
@@ -222,6 +235,8 @@ import RoamttyTransport
                         ? model.text("已接通，可以直接说话", "Connected — speak naturally")
                         : model.text("听写已开始", "Dictation started"))
                 }
+            } else if ghostState == .connecting {
+                ghostState = isMuted ? .muted : .listening(level: 0)
             }
         case .failed(let message):
             errorMessage = message
@@ -239,10 +254,8 @@ import RoamttyTransport
                 showToast(model.text("听写已结束", "Dictation finished"))
                 stopInternal(sendHangup: false)
             }
-        case .speakerStarted:
+        case .speakerStarted, .speakerAudio:
             break
-        case .speakerAudio:
-            updateSpeakerActivity(level: max(ghostState.audioLevel, 0.35))
         case .speakerCleared, .speakerStopped:
             speakerQuietTask?.cancel()
             if active { ghostState = isMuted ? .muted : .listening(level: 0) }
@@ -260,14 +273,12 @@ import RoamttyTransport
         speakerQuietTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(380))
             guard let self, !Task.isCancelled, self.active else { return }
-            if !self.isMuted, case .speaking = self.ghostState {
-                self.ghostState = .listening(level: 0)
-            }
+            if !self.isMuted, case .speaking = self.ghostState { self.ghostState = .listening(level: 0) }
         }
     }
 
     func toggleMute(runtime: SessionRuntime, english: Bool) {
-        guard active else { return }
+        guard canToggleMute else { return }
         isMuted.toggle()
         session?.setMuted(isMuted)
         #if DEBUG
@@ -297,44 +308,42 @@ import RoamttyTransport
         stopInternal(sendHangup: true, runtime: runtime)
     }
 
-    func networkChanged(_ change: NetworkChange) {
-        session?.networkChanged(change)
-    }
-
-    func shutdown() {
-        stopInternal(sendHangup: false)
-    }
+    func networkChanged(_ change: NetworkChange) { session?.networkChanged(change) }
+    func shutdown() { stopInternal(sendHangup: false) }
 }
 
 // MARK: - Internal lifecycle & UI test fixtures
 extension VoiceController {
     private func stopInternal(sendHangup: Bool, runtime: SessionRuntime? = nil) {
+        startGeneration &+= 1
+        startTask?.cancel()
+        startTask = nil
+        if let owner = loginOwner {
+            boundModel?.logins.invalidateOwner(owner)
+            boundModel?.logins.dismissPrompts(owner: owner)
+            loginOwner = nil
+        }
+        let shouldSendF7 = sendHangup && startKeySent
         #if DEBUG
-        if sendHangup, !fixtureMode, let target = runtime ?? boundRuntime {
-            sendFunctionKey(7, to: target)
-        }
+        if shouldSendF7, !fixtureMode, let target = runtime ?? boundRuntime { sendFunctionKey(7, to: target) }
         #else
-        if sendHangup, let target = runtime ?? boundRuntime {
-            sendFunctionKey(7, to: target)
-        }
+        if shouldSendF7, let target = runtime ?? boundRuntime { sendFunctionKey(7, to: target) }
         #endif
         session?.close()
-        session = nil
-        audioEngine?.stopAll()
-        audioEngine = nil
         cleanupAfterEnd()
     }
 
     private func cleanupAfterEnd() {
         elapsedTimer?.cancel(); elapsedTimer = nil
         speakerQuietTask?.cancel(); speakerQuietTask = nil
-        active = false
-        popoverOpen = false
-        isMuted = false
-        ghostState = .idle
-        micPort = nil
-        onUdp = false
-        startKeySent = false
+        audioEngine?.stopAll(); audioEngine = nil
+        session = nil
+        if let owner = loginOwner {
+            boundModel?.logins.dismissPrompts(owner: owner)
+            loginOwner = nil
+        }
+        active = false; recovering = false; popoverOpen = false; isMuted = false
+        ghostState = .idle; micPort = nil; onUdp = false; startKeySent = false
         boundModel?.setVoiceCallActive(false)
     }
 
@@ -367,18 +376,10 @@ extension VoiceController {
 
     #if DEBUG
     func configureFixture(state: String?, mode: VoiceMode = .live, popover: Bool = false) {
-        fixtureMode = true
-        self.mode = mode
-        audioRoute = .speaker
-        guard let state, !state.isEmpty else {
-            cleanupAfterEnd()
-            return
-        }
-        active = true
-        elapsedSeconds = 24
-        micPort = VoiceProtocol.defaultPort
-        onUdp = true
-        popoverOpen = popover
+        fixtureMode = true; self.mode = mode; audioRoute = .speaker
+        guard let state, !state.isEmpty else { cleanupAfterEnd(); return }
+        active = true; recovering = false; elapsedSeconds = 24; micPort = VoiceProtocol.defaultPort
+        onUdp = true; popoverOpen = popover; startKeySent = state != "connecting"
         switch state {
         case "connecting": ghostState = .connecting; isMuted = false
         case "speaking": ghostState = .speaking(level: 0.72); isMuted = false
@@ -388,14 +389,9 @@ extension VoiceController {
     }
 
     private func startFixtureCall(mode: VoiceMode, route: VoiceAudioRoute, english: Bool) {
-        self.mode = mode
-        self.audioRoute = route
-        self.active = true
-        self.isMuted = false
-        self.elapsedSeconds = 18
-        self.popoverOpen = false
-        self.micPort = VoiceProtocol.defaultPort
-        self.onUdp = true
+        self.mode = mode; self.audioRoute = route; self.active = true; self.recovering = false
+        self.isMuted = false; self.elapsedSeconds = 18; self.popoverOpen = false
+        self.micPort = VoiceProtocol.defaultPort; self.onUdp = true; self.startKeySent = true
         self.ghostState = .listening(level: 0.48)
         startElapsedTimer()
         showToast(english ? "Connected — speak naturally" : "已接通，可以直接说话")

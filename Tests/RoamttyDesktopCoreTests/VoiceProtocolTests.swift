@@ -45,6 +45,13 @@ final class VoiceProtocolTests: XCTestCase {
         XCTAssertEqual(msg, "line1  line2")
         XCTAssertFalse(msg.contains("\r"))
         XCTAssertFalse(msg.contains("\n"))
+
+        // SPK_ACK(ok=false) must never emit an empty error string.
+        for blank in ["", "   \r\n  "] {
+            let blankErr = try XCTUnwrap(DesktopProtocol.read(VoiceProtocol.spkAck(streamId: 8, ok: false, error: blank)))
+            XCTAssertEqual(Array(blankErr.payload.prefix(5)), [8, 0, 0, 0, 0])
+            XCTAssertFalse(blankErr.payload.dropFirst(5).isEmpty, "SPK_ACK(ok=false) must include a fallback error string")
+        }
     }
 
     func testSpkAckTruncatesMultiByteUtf8SafelyWithin235Bytes() throws {
@@ -76,9 +83,12 @@ final class VoiceProtocolTests: XCTestCase {
         }
         XCTAssertEqual(sId, 9); XCTAssertEqual(sRate, 24_000); XCTAssertEqual(sCh, 1)
 
-        // Reject out-of-range speaker sample rate or stereo channels.
+        // Out-of-range speaker sample rate or stereo channels STILL decode as .spkStart so VoiceSession replies SPK_ACK(ok=false).
         let badRate = DesktopProtocol.frame(VoiceProtocol.SPK_START, [0x09, 0x00, 0x00, 0x00, 0x40, 0x1F, 0x00, 0x00, 0x02])
-        XCTAssertNil(VoiceProtocol.decode(try XCTUnwrap(DesktopProtocol.read(badRate))))
+        guard case .spkStart(let bId, let bRate, let bCh)? = VoiceProtocol.decode(try XCTUnwrap(DesktopProtocol.read(badRate))) else {
+            return XCTFail("expected spkStart so session can send SPK_ACK(ok=false)")
+        }
+        XCTAssertEqual(bId, 9); XCTAssertEqual(bRate, 8_000); XCTAssertEqual(bCh, 2)
 
         let spkAudio = DesktopProtocol.frame(VoiceProtocol.SPK_AUDIO, [0x09, 0x00, 0x00, 0x00, 0x10, 0x20])
         guard case .spkAudio(let aId, let pcm)? = VoiceProtocol.decode(try XCTUnwrap(DesktopProtocol.read(spkAudio))) else {
