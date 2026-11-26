@@ -37,10 +37,9 @@ struct HostAiUsageSection: View {
     }
 
     private var headerRow: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Text(model.text("AI 用量", "AI Usage"))
                 .font(.subheadline.weight(.medium)).foregroundStyle(Palette.secondary)
-            if loading { ProgressView().scaleEffect(0.7) }
             Spacer()
             HStack(spacing: 2) {
                 ForEach(HostUsageRange.allCases, id: \.self) { option in
@@ -54,6 +53,14 @@ struct HostAiUsageSection: View {
                     }.buttonStyle(.plain).accessibilityIdentifier("host-ai-range-\(option.rawValue)")
                 }
             }.padding(2).background(Palette.panel, in: Capsule())
+            Button { model.monitor.loadAiUsage(host, range: range, force: true, fetchAgyQuota: true) } label: {
+                Group {
+                    if loading { ProgressView().scaleEffect(0.7) } else { AppIcon("ic_refresh", size: 16).foregroundStyle(Palette.secondary) }
+                }.frame(width: 28, height: 28).contentShape(Circle())
+            }
+            .buttonStyle(.plain).disabled(!connected || loading)
+            .accessibilityLabel(model.text("刷新", "Refresh"))
+            .accessibilityIdentifier("host-ai-usage-refresh")
         }.padding(.horizontal, 16)
     }
 

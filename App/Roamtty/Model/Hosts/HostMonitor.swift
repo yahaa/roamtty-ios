@@ -49,7 +49,7 @@ import RoamttyTransport
                     if !probedDesktop {
                         probedDesktop = true
                         self.onConnected?(host)
-                        self.loadAiUsage(host, range: .today, force: false)
+                        self.loadAiUsage(host, range: .today, force: false, fetchAgyQuota: true)
                     }
                     guard try await self.sample(host, over: ssh, cancellation: cancellation, retry: &retry, current: current) else { return }
                 } catch {
@@ -95,8 +95,8 @@ import RoamttyTransport
         return true
     }
 
-    /// Loads machine-wide multi-agent AI token usage and active quotas for `range` over the shared SSH connection.
-    func loadAiUsage(_ host: Host, range: HostUsageRange, force: Bool = false) {
+    /// Loads machine-wide multi-agent AI usage for `range`; only runs `agy -p /quota` when `fetchAgyQuota` is true.
+    func loadAiUsage(_ host: Host, range: HostUsageRange, force: Bool = false, fetchAgyQuota: Bool = false) {
         guard host.system.lowercased() != "windows" else { return }
         if !force, let fetched = aiUsageFetchedAt[host.id]?[range], Date().timeIntervalSince(fetched) < 30 { return }
         aiUsageTasks[host.id]?.cancel()
@@ -106,14 +106,14 @@ import RoamttyTransport
             defer { self?.aiUsageLoading.remove(host.id) }
             guard let self else { return }
             guard let ssh = try? await self.pool.connection(for: host.id), !Task.isCancelled else { return }
-            let cmd = AgentUsage.hostCommand(range: range)
-            guard let result = try? await ssh.run(cmd, input: AgentUsage.scriptData, timeout: 15, cancellation: cancellation),
+            let cmd = AgentUsage.hostCommand(range: range, fetchAgyQuota: fetchAgyQuota)
+            guard let result = try? await ssh.run(cmd, input: AgentUsage.scriptData, timeout: fetchAgyQuota ? 20 : 15, cancellation: cancellation),
                   result.status == 0, !Task.isCancelled else { return }
             let parsed = AgentUsage.parseHost(result.text, requestedRange: range)
-            var byRange = self.aiUsage[host.id] ?? [:]
+            var byRange = fetchAgyQuota ? [:] : (self.aiUsage[host.id] ?? [:])
             byRange[range] = parsed
             self.aiUsage[host.id] = byRange
-            var times = self.aiUsageFetchedAt[host.id] ?? [:]
+            var times = fetchAgyQuota ? [:] : (self.aiUsageFetchedAt[host.id] ?? [:])
             times[range] = Date()
             self.aiUsageFetchedAt[host.id] = times
         }

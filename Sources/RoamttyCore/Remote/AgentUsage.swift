@@ -204,15 +204,17 @@ public enum AgentUsage {
 
     public static let scriptData: Data = Data(script.utf8)
 
-    public static func sessionCommand(agent: CodingAgent?, tmuxSession: String?, directory: String) -> String {
+    public static func sessionCommand(agent: CodingAgent?, tmuxSession: String?, directory: String, fetchAgyQuota: Bool = false) -> String {
         let a = RemoteCommands.shellQuote(agent?.command ?? "")
         let t = RemoteCommands.shellQuote(tmuxSession ?? "")
         let d = RemoteCommands.shellQuote(directory)
-        return RemoteCommands.shell("\(RemoteCommands.pathSetup); command -v python3 >/dev/null 2>&1 || exit 0; exec python3 - session \(a) \(t) \(d)")
+        let flag = fetchAgyQuota ? " --fetch-agy-quota" : ""
+        return RemoteCommands.shell("\(RemoteCommands.pathSetup); command -v python3 >/dev/null 2>&1 || exit 0; exec python3 - session \(a) \(t) \(d)\(flag)")
     }
 
-    public static func hostCommand(range: HostUsageRange) -> String {
-        RemoteCommands.shell("\(RemoteCommands.pathSetup); command -v python3 >/dev/null 2>&1 || exit 0; exec python3 - host \(range.rawValue)")
+    public static func hostCommand(range: HostUsageRange, fetchAgyQuota: Bool = false) -> String {
+        let flag = fetchAgyQuota ? " --fetch-agy-quota" : ""
+        return RemoteCommands.shell("\(RemoteCommands.pathSetup); command -v python3 >/dev/null 2>&1 || exit 0; exec python3 - host \(range.rawValue)\(flag)")
     }
 
     public static func parseSession(_ output: String?) -> AgentSessionUsage? {

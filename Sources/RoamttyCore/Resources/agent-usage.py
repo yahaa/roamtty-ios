@@ -2,11 +2,12 @@
 """Roamtty: read-only local token, context-window, reasoning-effort and quota collector for AI coding CLIs.
 
 Usage:
-  python3 - session <agent> [tmux_session] [cwd]
-  python3 - host <today|7d|30d>
+  python3 - session <agent> [tmux_session] [cwd] [--fetch-agy-quota]
+  python3 - host <today|7d|30d> [--fetch-agy-quota]
 
-Reads only local CLI session transcripts, non-secret settings/caches, and official CLI quota commands
-(never credentials or auth files). Prints key=value lines; exits 0 even when no data is found.
+Reads only local CLI session transcripts and non-secret settings/caches by default (never credentials
+or auth files); runs `agy -p /quota --output-format json` only when `--fetch-agy-quota` is explicitly
+requested by the user. Prints key=value lines; exits 0 even when no data is found.
 """
 import datetime
 import glob
@@ -706,87 +707,44 @@ def parse_agy_quota_payload(data, model, now):
     return q5h, q7d
 
 
-def refresh_agy_quota_file(cache_path, lock_path, sync):
+def fetch_agy_quota_file(cache_path):
     if os.environ.get("ROAMTTY_NO_LIVE_QUOTA") == "1":
         return None
     try:
-        if os.path.isfile(lock_path) and time.time() - os.path.getmtime(lock_path) < 60:
-            return None
         os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-        with open(lock_path, "w", encoding="utf-8") as lf:
-            lf.write(str(int(time.time())))
-    except OSError:
+        out = subprocess.check_output(
+            ["agy", "-p", "/quota", "--output-format", "json"],
+            stderr=subprocess.DEVNULL,
+            timeout=12,
+            env=cmd_env(),
+        ).decode("utf-8", "replace")
+        data = json.loads(out)
+        if isinstance(data, dict):
+            data["_fetched_at"] = int(time.time())
+            tmp = f"{cache_path}.{os.getpid()}.tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            os.replace(tmp, cache_path)
+            return data
+    except Exception:
         return None
-
-    env = cmd_env()
-    if sync:
-        try:
-            out = subprocess.check_output(
-                ["agy", "-p", "/quota", "--output-format", "json"],
-                stderr=subprocess.DEVNULL,
-                timeout=9,
-                env=env,
-            ).decode("utf-8", "replace")
-            data = json.loads(out)
-            if isinstance(data, dict):
-                data["_fetched_at"] = int(time.time())
-                tmp = f"{cache_path}.{os.getpid()}.tmp"
-                with open(tmp, "w", encoding="utf-8") as f:
-                    json.dump(data, f)
-                os.replace(tmp, cache_path)
-                return data
-        except Exception:
-            return None
-    else:
-        helper = (
-            "import json,os,subprocess,sys,time;"
-            "p=sys.argv[1];"
-            "out=subprocess.check_output(['agy','-p','/quota','--output-format','json'],stderr=subprocess.DEVNULL,timeout=12).decode('utf-8','replace');"
-            "d=json.loads(out);"
-            "d['_fetched_at']=int(time.time());"
-            "t=f'{p}.{os.getpid()}.tmp';"
-            "open(t,'w',encoding='utf-8').write(json.dumps(d));"
-            "os.replace(t,p)"
-        )
-        try:
-            subprocess.Popen(
-                [sys.executable, "-c", helper, cache_path],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-                env=env,
-            )
-        except Exception:
-            pass
     return None
 
 
-def read_agy_quota(model, now, allow_sync_fetch=False):
+def read_agy_quota(model, now, fetch_live=False):
     cache_path = os.path.join(HOME, ".roamtty", "quota-agy.json")
-    lock_path = os.path.join(HOME, ".roamtty", "quota-agy.lock")
-    cached = None
-    fetched_at = 0
+    if fetch_live:
+        fresh = fetch_agy_quota_file(cache_path)
+        if fresh is not None:
+            return parse_agy_quota_payload(fresh, model, now)
     if os.path.isfile(cache_path):
         try:
             cached = json.load(open(cache_path, "r", encoding="utf-8", errors="replace"))
-            fetched_at = safe_int(cached.get("_fetched_at")) if isinstance(cached, dict) else 0
-            if fetched_at == 0:
-                fetched_at = int(os.path.getmtime(cache_path))
+            if isinstance(cached, dict):
+                return parse_agy_quota_payload(cached, model, now)
         except Exception:
-            cached = None
-
-    if cached is not None and (now - fetched_at) < 180:
-        return parse_agy_quota_payload(cached, model, now)
-
-    if cached is not None:
-        # Serve cached non-expired quota immediately and refresh asynchronously in the background.
-        refresh_agy_quota_file(cache_path, lock_path, sync=False)
-        return parse_agy_quota_payload(cached, model, now)
-
-    # No cache yet: fetch synchronously once for active session view, or asynchronously for host overview.
-    fresh = refresh_agy_quota_file(cache_path, lock_path, sync=allow_sync_fetch)
-    return parse_agy_quota_payload(fresh, model, now) if fresh else (None, None)
+            pass
+    return None, None
 
 
 def parse_agy_file(path, cutoff=None):
@@ -1136,7 +1094,7 @@ def find_grok_transcript(transcript, sid, cwd, pane_pid=0):
     return None
 
 
-def run_session(agent_arg, tmux_session, cwd_arg):
+def run_session(agent_arg, tmux_session, cwd_arg, fetch_agy_quota=False):
     now = time.time()
     t_agent, t_sid, t_transcript, t_cwd, t_pid = tmux_meta(tmux_session)
     agent = (t_agent or agent_arg or "").strip().lower()
@@ -1174,7 +1132,7 @@ def run_session(agent_arg, tmux_session, cwd_arg):
         p = find_agy_transcript(t_transcript, t_sid, cwd)
         if p:
             data = parse_agy_file(p)
-        q5h, q7d = read_agy_quota((data or {}).get("model", ""), now, allow_sync_fetch=True)
+        q5h, q7d = read_agy_quota((data or {}).get("model", ""), now, fetch_live=fetch_agy_quota)
         if data is None and (q5h or q7d):
             data = {}
         if data is not None:
@@ -1211,7 +1169,7 @@ def run_session(agent_arg, tmux_session, cwd_arg):
             print(f"q7d_reset={int(q7d[1])}")
 
 
-def run_host(rng):
+def run_host(rng, fetch_agy_quota=False):
     now = time.time()
     if rng == "7d":
         cutoff = now - 7 * 86400
@@ -1316,11 +1274,12 @@ def run_host(rng):
 
     # 3. Antigravity CLI
     agy_paths = glob.glob(os.path.join(HOME, ".gemini", "antigravity-cli", "brain", "*", ".system_generated", "logs", "transcript.jsonl"))
+    has_agy = bool(agy_paths) or os.path.isfile(os.path.join(HOME, ".roamtty", "quota-agy.json"))
     aggregate(
         "agy",
         agy_paths,
         lambda p: parse_agy_file(p, cutoff=cutoff),
-        extra_quotas=lambda latest_m, has_s: read_agy_quota(latest_m, now, allow_sync_fetch=False) if (has_s or os.path.isfile(os.path.join(HOME, ".roamtty", "quota-agy.json"))) else (None, None),
+        extra_quotas=lambda latest_m, _has: read_agy_quota(latest_m, now, fetch_live=fetch_agy_quota) if has_agy else (None, None),
     )
 
     # 4. Grok
@@ -1340,14 +1299,17 @@ def main():
     if len(sys.argv) < 2:
         return
     mode = sys.argv[1]
+    raw_args = sys.argv[2:]
+    fetch_agy_quota = "--fetch-agy-quota" in raw_args
+    args = [a for a in raw_args if a != "--fetch-agy-quota"]
     if mode == "session":
-        agent = sys.argv[2] if len(sys.argv) > 2 else ""
-        tmux_s = sys.argv[3] if len(sys.argv) > 3 else ""
-        cwd = sys.argv[4] if len(sys.argv) > 4 else ""
-        run_session(agent, tmux_s, cwd)
+        agent = args[0] if len(args) > 0 else ""
+        tmux_s = args[1] if len(args) > 1 else ""
+        cwd = args[2] if len(args) > 2 else ""
+        run_session(agent, tmux_s, cwd, fetch_agy_quota=fetch_agy_quota)
     elif mode == "host":
-        rng = sys.argv[2] if len(sys.argv) > 2 else "today"
-        run_host(rng)
+        rng = args[0] if len(args) > 0 else "today"
+        run_host(rng, fetch_agy_quota=fetch_agy_quota)
 
 
 if __name__ == "__main__":
