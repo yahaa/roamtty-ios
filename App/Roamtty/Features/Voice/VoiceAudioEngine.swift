@@ -154,6 +154,7 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
     func stopMic(streamId: UInt32) {
         queue.async { [self] in
             guard micStreamId == streamId else { return }
+            Diagnostics.shared.log("voice-mic-stop", "stream=\(streamId)")
             micStreamId = nil
             micCallback = nil
             captureBuffer.removeAll(keepingCapacity: false)
@@ -236,6 +237,7 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
     func stopSpeaker(streamId: UInt32) {
         queue.async { [self] in
             guard spkStreamId == streamId else { return }
+            Diagnostics.shared.log("voice-spk-stop", "stream=\(streamId)")
             spkStreamId = nil
             spkInputFormat = nil
             spkConverter = nil

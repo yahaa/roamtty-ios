@@ -9,33 +9,36 @@ import RoamttyTransport
 /// owns `VoiceSession` + `VoiceAudioEngine`, sends interactive F5/F6/F7 keys,
 /// auto-mutes `DesktopAudioPlayer` to protect VPIO AEC, and drives the Ghost pet & popover UI.
 @MainActor final class VoiceController: ObservableObject {
-    @Published private(set) var active = false
-    @Published private(set) var recovering = false
-    @Published private(set) var mode: VoiceMode = .live
-    @Published private(set) var audioRoute: VoiceAudioRoute = .speaker
-    @Published private(set) var ghostState: GhostVoiceState = .idle
-    @Published private(set) var isMuted = false
-    @Published private(set) var elapsedSeconds = 0
-    @Published private(set) var micPort: Int?
-    @Published private(set) var onUdp = false
+    @Published var active = false
+    @Published var recovering = false
+    @Published var mode: VoiceMode = .live
+    @Published var audioRoute: VoiceAudioRoute = .speaker
+    @Published var ghostState: GhostVoiceState = .idle
+    @Published var isMuted = false
+    @Published var elapsedSeconds = 0
+    @Published var micPort: Int?
+    @Published var onUdp = false
     @Published var popoverOpen = false
     @Published var toastMessage: String?
     @Published var errorMessage: String?
 
-    private var session: VoiceSession?
-    private var audioEngine: VoiceAudioEngine?
-    private var startTask: Task<Void, Never>?
-    private var startGeneration: UInt64 = 0
-    private var loginOwner: String?
-    private var elapsedTimer: Task<Void, Never>?
-    private var speakerQuietTask: Task<Void, Never>?
-    private var toastTask: Task<Void, Never>?
-    private var startKeySent = false
-    private weak var boundRuntime: SessionRuntime?
-    private weak var boundModel: AppModel?
+    var session: VoiceSession?
+    var audioEngine: VoiceAudioEngine?
+    var startTask: Task<Void, Never>?
+    var startGeneration: UInt64 = 0
+    var loginOwner: String?
+    var elapsedTimer: Task<Void, Never>?
+    var speakerQuietTask: Task<Void, Never>?
+    var remoteEndTask: Task<Void, Never>?
+    var noStreamHintTask: Task<Void, Never>?
+    var toastTask: Task<Void, Never>?
+    var startKeySent = false
+    var streamTracker = VoiceRemoteStreamTracker()
+    weak var boundRuntime: SessionRuntime?
+    weak var boundModel: AppModel?
 
     #if DEBUG
-    private var fixtureMode = false
+    var fixtureMode = false
     #endif
 
     var isBusy: Bool { active || startTask != nil }
@@ -86,7 +89,7 @@ import RoamttyTransport
             return
         }
         #endif
-        stopInternal(sendHangup: false)
+        stopInternal(sendHangup: false, reason: "restart")
         let generation = startGeneration
         startTask = Task { @MainActor [weak self, weak runtime, weak model] in
             guard let self, let runtime, let model else { return }
@@ -107,6 +110,8 @@ import RoamttyTransport
         self.mode = mode; self.audioRoute = route; self.active = true; self.recovering = false
         self.isMuted = false; self.elapsedSeconds = 0; self.popoverOpen = false
         self.errorMessage = nil; self.startKeySent = false; self.ghostState = .connecting
+        streamTracker.reset(mode: mode)
+        cancelStreamTimers()
         model.setVoiceCallActive(true)
         Diagnostics.shared.log("voice-call-start", "mode=\(mode.rawValue) route=\(route.rawValue)")
         showToast(model.text("正在连接 agy 语音通道…", "Connecting agy voice channel…"))
@@ -115,7 +120,7 @@ import RoamttyTransport
             let latestHost = model.host(runtime.host.id) ?? runtime.host
             _ = try await model.logins.credentials(for: latestHost, owner: owner)
             guard !Task.isCancelled, startGeneration == generation else {
-                if startGeneration == generation { cleanupAfterEnd() }
+                if startGeneration == generation { cleanupAfterEnd(reason: "cancelled") }
                 return
             }
             let manifest = try model.desktopManifest()
@@ -130,7 +135,7 @@ import RoamttyTransport
             model.watchDesktopNetwork()
         } catch {
             guard startGeneration == generation else { return }
-            stopInternal(sendHangup: false)
+            stopInternal(sendHangup: false, reason: "start-error")
             if !(error is CancellationError) && (error as? RoamError) != .cancelled {
                 errorMessage = error.localizedDescription
             }
@@ -187,99 +192,6 @@ import RoamttyTransport
         return engine
     }
 
-    private func observe(_ voiceSession: VoiceSession, runtime: SessionRuntime, model: AppModel) {
-        voiceSession.onPhase = { [weak self, weak voiceSession, weak runtime, weak model] phase in
-            Task { @MainActor in
-                guard let self, let voiceSession, let runtime, let model, self.session === voiceSession else { return }
-                self.handlePhase(phase, runtime: runtime, model: model)
-            }
-        }
-        voiceSession.onEvent = { [weak self, weak voiceSession, weak model] event in
-            Task { @MainActor in
-                guard let self, let voiceSession, let model, self.session === voiceSession else { return }
-                self.handleStreamEvent(event, model: model)
-            }
-        }
-        voiceSession.onEnded = { [weak self, weak voiceSession] _ in
-            Task { @MainActor in
-                guard let self, let voiceSession, self.session === voiceSession else { return }
-                if !voiceSession.active { self.cleanupAfterEnd() }
-            }
-        }
-    }
-
-    private func handlePhase(_ phase: VoiceSessionPhase, runtime: SessionRuntime, model: AppModel) {
-        switch phase {
-        case .idle:
-            cleanupAfterEnd()
-        case .connecting:
-            recovering = false
-            if active { ghostState = .connecting }
-        case .recovering:
-            recovering = true
-            if active { ghostState = .connecting }
-        case .ready(let port, let udp):
-            recovering = false; micPort = port; onUdp = udp
-            Diagnostics.shared.log("voice-ready", "port=\(port) udp=\(udp)")
-            model.markDesktopPluginInstalled(for: runtime.host.id)
-            if !startKeySent {
-                startKeySent = true
-                sendFunctionKey(mode.startFunctionKey, to: runtime)
-                ghostState = isMuted ? .muted : .listening(level: 0)
-                startElapsedTimer()
-                if port != VoiceProtocol.defaultPort {
-                    showToast(model.text(
-                        "语音端口 24713 被占用，已改用 \(port)；若当前 agy 无响应请重启会话",
-                        "Voice port 24713 is busy; using \(port). Restart agy if voice does not respond"
-                    ))
-                } else {
-                    showToast(mode == .live
-                        ? model.text("已接通，可以直接说话", "Connected — speak naturally")
-                        : model.text("听写已开始", "Dictation started"))
-                }
-            } else if ghostState == .connecting {
-                ghostState = isMuted ? .muted : .listening(level: 0)
-            }
-        case .failed(let message):
-            Diagnostics.shared.log("voice-failed", message)
-            errorMessage = message
-            cleanupAfterEnd()
-        }
-    }
-
-    private func handleStreamEvent(_ event: VoiceStreamEvent, model: AppModel) {
-        switch event {
-        case .micStarted:
-            if !isMuted { ghostState = .listening(level: 0.15) }
-        case .micStopped:
-            // Dictation ends cleanly once agy closes the mic stream, swapping handset back to keyboard.
-            if mode == .dictate && active {
-                showToast(model.text("听写已结束", "Dictation finished"))
-                stopInternal(sendHangup: false)
-            }
-        case .speakerStarted, .speakerAudio:
-            break
-        case .speakerCleared, .speakerStopped:
-            speakerQuietTask?.cancel()
-            if active { ghostState = isMuted ? .muted : .listening(level: 0) }
-        }
-    }
-
-    private func updateSpeakerActivity(level: Double) {
-        guard active else { return }
-        if level <= 0.01 {
-            if !isMuted, case .speaking = ghostState { ghostState = .listening(level: 0) }
-            return
-        }
-        if !isMuted { ghostState = .speaking(level: level) }
-        speakerQuietTask?.cancel()
-        speakerQuietTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(380))
-            guard let self, !Task.isCancelled, self.active else { return }
-            if !self.isMuted, case .speaking = self.ghostState { self.ghostState = .listening(level: 0) }
-        }
-    }
-
     func toggleMute(runtime: SessionRuntime, english: Bool) {
         guard canToggleMute else { return }
         isMuted.toggle()
@@ -308,96 +220,9 @@ import RoamttyTransport
 
     func hangup(runtime: SessionRuntime, model: AppModel) {
         showToast(model.text("通话已结束", "Call ended"))
-        stopInternal(sendHangup: true, runtime: runtime)
+        stopInternal(sendHangup: true, runtime: runtime, reason: "hangup")
     }
 
     func networkChanged(_ change: NetworkChange) { session?.networkChanged(change) }
-    func shutdown() { stopInternal(sendHangup: false) }
-}
-
-// MARK: - Internal lifecycle & UI test fixtures
-extension VoiceController {
-    private func stopInternal(sendHangup: Bool, runtime: SessionRuntime? = nil) {
-        startGeneration &+= 1
-        startTask?.cancel()
-        startTask = nil
-        if let owner = loginOwner {
-            boundModel?.logins.invalidateOwner(owner)
-            boundModel?.logins.dismissPrompts(owner: owner)
-            loginOwner = nil
-        }
-        let shouldSendF7 = sendHangup && startKeySent
-        #if DEBUG
-        if shouldSendF7, !fixtureMode, let target = runtime ?? boundRuntime { sendFunctionKey(7, to: target) }
-        #else
-        if shouldSendF7, let target = runtime ?? boundRuntime { sendFunctionKey(7, to: target) }
-        #endif
-        session?.close()
-        cleanupAfterEnd()
-    }
-
-    private func cleanupAfterEnd() {
-        elapsedTimer?.cancel(); elapsedTimer = nil
-        speakerQuietTask?.cancel(); speakerQuietTask = nil
-        audioEngine?.stopAll(); audioEngine = nil
-        session = nil
-        if let owner = loginOwner {
-            boundModel?.logins.dismissPrompts(owner: owner)
-            loginOwner = nil
-        }
-        active = false; recovering = false; popoverOpen = false; isMuted = false
-        ghostState = .idle; micPort = nil; onUdp = false; startKeySent = false
-        boundModel?.setVoiceCallActive(false)
-    }
-
-    private func startElapsedTimer() {
-        elapsedTimer?.cancel()
-        elapsedTimer = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                guard let self, !Task.isCancelled, self.active else { return }
-                if self.ghostState != .connecting { self.elapsedSeconds += 1 }
-            }
-        }
-    }
-
-    private func sendFunctionKey(_ number: Int, to runtime: SessionRuntime) {
-        guard let seq = TerminalKeys.function(number, control: false, shift: false) else { return }
-        runtime.terminalView.scrollToLiveOutput()
-        runtime.send(seq)
-    }
-
-    private func showToast(_ message: String) {
-        toastMessage = message
-        toastTask?.cancel()
-        toastTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(2))
-            guard let self, !Task.isCancelled else { return }
-            self.toastMessage = nil
-        }
-    }
-
-    #if DEBUG
-    func configureFixture(state: String?, mode: VoiceMode = .live, popover: Bool = false) {
-        fixtureMode = true; self.mode = mode; audioRoute = .speaker
-        guard let state, !state.isEmpty else { cleanupAfterEnd(); return }
-        active = true; recovering = false; elapsedSeconds = 24; micPort = VoiceProtocol.defaultPort
-        onUdp = true; popoverOpen = popover; startKeySent = state != "connecting"
-        switch state {
-        case "connecting": ghostState = .connecting; isMuted = false
-        case "speaking": ghostState = .speaking(level: 0.72); isMuted = false
-        case "muted": ghostState = .muted; isMuted = true
-        default: ghostState = .listening(level: 0.45); isMuted = false
-        }
-    }
-
-    private func startFixtureCall(mode: VoiceMode, route: VoiceAudioRoute, english: Bool) {
-        self.mode = mode; self.audioRoute = route; self.active = true; self.recovering = false
-        self.isMuted = false; self.elapsedSeconds = 18; self.popoverOpen = false
-        self.micPort = VoiceProtocol.defaultPort; self.onUdp = true; self.startKeySent = true
-        self.ghostState = .listening(level: 0.48)
-        startElapsedTimer()
-        showToast(english ? "Connected — speak naturally" : "已接通，可以直接说话")
-    }
-    #endif
+    func shutdown() { stopInternal(sendHangup: false, reason: "shutdown") }
 }

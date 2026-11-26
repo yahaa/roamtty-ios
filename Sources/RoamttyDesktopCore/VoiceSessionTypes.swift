@@ -62,3 +62,96 @@ public enum VoiceStreamEvent: Equatable, Sendable {
     case speakerCleared(streamId: UInt32)
     case speakerStopped(streamId: UInt32)
 }
+
+/// Classification for why remote `agy` audio streams closed.
+public enum VoiceRemoteEndReason: Equatable, Sendable {
+    /// Dictation (`F5`) finished once `agy` closed its mic stream.
+    case dictationFinished
+    /// Live call (`F6`) ended cleanly after running normally (e.g. `hang_up`, `Esc`, or `/voice`).
+    case ended
+    /// Live call streams closed right after opening without any speaker audio (e.g. `Access denied`).
+    case abortedEarly
+}
+
+/// Action returned by `VoiceRemoteStreamTracker` for each incoming `VoiceStreamEvent`.
+public enum VoiceRemoteStreamAction: Equatable, Sendable {
+    case none
+    case streamActive
+    case endedImmediately(VoiceRemoteEndReason)
+    case scheduleRemoteEnd(VoiceRemoteEndReason)
+}
+
+/// Tracks active remote `agy` mic/speaker streams so the UI auto-closes live calls when `agy`
+/// exits `/voice` (clean `hang_up`, terminal `Esc`, or immediate errors like `Access denied`)
+/// without falsely ending calls on mute, barge-in, or transient `--resume` reconnects.
+public struct VoiceRemoteStreamTracker: Equatable, Sendable {
+    public static let earlyAbortWindowSeconds: TimeInterval = 5.0
+    public static let remoteEndGraceMs = 350
+    public static let noStreamHintDelaySeconds: TimeInterval = 8.0
+
+    public private(set) var mode: VoiceMode
+    public private(set) var activeMicStreamId: UInt32?
+    public private(set) var activeSpkStreamId: UInt32?
+    public private(set) var hadAnyStream = false
+    public private(set) var receivedSpeakerAudio = false
+    private var firstStreamAt: TimeInterval?
+
+    public init(mode: VoiceMode = .live) {
+        self.mode = mode
+    }
+
+    public mutating func reset(mode: VoiceMode) {
+        self = VoiceRemoteStreamTracker(mode: mode)
+    }
+
+    /// Clears in-flight stream IDs while `VoiceSession` reconnects (`--resume`) so stale stops
+    /// cannot trigger hangup before `roamtty-desktop` re-announces live streams.
+    public mutating func beginRecovery() {
+        activeMicStreamId = nil
+        activeSpkStreamId = nil
+    }
+
+    public mutating func handle(_ event: VoiceStreamEvent, at now: TimeInterval) -> VoiceRemoteStreamAction {
+        switch event {
+        case .micStarted(let id, _):
+            activeMicStreamId = id
+            hadAnyStream = true
+            if firstStreamAt == nil { firstStreamAt = now }
+            return .streamActive
+        case .speakerStarted(let id, _):
+            activeSpkStreamId = id
+            hadAnyStream = true
+            if firstStreamAt == nil { firstStreamAt = now }
+            return .streamActive
+        case .speakerAudio(_, let bytes):
+            if bytes > 0 { receivedSpeakerAudio = true }
+            return .none
+        case .speakerCleared:
+            return .none
+        case .micStopped(let id):
+            let wasStreaming = activeMicStreamId != nil || activeSpkStreamId != nil
+            let matched = activeMicStreamId == id
+            if matched { activeMicStreamId = nil }
+            if mode == .dictate {
+                return (matched || !wasStreaming) ? .endedImmediately(.dictationFinished) : .none
+            }
+            guard matched, wasStreaming, activeMicStreamId == nil, activeSpkStreamId == nil else { return .none }
+            return .scheduleRemoteEnd(classifyLiveEnd(at: now))
+        case .speakerStopped(let id):
+            let wasStreaming = activeMicStreamId != nil || activeSpkStreamId != nil
+            let matched = activeSpkStreamId == id
+            if matched { activeSpkStreamId = nil }
+            guard mode == .live, matched, wasStreaming, activeMicStreamId == nil, activeSpkStreamId == nil else {
+                return .none
+            }
+            return .scheduleRemoteEnd(classifyLiveEnd(at: now))
+        }
+    }
+
+    private func classifyLiveEnd(at now: TimeInterval) -> VoiceRemoteEndReason {
+        if !receivedSpeakerAudio, let started = firstStreamAt, now - started < Self.earlyAbortWindowSeconds {
+            return .abortedEarly
+        }
+        return .ended
+    }
+}

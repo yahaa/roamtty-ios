@@ -3180,6 +3180,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "110212E69DC72CD420BADD35";
 		};
+		"6B6BE6D429B23A50E845CF3D" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Features/Voice/VoiceController+Lifecycle.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"F523276F3F84B99D1C3ADFC2" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "6B6BE6D429B23A50E845CF3D";
+		};
 		"05B5780AFCDB13E90B030369" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/Roamtty/Features/Voice/VoiceController.swift";
@@ -3660,6 +3670,7 @@
 				"91E1B1D2A1A1BA8DF6AB8F79",
 				"5F9DA408631CF85BFA3A1E7F",
 				"552ECB970E9B96B38F99A27C",
+				"F523276F3F84B99D1C3ADFC2",
 				"3FA64EF4DB773827B4F9C072",
 				"7DCB7B78CD1A08AC1AF0F0AF",
 				"72BF447BBEE0540CF4121741",
@@ -5331,6 +5342,7 @@
 				"B858F23C3C96308271FBEE86",
 				"9F2C90D807E60C4211D460EF",
 				"110212E69DC72CD420BADD35",
+				"6B6BE6D429B23A50E845CF3D",
 				"05B5780AFCDB13E90B030369",
 				"8E8427A2DDD2474D8B373AE7",
 				"8D0D86AAD40EC80D68CBB5F2",
