@@ -108,6 +108,7 @@ import RoamttyTransport
         self.isMuted = false; self.elapsedSeconds = 0; self.popoverOpen = false
         self.errorMessage = nil; self.startKeySent = false; self.ghostState = .connecting
         model.setVoiceCallActive(true)
+        Diagnostics.shared.log("voice-call-start", "mode=\(mode.rawValue) route=\(route.rawValue)")
         showToast(model.text("正在连接 agy 语音通道…", "Connecting agy voice channel…"))
 
         do {
@@ -219,6 +220,7 @@ import RoamttyTransport
             if active { ghostState = .connecting }
         case .ready(let port, let udp):
             recovering = false; micPort = port; onUdp = udp
+            Diagnostics.shared.log("voice-ready", "port=\(port) udp=\(udp)")
             model.markDesktopPluginInstalled(for: runtime.host.id)
             if !startKeySent {
                 startKeySent = true
@@ -239,6 +241,7 @@ import RoamttyTransport
                 ghostState = isMuted ? .muted : .listening(level: 0)
             }
         case .failed(let message):
+            Diagnostics.shared.log("voice-failed", message)
             errorMessage = message
             cleanupAfterEnd()
         }

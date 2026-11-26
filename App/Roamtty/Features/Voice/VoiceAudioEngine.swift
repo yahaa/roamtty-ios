@@ -10,9 +10,10 @@ enum VoiceMicPermission: Equatable, Sendable {
 
 /// Full-duplex iOS voice audio engine for `agy /voice`:
 /// - `AVAudioSession` in `.playAndRecord` + `.voiceChat` with speaker / earpiece / Bluetooth routing
-/// - `AVAudioEngine` inputNode with hardware VPIO AEC (`setVoiceProcessingEnabled(true)`)
-/// - Resampling mic capture to requested PCM16 LE format (default 16 kHz mono / `640 B` chunks) + throttled RMS level
+/// - `AVAudioEngine` with hardware VPIO AEC (`setVoiceProcessingEnabled(true)`) and automatic non-VPIO fallback
+/// - Capture tap installed before `engine.start()` with `format: nil` + dynamic mono/converter adaptation
 /// - `AVAudioPlayerNode` honoring dynamic `SPK_START` sample rates, bounded buffer queue, and instant barge-in flush
+/// - Objective-C `@try/@catch` shield around all CoreAudio / `AVAudioEngine` calls so no `NSException` can abort the app
 final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
     let queue = DispatchQueue(label: "roamtty.voice.audio", qos: .userInteractive)
     let sessionToken = UUID()
@@ -22,6 +23,7 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
     static let maxPendingPlaybackBuffers = 20
     static let levelThrottleNs: UInt64 = 66_000_000
     static let speakerKeepaliveNs: UInt64 = 200_000_000
+    static let routeSettleSuppressNs: UInt64 = 600_000_000
     static let levelMinDelta: Float = 0.03
 
     var engine: AVAudioEngine?
@@ -46,7 +48,10 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
     var lastEmittedSpkNs: UInt64 = 0
     var sessionActive = false
     var interrupted = false
+    var vpioFailed = false
     var lastHardwareSampleRate: Double = 0
+    var suppressRouteRebuildUntilNs: UInt64 = 0
+    var pendingRebuild: DispatchWorkItem?
 
     var onMicLevel: ((Float) -> Void)?
     var onSpeakerLevel: ((Float) -> Void)?
@@ -109,18 +114,17 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
     func setAudioRoute(_ next: VoiceAudioRoute) {
         queue.async { [self] in
             route = next
-            applyRouteLocked()
+            applyRouteLocked(force: true)
         }
     }
 
-    /// Pre-warms `AVAudioSession` (`.playAndRecord` + `.voiceChat`) and `AVAudioEngine` with VPIO AEC
+    /// Pre-warms `AVAudioSession` (`.playAndRecord` + `.voiceChat`) and `AVAudioEngine`
     /// when the call starts so `SPK_START` replies with `SPK_ACK` without cold-start timeout risk.
     func prepareSession(route next: VoiceAudioRoute) {
         queue.async { [self] in
             route = next
             guard !interrupted else { return }
             _ = ensureEngineRunning()
-            applyRouteLocked()
         }
     }
 
@@ -128,18 +132,19 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
 
     func startMic(streamId: UInt32, sampleRate: UInt32, channels: UInt8, onPcm: @escaping @Sendable (UInt32, [UInt8]) -> Void) {
         queue.async { [self] in
+            Diagnostics.shared.log("voice-mic-start", "stream=\(streamId) rate=\(sampleRate) ch=\(channels)")
             let rate = sampleRate > 0 ? Double(sampleRate) : Double(VoiceProtocol.defaultMicSampleRate)
             let ch = AVAudioChannelCount(max(1, channels))
             if let requested = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: rate, channels: ch, interleaved: true),
                requested.sampleRate != captureFormat.sampleRate || requested.channelCount != captureFormat.channelCount {
-                removeCaptureTap()
+                captureConverter = nil
                 captureFormat = requested
             }
             micStreamId = streamId
             micCallback = onPcm
             captureBuffer.removeAll(keepingCapacity: true)
-            guard !interrupted, ensureEngineRunning() else { return }
-            installCaptureTapIfNeeded()
+            guard !interrupted else { return }
+            _ = ensureEngineRunning()
         }
     }
 
@@ -149,13 +154,13 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
             micStreamId = nil
             micCallback = nil
             captureBuffer.removeAll(keepingCapacity: false)
-            removeCaptureTap()
             resetMicLevel()
         }
     }
 
     func startSpeaker(streamId: UInt32, sampleRate: UInt32, channels: UInt8) -> Result<Void, VoiceAudioError> {
         queue.sync { [self] in
+            Diagnostics.shared.log("voice-spk-start", "stream=\(streamId) rate=\(sampleRate) ch=\(channels)")
             guard VoiceProtocol.speakerRateRange.contains(sampleRate), channels == 1 else {
                 return .failure(VoiceAudioError("unsupported format \(sampleRate)Hz \(channels)ch"))
             }
@@ -172,9 +177,10 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
             playbackGeneration &+= 1
             pendingPlaybackBuffers = 0
             if let engine, engine.isRunning, let playerNode {
-                playerNode.stop()
-                playerNode.reset()
-                playerNode.play()
+                _ = safelyRunAudio("startSpeaker.restart") {
+                    playerNode.stop()
+                    playerNode.play()
+                }
             }
             return .success(())
         }
@@ -196,29 +202,31 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
             }
             updateSpeakerLevel(pcm: pcm, sampleCount: samples)
             guard let outBuf = convert(inBuf, with: converter, to: playbackFormat), engine.isRunning else { return }
-            if !playerNode.isPlaying { playerNode.play() }
-            pendingPlaybackBuffers += 1
             let generation = playbackGeneration
-            playerNode.scheduleBuffer(outBuf) { [weak self] in
-                self?.queue.async {
-                    guard let self, self.playbackGeneration == generation else { return }
-                    self.pendingPlaybackBuffers = max(0, self.pendingPlaybackBuffers - 1)
+            let scheduled = safelyRunAudio("playSpeaker.schedule") {
+                if !playerNode.isPlaying { playerNode.play() }
+                playerNode.scheduleBuffer(outBuf) { [weak self] in
+                    self?.queue.async {
+                        guard let self, self.playbackGeneration == generation else { return }
+                        self.pendingPlaybackBuffers = max(0, self.pendingPlaybackBuffers - 1)
+                    }
                 }
             }
+            if scheduled { pendingPlaybackBuffers += 1 }
         }
     }
 
     func clearSpeaker(streamId: UInt32) {
         queue.async { [self] in
             guard spkStreamId == streamId else { return }
-            // Instant barge-in flush without disturbing the running engine or mic VPIO tap.
             spkConverter?.reset()
             playbackGeneration &+= 1
             pendingPlaybackBuffers = 0
             if let engine, engine.isRunning, let playerNode {
-                playerNode.stop()
-                playerNode.reset()
-                playerNode.play()
+                _ = safelyRunAudio("clearSpeaker") {
+                    playerNode.stop()
+                    playerNode.play()
+                }
             }
             resetSpeakerLevel()
         }
@@ -233,8 +241,7 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
             playbackGeneration &+= 1
             pendingPlaybackBuffers = 0
             if let engine, engine.isRunning, let playerNode {
-                playerNode.stop()
-                playerNode.reset()
+                _ = safelyRunAudio("stopSpeaker") { playerNode.stop() }
             }
             resetSpeakerLevel()
         }

@@ -3510,6 +3510,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "07EC1078D64F2213288D559C";
 		};
+		"457D60E8489A9E67FDEFC334" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Services/ObjCExceptionCatcher.m";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.c.objc";
+		};
+		"A50C5698C49313D90DB26DDF" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "457D60E8489A9E67FDEFC334";
+		};
 		"275E3DB022CBE6D670178A5A" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/Shared/ShareInboxStore.swift";
@@ -3683,6 +3693,7 @@
 				"1E5E6B100ACE77F830AECC1A",
 				"3CA37FF21651889E6D99B981",
 				"F2664F6988963FD8EF5C00F8",
+				"A50C5698C49313D90DB26DDF",
 				"1FC050EFE9B74172005CD96C",
 				"35FF0A10D774AB5B8D1DA8B0",
 			);
@@ -4131,6 +4142,7 @@
 				);
 				"CODE_SIGN_ENTITLEMENTS" = "$(ROAMTTY_ENTITLEMENTS)";
 				"GENERATE_INFOPLIST_FILE" = "NO";
+				"SWIFT_OBJC_BRIDGING_HEADER" = "App/Support/Roamtty-Bridging-Header.h";
 				"SWIFT_OPTIMIZATION_LEVEL" = "-Onone";
 				"GCC_OPTIMIZATION_LEVEL" = "0";
 				"DEBUG_INFORMATION_FORMAT" = "dwarf";
@@ -4192,6 +4204,7 @@
 				);
 				"CODE_SIGN_ENTITLEMENTS" = "$(ROAMTTY_ENTITLEMENTS)";
 				"GENERATE_INFOPLIST_FILE" = "NO";
+				"SWIFT_OBJC_BRIDGING_HEADER" = "App/Support/Roamtty-Bridging-Header.h";
 				"SWIFT_OPTIMIZATION_LEVEL" = "-O";
 				"DEBUG_INFORMATION_FORMAT" = "dwarf-with-dsym";
 				"SWIFT_COMPILATION_MODE" = "wholemodule";
@@ -5351,6 +5364,7 @@
 				"DD8FC09DB204B207B66DA7B8",
 				"52C0E61190107DD201A7D211",
 				"07EC1078D64F2213288D559C",
+				"457D60E8489A9E67FDEFC334",
 				"275E3DB022CBE6D670178A5A",
 				"D513F8D4A0521592F6428607",
 				"097A7C2C4390D748BC2209E8",
