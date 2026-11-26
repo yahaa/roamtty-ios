@@ -44,9 +44,9 @@ struct HostDetailScreen: View {
                     actions(host, icons: true)
                     actions(host, icons: false)
                 }
+                HostAiUsageSection(host: host)
                 monitorStatus(host)
                 if let metrics = model.monitor.metrics[hostID] { MetricsPanel(metrics: metrics, series: model.monitor.series[hostID] ?? HostMetricSeries()) }
-                HostAiUsageSection(host: host)
                 Panel(title: model.text("主机信息", "Host information")) {
                     connectionRows(host)
                     if let metrics = model.monitor.metrics[hostID] { systemRows(metrics) }
