@@ -98,6 +98,10 @@ struct SessionRow: View {
                                 draftFocused = replying
                             }.accessibilityIdentifier("home-session-follow-up-\(record.id)")
                         }
+                        // Active-call phone icon (hidden when idle), right beside the desktop button.
+                        if let voice = runtime?.voice, voice.active {
+                            SessionVoiceIconTag(voice: voice, id: "home-session-voice-\(record.id)")
+                        }
                         // Rightmost, after 追问 (Android DesktopCardButton / IconTag).
                         desktopButton(host: host, connected: connected)
                     }

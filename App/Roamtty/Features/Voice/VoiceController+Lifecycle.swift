@@ -109,7 +109,12 @@ extension VoiceController {
         }
     }
 
-    func stopInternal(sendHangup: Bool, runtime: SessionRuntime? = nil, reason: String) {
+    /// Cleanly hangs up this session's call (sending F7 and tearing down audio synchronously) when another session starts calling.
+    func handoverStop(runtime: SessionRuntime) {
+        stopInternal(sendHangup: true, runtime: runtime, reason: "handover", syncAudioTeardown: true)
+    }
+
+    func stopInternal(sendHangup: Bool, runtime: SessionRuntime? = nil, reason: String, syncAudioTeardown: Bool = false) {
         startGeneration &+= 1
         startTask?.cancel()
         startTask = nil
@@ -125,17 +130,22 @@ extension VoiceController {
         if shouldSendF7, let target = runtime ?? boundRuntime { sendFunctionKey(7, to: target) }
         #endif
         session?.close()
-        cleanupAfterEnd(reason: reason)
+        cleanupAfterEnd(reason: reason, syncAudioTeardown: syncAudioTeardown)
     }
 
-    func cleanupAfterEnd(reason: String) {
+    func cleanupAfterEnd(reason: String, syncAudioTeardown: Bool = false) {
         if active {
             Diagnostics.shared.log("voice-call-end", "reason=\(reason) elapsed=\(elapsedSeconds)s")
         }
         cancelStreamTimers()
         elapsedTimer?.cancel(); elapsedTimer = nil
         speakerQuietTask?.cancel(); speakerQuietTask = nil
-        audioEngine?.stopAll(); audioEngine = nil
+        if syncAudioTeardown {
+            audioEngine?.stopAllSync()
+        } else {
+            audioEngine?.stopAll()
+        }
+        audioEngine = nil
         session = nil
         streamTracker.reset(mode: mode)
         if let owner = loginOwner {

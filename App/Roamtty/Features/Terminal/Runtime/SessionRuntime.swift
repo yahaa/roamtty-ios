@@ -178,8 +178,11 @@ import RoamttyTransport
     /// terminal does not redraw the whole app on every chunk it receives.
     var summaryWillChange: AnyPublisher<Void, Never> {
         func changes<T>(_ publisher: Published<T>.Publisher) -> AnyPublisher<Void, Never> { publisher.dropFirst().map { _ in () }.eraseToAnyPublisher() }
-        return Publishers.MergeMany(changes($record), changes($phase), changes($end), changes($agentStatus), changes($agentPolled),
-                                    changes($agentUsage), changes($paneDirectory), changes($transportName), changes($launchedAgent)).eraseToAnyPublisher()
+        return Publishers.MergeMany(
+            changes($record), changes($phase), changes($end), changes($agentStatus), changes($agentPolled),
+            changes($agentUsage), changes($paneDirectory), changes($transportName), changes($launchedAgent),
+            changes(voice.$active), changes(voice.$isMuted), changes(voice.$recovering), changes(voice.$networkPoor)
+        ).eraseToAnyPublisher()
     }
     static func background(_ scheme: ColorScheme) -> UIColor { UIColor(hex: scheme == .dark ? 0x252728 : 0xFFFDF9) }
     /// Android's 16 ANSI colours (`TerminalColorScheme`), so a program's colours look the same on both. Black is the

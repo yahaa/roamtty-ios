@@ -81,22 +81,36 @@ import RoamttyTransport
     }
 
     func startCall(mode: VoiceMode, route: VoiceAudioRoute? = nil, runtime: SessionRuntime, model: AppModel) {
-        model.stopOtherVoiceCalls(except: runtime.record.id)
+        let hadOtherCall = model.stopOtherVoiceCalls(except: runtime.record.id)
         #if DEBUG
         if fixtureMode {
             startFixtureCall(mode: mode, route: route ?? .speaker, english: model.english)
             return
         }
         #endif
-        stopInternal(sendHangup: false, reason: "restart")
+        stopInternal(sendHangup: false, reason: "restart", syncAudioTeardown: true)
         let generation = startGeneration
         startTask = Task { @MainActor [weak self, weak runtime, weak model] in
             guard let self, let runtime, let model else { return }
-            await self.startCallAsync(generation: generation, mode: mode, route: route, runtime: runtime, model: model)
+            await self.startCallAsync(
+                generation: generation,
+                mode: mode,
+                route: route,
+                hadHandover: hadOtherCall,
+                runtime: runtime,
+                model: model
+            )
         }
     }
 
-    private func startCallAsync(generation: UInt64, mode: VoiceMode, route: VoiceAudioRoute?, runtime: SessionRuntime, model: AppModel) async {
+    private func startCallAsync(
+        generation: UInt64,
+        mode: VoiceMode,
+        route: VoiceAudioRoute?,
+        hadHandover: Bool,
+        runtime: SessionRuntime,
+        model: AppModel
+    ) async {
         defer { if startGeneration == generation { startTask = nil } }
         let granted = await VoiceAudioEngine.requestMicrophonePermission()
         guard !Task.isCancelled, startGeneration == generation else { return }
@@ -113,10 +127,14 @@ import RoamttyTransport
         streamTracker.reset(mode: mode)
         cancelStreamTimers()
         model.setVoiceCallActive(true)
-        Diagnostics.shared.log("voice-call-start", "mode=\(mode.rawValue) route=\(route?.rawValue ?? "default")")
+        Diagnostics.shared.log("voice-call-start", "mode=\(mode.rawValue) route=\(route?.rawValue ?? "default") handover=\(hadHandover)")
         showToast(model.text("正在连接 agy 语音通道…", "Connecting agy voice channel…"))
 
         do {
+            if hadHandover {
+                // Allow CoreAudio / Bluetooth HFP to settle after tearing down the prior session's VPIO engine.
+                try await Task.sleep(for: .milliseconds(220))
+            }
             let latestHost = model.host(runtime.host.id) ?? runtime.host
             _ = try await model.logins.credentials(for: latestHost, owner: owner)
             guard !Task.isCancelled, startGeneration == generation else {

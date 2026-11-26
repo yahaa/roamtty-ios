@@ -254,3 +254,93 @@ struct MetaTag: View {
             .padding(.horizontal, 6).padding(.vertical, 2).background(Palette.foreground.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
     }
 }
+
+/// Compact phone-in-call icon tag for a session card's bottom-right status row (matching Android `SessionVoiceIconTag`).
+/// Rendered only while `voice.active` is true so idle cards stay completely unchanged.
+struct SessionVoiceIconTag: View {
+    @EnvironmentObject var model: AppModel
+    @ObservedObject var voice: VoiceController
+    let id: String
+
+    var body: some View {
+        if voice.active {
+            let unstable = voice.networkUnstable
+            let muted = voice.isMuted
+            let tint = unstable ? Palette.warning : Palette.success
+            let label = unstable ? model.text("网络不稳定", "Poor network")
+                : muted ? model.text("语音通话已静音", "Voice call muted")
+                : model.text("语音通话中", "In voice call")
+            ZStack(alignment: .topTrailing) {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(tint.opacity(0.16))
+                    .frame(width: 28, height: 20)
+                    .overlay {
+                        Image(systemName: "phone.fill")
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundStyle(tint)
+                    }
+                SessionVoiceDot(color: tint, animated: !muted || unstable, border: Palette.panel, size: 6)
+                    .offset(x: 1, y: -1)
+            }
+            .frame(width: 30, height: 24)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(label)
+            .accessibilityIdentifier(id)
+        }
+    }
+}
+
+/// Minimal circular phone-in-call icon for dense lists (navigation drawer; matching Android `SessionVoiceMiniIcon`).
+/// Rendered only while `voice.active` is true.
+struct SessionVoiceMiniIcon: View {
+    @EnvironmentObject var model: AppModel
+    @ObservedObject var voice: VoiceController
+    let id: String
+
+    var body: some View {
+        if voice.active {
+            let unstable = voice.networkUnstable
+            let muted = voice.isMuted
+            let tint = unstable ? Palette.warning : Palette.success
+            let label = unstable ? model.text("网络不稳定", "Poor network")
+                : muted ? model.text("语音通话已静音", "Voice call muted")
+                : model.text("语音通话中", "In voice call")
+            ZStack(alignment: .topTrailing) {
+                Circle()
+                    .fill(tint.opacity(0.16))
+                    .frame(width: 22, height: 22)
+                    .overlay {
+                        Image(systemName: "phone.fill")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(tint)
+                    }
+                SessionVoiceDot(color: tint, animated: !muted || unstable, border: nil, size: 5)
+                    .offset(x: 1, y: -1)
+            }
+            .frame(width: 22, height: 22)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(label)
+            .accessibilityIdentifier(id)
+        }
+    }
+}
+
+private struct SessionVoiceDot: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let color: Color
+    let animated: Bool
+    let border: Color?
+    let size: CGFloat
+    @State private var bright = true
+
+    var body: some View {
+        Circle()
+            .fill(color.opacity(animated && !reduceMotion ? (bright ? 1.0 : 0.35) : 1.0))
+            .frame(width: size, height: size)
+            .overlay { if let border { Circle().stroke(border, lineWidth: 1) } }
+            .onAppear {
+                guard animated, !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { bright = false }
+            }
+    }
+}

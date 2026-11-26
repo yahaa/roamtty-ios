@@ -13,21 +13,8 @@ extension AppModel {
         let shown = record.name.isEmpty ? record.title : record.name
         return shown.isEmpty ? sessionDefaultTitle(record) : "\(host(record.hostID)?.name ?? "") · \(shown)"
     }
-    /// Sessions the app holds, live or coming back first, then needing the user, and closed (Android `activityRank`).
-    var sessionsByActivity: [SessionRecord] {
-        func rank(_ record: SessionRecord) -> Int {
-            // A restored session that comes back keeps its place among the live ones, so cards do not reorder
-            // while the app reconnects them one by one.
-            guard let runtime = runtimes[record.id] else { return hostOffline(record) ? 3 : 0 }
-            if sessionComingBack(record) { return 0 }
-            switch runtime.phase {
-            case .connected, .connecting, .verifying, .authenticating: return 0
-            case .disconnected: return 3
-            default: return 2
-            }
-        }
-        return records.enumerated().sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }.map(\.element)
-    }
+    /// Sessions the app holds in fixed newest-created-first order so cards never jump as statuses or connections change.
+    var sessionsNewestFirst: [SessionRecord] { Array(records.reversed()) }
     /// The agent a session runs: the one its hooks report, else the one it was launched for.
     func sessionAgent(_ record: SessionRecord) -> CodingAgent? {
         let runtime = runtimes[record.id]
@@ -98,4 +85,9 @@ extension AppModel {
     }
     /// The group `sessionFilter` names while `groups` still hold it: a filter whose group has emptied shows everything again.
     func filteredGroup(_ groups: [SessionGroupMembers]) -> SessionGroup? { groups.first { $0.group == sessionFilter }?.group }
+    /// Filters `sessions` in-place for `filter` while preserving their fixed newest-created-first order.
+    func visibleSessions(_ sessions: [SessionRecord], filter: SessionGroup?) -> [SessionRecord] {
+        guard let filter else { return sessions }
+        return sessions.filter { sessionGroup(connected: true, status: listedAgentStatus($0).status) == filter }
+    }
 }

@@ -73,19 +73,115 @@ if isinstance(quota, dict):
                 "reset_in_seconds": v.get("reset_in_seconds"),
             }
     if cleaned:
-        model_info = data.get("model") if isinstance(data.get("model"), dict) else {}
-        out = {
-            "_fetched_at": int(time.time()),
-            "_source": "statusline",
-            "model": model_info.get("id") or "",
-            "quota": cleaned,
-        }
+        now = int(time.time())
         d = os.path.expanduser("~/.roamtty")
         os.makedirs(d, exist_ok=True)
-        tmp = os.path.join(d, f".quota-agy.{os.getpid()}.tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(out, f)
-        os.replace(tmp, os.path.join(d, "quota-agy.json"))
+        cache_path = os.path.join(d, "quota-agy.json")
+        seen_path = os.path.join(d, "quota-agy-seen.json")
+        conv_id = data.get("conversation_id")
+        pane_id = os.environ.get("TMUX_PANE")
+        if isinstance(conv_id, str) and conv_id:
+            caller = "conv:" + conv_id
+        elif pane_id:
+            caller = "pane:" + pane_id
+        else:
+            caller = "pid:" + sys.argv[1]
+        sig = {k: [round(v["remaining_fraction"], 6), v.get("reset_time") or ""] for k, v in sorted(cleaned.items())}
+        seen = {}
+        try:
+            raw_seen = json.load(open(seen_path, encoding="utf-8"))
+            if isinstance(raw_seen, dict):
+                seen = raw_seen
+        except Exception:
+            seen = {}
+        prev_entry = seen.get(caller)
+        prev_sig = prev_entry.get("sig") if isinstance(prev_entry, dict) else None
+
+        def extract_existing_buckets(obj):
+            out_b = {}
+            if not isinstance(obj, dict):
+                return out_b
+            qmap = obj.get("quota")
+            if isinstance(qmap, dict):
+                for bk, bv in qmap.items():
+                    if isinstance(bv, dict) and bv.get("remaining_fraction") is not None:
+                        out_b[bk] = (float(bv["remaining_fraction"]), bv.get("reset_time") or "")
+            groups = ((obj.get("command") or {}).get("data") or {}).get("groups")
+            if isinstance(groups, list):
+                for g in groups:
+                    if not isinstance(g, dict):
+                        continue
+                    gname = (g.get("name") or "").lower()
+                    prefix = "3p-" if ("claude" in gname or "gpt" in gname) else ("gemini-" if "gemini" in gname else "")
+                    for bv in g.get("buckets") or []:
+                        if not isinstance(bv, dict) or bv.get("remaining_fraction") is None:
+                            continue
+                        bwin = bv.get("window")
+                        bid = bv.get("id") or ((prefix + bwin) if (prefix and isinstance(bwin, str) and bwin) else "")
+                        if bid:
+                            out_b[bid] = (float(bv["remaining_fraction"]), bv.get("reset_time") or "")
+            return out_b
+
+        existing = None
+        if os.path.isfile(cache_path):
+            try:
+                existing = json.load(open(cache_path, encoding="utf-8"))
+            except Exception:
+                existing = None
+
+        should_write = True
+        if existing is not None:
+            if prev_sig is not None and prev_sig == sig:
+                # Idle session TUI redraw re-emits unchanged in-memory quota; do not clobber fresher readings.
+                should_write = False
+            elif prev_sig is None:
+                ex_ts = int(existing.get("_fetched_at") or 0) if isinstance(existing, dict) else 0
+                if ex_ts > 0 and now - ex_ts < 300:
+                    ex_buckets = extract_existing_buckets(existing)
+                    same_window = False
+                    newer_reset = False
+                    more_consumed = False
+                    less_consumed = False
+                    for bk, (nfrac, nreset) in ((k, (v["remaining_fraction"], v.get("reset_time") or "")) for k, v in cleaned.items()):
+                        if bk not in ex_buckets:
+                            continue
+                        efrac, ereset = ex_buckets[bk]
+                        if nreset and ereset and nreset != ereset:
+                            if nreset > ereset:
+                                newer_reset = True
+                        elif nreset == ereset:
+                            same_window = True
+                            if nfrac < efrac - 1e-6:
+                                more_consumed = True
+                            elif nfrac > efrac + 1e-6:
+                                less_consumed = True
+                    if same_window and not newer_reset and not more_consumed and less_consumed:
+                        should_write = False
+
+        seen[caller] = {"ts": now, "sig": sig}
+        if len(seen) > 32:
+            keep = sorted(seen.items(), key=lambda kv: (kv[1].get("ts", 0) if isinstance(kv[1], dict) else 0), reverse=True)[:32]
+            seen = dict(keep)
+        try:
+            stmp = os.path.join(d, f".quota-agy-seen.{os.getpid()}.tmp")
+            with open(stmp, "w", encoding="utf-8") as f:
+                json.dump(seen, f)
+            os.replace(stmp, seen_path)
+        except Exception:
+            pass
+
+        if should_write:
+            model_info = data.get("model") if isinstance(data.get("model"), dict) else {}
+            out = {
+                "_fetched_at": now,
+                "_source": "statusline",
+                "model": model_info.get("id") or "",
+                "quota": cleaned,
+            }
+            tmp = os.path.join(d, f".quota-agy.{os.getpid()}.tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(out, f)
+            os.replace(tmp, cache_path)
 try:
     cfg = json.load(open(os.path.expanduser("~/.gemini/antigravity-cli/settings.json"), encoding="utf-8"))
     sl = cfg.get("statusLine") if isinstance(cfg, dict) else None
@@ -95,7 +191,7 @@ try:
             print(cmd)
 except Exception:
     pass
-' 2>/dev/null)
+' "$PPID" 2>/dev/null)
     if [ -n "$user_cmd" ]; then
       printf '%s' "$input" | sh -c "$user_cmd" 2>/dev/null || true
     fi

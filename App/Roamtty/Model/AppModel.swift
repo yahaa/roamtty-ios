@@ -149,11 +149,15 @@ import RoamttyTransport
         desktopStore?.setVoiceCallActive(anyActive)
     }
 
-    /// Stops any active or starting voice call on other sessions so only one call owns the audio session.
-    func stopOtherVoiceCalls(except sessionID: String) {
+    /// Stops any active or starting voice call on other sessions (sending F7 and releasing audio synchronously) so only one call owns the audio session.
+    @discardableResult
+    func stopOtherVoiceCalls(except sessionID: String) -> Bool {
+        var stoppedAny = false
         for (id, runtime) in runtimes where id != sessionID && runtime.voice.isBusy {
-            runtime.voice.shutdown()
+            runtime.voice.handoverStop(runtime: runtime)
+            stoppedAny = true
         }
+        return stoppedAny
     }
 
     // MARK: Presentation

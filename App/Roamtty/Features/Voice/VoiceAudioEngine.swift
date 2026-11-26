@@ -264,6 +264,11 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
         queue.async { [self] in teardownSync() }
     }
 
+    /// Synchronously stops the active engine and releases the `AVAudioSession` lease before another session takes over.
+    func stopAllSync() {
+        queue.sync { [self] in teardownSync() }
+    }
+
     // MARK: DSP & Level Metering (on `queue`)
 
     func convert(_ input: AVAudioPCMBuffer, with converter: AVAudioConverter, to format: AVAudioFormat) -> AVAudioPCMBuffer? {

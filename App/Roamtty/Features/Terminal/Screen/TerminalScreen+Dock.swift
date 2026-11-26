@@ -93,7 +93,7 @@ extension TerminalScreen {
             .buttonStyle(.plain).foregroundStyle(Palette.foreground.opacity(enabled ? 1 : 0.38)).disabled(!enabled)
             .accessibilityLabel(label).accessibilityIdentifier(id)
     }
-    var openSessions: [SessionRecord] { model.records.filter { model.runtimes[$0.id] != nil } }
+    var openSessions: [SessionRecord] { model.sessionsNewestFirst.filter { model.runtimes[$0.id] != nil } }
     var sessionMenu: some View {
         Menu {
             Button(model.text("返回主机详情", "Back to host details")) { afterMenuSelection { model.path = model.host(runtime.host.id) == nil ? [] : [.host(runtime.host.id)] } }
@@ -106,9 +106,18 @@ extension TerminalScreen {
                 .disabled(runtime.record.mode == .tmux && !connected).accessibilityIdentifier("restart-session")
             Divider()
             ForEach(openSessions) { other in
-                let phase = model.runtimes[other.id]?.phase ?? .disconnected
-                Button((other.id == runtime.record.id ? "✓ " : "") + model.sessionTitle(other) + " · " + model.phaseText(phase)) {
+                let otherRuntime = model.runtimes[other.id]
+                let phase = otherRuntime?.phase ?? .disconnected
+                let title = (other.id == runtime.record.id ? "✓ " : "") + model.sessionTitle(other) + " · " + model.phaseText(phase)
+                let inCall = otherRuntime?.voice.active ?? false
+                Button {
                     if other.id != runtime.record.id { afterMenuSelection { model.openSession(other) } }
+                } label: {
+                    if inCall {
+                        Label(title, systemImage: "phone.fill")
+                    } else {
+                        Text(title)
+                    }
                 }
             }
         } label: {

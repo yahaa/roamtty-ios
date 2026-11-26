@@ -18,7 +18,7 @@ struct HomeScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             if compact {
-                HomeCompactBar(groups: model.sessionGroups(model.searchedSessions(model.sessionsByActivity, search)),
+                HomeCompactBar(groups: model.sessionGroups(model.searchedSessions(model.sessionsNewestFirst, search)),
                                searching: searching, toggleSearch: toggleSearch)
                     .frame(height: HomeCompactBar.height).offset(y: -barHidden)
                     .frame(height: max(0, HomeCompactBar.height - barHidden), alignment: .top).clipped()

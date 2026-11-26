@@ -8,7 +8,7 @@ struct DrawerScreen: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     var body: some View {
-        let sessions = model.sessionsByActivity
+        let sessions = model.sessionsNewestFirst
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 0) {
                 Image("RoamttyLogo").resizable().scaledToFit().frame(width: compact ? 30 : 48, height: compact ? 30 : 48)
@@ -88,6 +88,9 @@ struct DrawerScreen: View {
                     Text("\(host?.username ?? "")@\(host?.address ?? "")").font(.footnote).foregroundStyle(Palette.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 4)
+                if let voice = model.runtimes[record.id]?.voice, voice.active {
+                    SessionVoiceMiniIcon(voice: voice, id: "drawer-session-voice-\(record.id)")
+                }
                 PhaseLabel(phase: phase)
             }.padding(.leading, 16).padding(.trailing, 24).frame(minHeight: 56).contentShape(Capsule())
         }.buttonStyle(.plain).padding(.horizontal, 12).accessibilityIdentifier("drawer-session-\(record.id)")
