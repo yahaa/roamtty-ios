@@ -165,6 +165,7 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
         queue.async { [self] in
             guard spkStreamId == streamId, let playerNode else { return }
             // Instant barge-in flush without disturbing the running engine or mic VPIO tap.
+            spkConverter?.reset()
             playerNode.stop()
             playerNode.reset()
             playerNode.play()

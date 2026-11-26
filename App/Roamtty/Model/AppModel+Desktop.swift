@@ -155,8 +155,15 @@ extension AppModel {
         guard var current = self.host(host.id), current.hasSameLoginIdentity(as: host) else { return }
         current.desktop = probe.desktop
         current.desktopProbedAt = Int64(Date().timeIntervalSince1970 * 1000)
+        desktopPluginInstalled[current.id] = probe.version != nil
         do { try store?.saveHost(current); hosts = try store?.hosts() ?? hosts } catch { self.error = error.localizedDescription }
         objectWillChange.send()
+    }
+
+    func markDesktopPluginInstalled(for hostID: String) {
+        if desktopPluginInstalled[hostID] != true {
+            desktopPluginInstalled[hostID] = true
+        }
     }
 
     /// Read-only desktop probe over the host's shared connection (host page / session connect).

@@ -197,6 +197,7 @@ import RoamttyTransport
         case .ready(let port, let udp):
             micPort = port
             onUdp = udp
+            model.markDesktopPluginInstalled(for: runtime.host.id)
             if !startKeySent {
                 startKeySent = true
                 sendFunctionKey(mode.startFunctionKey, to: runtime)

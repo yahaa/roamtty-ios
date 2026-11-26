@@ -57,6 +57,8 @@ import RoamttyTransport
     private(set) var desktopStore: DesktopStore?
     /// Tracks whether any terminal session currently has an active voice call (auto-mutes desktop audio).
     private(set) var voiceCallActive = false
+    /// Known per-host `roamtty-desktop` binary installation status (`nil` = unknown, `false` = missing, `true` = installed).
+    @Published var desktopPluginInstalled: [String: Bool] = [:]
     /// The host whose desktop shows in the small window over its terminal (the dock's desktop button).
     @Published var pipDesktopHostID: String?
     let desktopNetwork = DesktopNetworkMonitor()

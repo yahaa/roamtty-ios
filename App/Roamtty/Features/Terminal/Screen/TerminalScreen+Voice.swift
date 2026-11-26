@@ -89,8 +89,7 @@ extension TerminalScreen {
     }
 
     var voiceConfirmationSheetContent: some View {
-        let host = model.host(runtime.record.hostID)
-        let pluginMissing = host.map { DesktopProbe.decode($0.desktop) == nil && $0.desktopProbedAt == nil } ?? false
+        let pluginMissing = model.desktopPluginInstalled[runtime.record.hostID] == false
         return VoiceConfirmationSheet(
             hostName: runtime.host.name,
             desktopPipActive: pipDesktop != nil,

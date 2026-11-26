@@ -85,6 +85,7 @@ extension AppModel {
         host.desktopProbedAt = Int64(Date().timeIntervalSince1970 * 1000)
         try store.saveHost(host)
         hosts = try store.hosts()
+        desktopPluginInstalled[host.id] = env["ROAMTTY_VOICE_FIXTURE_PLUGIN_MISSING"] != "1"
 
         let record = SessionRecord(id: "voice-ui-session", hostID: host.id, mode: .tmux, title: "Antigravity · roamtty", external: false)
         records = [record]

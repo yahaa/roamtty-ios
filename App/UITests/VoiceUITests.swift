@@ -24,6 +24,7 @@ final class VoiceUITests: XCTestCase {
         dockOpen: Bool = false,
         sheetOpen: Bool = false,
         popoverOpen: Bool = false,
+        pluginMissing: Bool = false,
         english: Bool = false
     ) {
         continueAfterFailure = false
@@ -35,8 +36,23 @@ final class VoiceUITests: XCTestCase {
         app.launchEnvironment["ROAMTTY_VOICE_FIXTURE_DOCK"] = dockOpen ? "1" : "0"
         app.launchEnvironment["ROAMTTY_VOICE_FIXTURE_SHEET"] = sheetOpen ? "1" : "0"
         app.launchEnvironment["ROAMTTY_VOICE_FIXTURE_POPOVER"] = popoverOpen ? "1" : "0"
+        app.launchEnvironment["ROAMTTY_VOICE_FIXTURE_PLUGIN_MISSING"] = pluginMissing ? "1" : "0"
         if let state { app.launchEnvironment["ROAMTTY_VOICE_FIXTURE_STATE"] = state } else { app.launchEnvironment.removeValue(forKey: "ROAMTTY_VOICE_FIXTURE_STATE") }
         app.launch()
+    }
+
+    /// Reopens the floating dock via `terminal-ghost` if an iOS system alert delayed launch past `dockHideSeconds`.
+    private func ensureVoiceDockButton(_ app: XCUIApplication, timeout: TimeInterval = 10) -> XCUIElement {
+        let voiceBtn = app.buttons["terminal-voice"]
+        if voiceBtn.waitForExistence(timeout: 3) { return voiceBtn }
+        let ghost = app.buttons["terminal-ghost"]
+        if !ghost.waitForExistence(timeout: 3) {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.3)).tap()
+            _ = ghost.waitForExistence(timeout: 4)
+        }
+        if ghost.exists { ghost.tap() }
+        XCTAssertTrue(voiceBtn.waitForExistence(timeout: timeout), "Phone button must appear in agy dock")
+        return voiceBtn
     }
 
     func testVoiceFlowDockSheetFloatingPetPopoverAndGestures() {
@@ -45,8 +61,7 @@ final class VoiceUITests: XCTestCase {
 
         // 1. Dock phone button beside desktop button in agy session.
         launchVoiceFixture(app, dockOpen: true)
-        let voiceBtn = app.buttons["terminal-voice"]
-        XCTAssertTrue(voiceBtn.waitForExistence(timeout: 10), "Phone button must appear in agy dock")
+        let voiceBtn = ensureVoiceDockButton(app)
         XCTAssertTrue(app.buttons["terminal-desktop"].exists, "Desktop button stays beside phone button")
         Thread.sleep(forTimeInterval: 0.4)
         saveShot("01-voice-dock-phone")
@@ -124,5 +139,15 @@ final class VoiceUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["AI 回复中"].waitForExistence(timeout: 5))
         Thread.sleep(forTimeInterval: 0.4)
         saveShot("05-voice-pet-speaking")
+    }
+
+    func testVoiceSheetShowsInstallAndCallWhenPluginMissing() {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        launchVoiceFixture(app, dockOpen: true, pluginMissing: true)
+        ensureVoiceDockButton(app).tap()
+        let confirm = app.buttons["voice-sheet-confirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        XCTAssertTrue(confirm.label.contains("安装插件并通话"), "Expected install CTA, got: \(confirm.label)")
     }
 }
