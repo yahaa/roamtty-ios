@@ -80,11 +80,11 @@ import RoamttyTransport
         }
     }
 
-    func startCall(mode: VoiceMode, route: VoiceAudioRoute, runtime: SessionRuntime, model: AppModel) {
+    func startCall(mode: VoiceMode, route: VoiceAudioRoute? = nil, runtime: SessionRuntime, model: AppModel) {
         model.stopOtherVoiceCalls(except: runtime.record.id)
         #if DEBUG
         if fixtureMode {
-            startFixtureCall(mode: mode, route: route, english: model.english)
+            startFixtureCall(mode: mode, route: route ?? .speaker, english: model.english)
             return
         }
         #endif
@@ -96,7 +96,7 @@ import RoamttyTransport
         }
     }
 
-    private func startCallAsync(generation: UInt64, mode: VoiceMode, route: VoiceAudioRoute, runtime: SessionRuntime, model: AppModel) async {
+    private func startCallAsync(generation: UInt64, mode: VoiceMode, route: VoiceAudioRoute?, runtime: SessionRuntime, model: AppModel) async {
         defer { if startGeneration == generation { startTask = nil } }
         let granted = await VoiceAudioEngine.requestMicrophonePermission()
         guard !Task.isCancelled, startGeneration == generation else { return }
@@ -105,14 +105,15 @@ import RoamttyTransport
             return
         }
         let owner = "voice-\(runtime.record.id)"
+        let initialRoute = route ?? (VoiceAudioEngine.hasBluetoothRoute ? .bluetooth : .speaker)
         boundRuntime = runtime; boundModel = model; loginOwner = owner
-        self.mode = mode; self.audioRoute = route; self.active = true; self.recovering = false; self.networkPoor = false
+        self.mode = mode; self.audioRoute = initialRoute; self.active = true; self.recovering = false; self.networkPoor = false
         self.isMuted = false; self.elapsedSeconds = 0; self.popoverOpen = false
         self.errorMessage = nil; self.startKeySent = false; self.ghostState = .connecting
         streamTracker.reset(mode: mode)
         cancelStreamTimers()
         model.setVoiceCallActive(true)
-        Diagnostics.shared.log("voice-call-start", "mode=\(mode.rawValue) route=\(route.rawValue)")
+        Diagnostics.shared.log("voice-call-start", "mode=\(mode.rawValue) route=\(route?.rawValue ?? "default")")
         showToast(model.text("正在连接 agy 语音通道…", "Connecting agy voice channel…"))
 
         do {
@@ -170,9 +171,9 @@ import RoamttyTransport
         )
     }
 
-    private func makeAudioEngine(route: VoiceAudioRoute) -> VoiceAudioEngine {
+    private func makeAudioEngine(route: VoiceAudioRoute?) -> VoiceAudioEngine {
         let engine = VoiceAudioEngine()
-        engine.setAudioRoute(route)
+        if let route { engine.setAudioRoute(route) }
         engine.onMicLevel = { [weak self] level in
             Task { @MainActor in
                 guard let self, self.active, !self.isMuted else { return }

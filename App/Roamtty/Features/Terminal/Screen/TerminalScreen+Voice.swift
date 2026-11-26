@@ -25,8 +25,7 @@ extension TerminalScreen {
             } else {
                 _ = runtime.terminalView.resignFirstResponder()
                 collapseDockSyncingPin()
-                let route: VoiceAudioRoute = VoiceAudioEngine.hasBluetoothRoute ? .bluetooth : .speaker
-                runtime.voice.startCall(mode: .live, route: route, runtime: runtime, model: model)
+                runtime.voice.startCall(mode: .live, route: nil, runtime: runtime, model: model)
             }
         } label: {
             ZStack(alignment: .topTrailing) {

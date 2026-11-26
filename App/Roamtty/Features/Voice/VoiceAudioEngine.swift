@@ -43,6 +43,8 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
     var pendingPlaybackBuffers = 0
     var playbackGeneration: UInt64 = 0
     var route: VoiceAudioRoute = .speaker
+    /// True once the user explicitly picks a route; false lets iOS honor the active default (Bluetooth / headset / speaker).
+    var routeExplicitlyChosen = false
     var smoothedMicLevel: Float = 0
     var smoothedSpkLevel: Float = 0
     var lastEmittedMicLevel: Float = -1
@@ -117,15 +119,22 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
     func setAudioRoute(_ next: VoiceAudioRoute) {
         queue.async { [self] in
             route = next
+            routeExplicitlyChosen = true
             applyRouteLocked(force: true)
         }
     }
 
     /// Pre-warms `AVAudioSession` (`.playAndRecord` + `.voiceChat`) and `AVAudioEngine`
     /// when the call starts so `SPK_START` replies with `SPK_ACK` without cold-start timeout risk.
-    func prepareSession(route next: VoiceAudioRoute) {
+    /// When `route` is nil, keeps the system's active default output (Bluetooth if connected, else speaker).
+    func prepareSession(route next: VoiceAudioRoute? = nil) {
         queue.async { [self] in
-            route = next
+            if let next {
+                route = next
+                routeExplicitlyChosen = true
+            } else {
+                routeExplicitlyChosen = false
+            }
             guard !interrupted else { return }
             _ = ensureEngineRunning()
         }

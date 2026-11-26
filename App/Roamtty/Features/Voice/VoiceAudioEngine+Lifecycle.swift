@@ -181,10 +181,22 @@ extension VoiceAudioEngine {
         let options: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetoothHFP]
         try AudioSessionCoordinator.shared.activate(token: sessionToken, role: .voice) { session in
             try session.setCategory(.playAndRecord, mode: .voiceChat, options: options)
+            if !routeExplicitlyChosen {
+                try? session.setPreferredInput(nil)
+                try? session.overrideOutputAudioPort(.none)
+            }
             try? session.setPreferredIOBufferDuration(0.02)
         }
         sessionActive = true
-        applyRouteLocked(force: false)
+        if routeExplicitlyChosen {
+            applyRouteLocked(force: false)
+        } else {
+            AudioSessionCoordinator.shared.withActiveSession(token: sessionToken) { session in
+                let detected = Self.detectRoute(session)
+                route = detected
+                onRouteChanged?(detected)
+            }
+        }
     }
 
     func applyRouteLocked(force: Bool = true) {
@@ -222,11 +234,9 @@ extension VoiceAudioEngine {
     }
 
     private static func detectRoute(_ session: AVAudioSession) -> VoiceAudioRoute {
-        let outputs = session.currentRoute.outputs
-        let btTypes: Set<AVAudioSession.Port> = [.bluetoothHFP, .bluetoothA2DP, .bluetoothLE]
-        if outputs.contains(where: { btTypes.contains($0.portType) }) { return .bluetooth }
-        if outputs.contains(where: { $0.portType == .builtInSpeaker }) { return .speaker }
-        return .earpiece
+        let ports = Set(session.currentRoute.outputs.map(\.portType))
+        if !ports.isDisjoint(with: [.bluetoothHFP, .bluetoothA2DP, .bluetoothLE]) { return .bluetooth }
+        return ports.contains(.builtInSpeaker) ? .speaker : .earpiece
     }
 
     func scheduleRebuild(delayMs: Int = 350) {
