@@ -9,11 +9,11 @@ enum VoiceMicPermission: Equatable, Sendable {
 }
 
 /// Full-duplex iOS voice audio engine for `agy /voice`:
-/// - `AVAudioSession` in `.playAndRecord` + `.voiceChat` with speaker / earpiece / Bluetooth routing
-/// - `AVAudioEngine` with hardware VPIO AEC (`setVoiceProcessingEnabled(true)`) and automatic non-VPIO fallback
-/// - Capture tap installed before `engine.start()` with `format: nil` + dynamic mono/converter adaptation
-/// - `AVAudioPlayerNode` honoring dynamic `SPK_START` sample rates, bounded buffer queue, and instant barge-in flush
-/// - Objective-C `@try/@catch` shield around all CoreAudio / `AVAudioEngine` calls so no `NSException` can abort the app
+/// - `AVAudioSession` in `.playAndRecord` + `.voiceChat` configured once per call (avoiding Bluetooth HFP renegotiation storms)
+/// - Single reused `AVAudioEngine` + `AVAudioPlayerNode` with hardware VPIO AEC (`setVoiceProcessingEnabled(true)`) and non-VPIO fallback
+/// - In-place restarts on `.AVAudioEngineConfigurationChange` (never deallocating `AVAudioEngine` while Apple's internal IO queues are active)
+/// - Synchronous tap-buffer copy on CoreAudio's tap thread + deferred engine retirement on call end
+/// - Pure Objective-C `@try/@catch` wrappers (zero Swift stack unwinding) around all `AVAudioEngine` / `AVAudioConverter` calls
 final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
     let queue = DispatchQueue(label: "roamtty.voice.audio", qos: .userInteractive)
     let sessionToken = UUID()
@@ -23,11 +23,14 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
     static let maxPendingPlaybackBuffers = 20
     static let levelThrottleNs: UInt64 = 66_000_000
     static let speakerKeepaliveNs: UInt64 = 200_000_000
-    static let routeSettleSuppressNs: UInt64 = 600_000_000
+    static let routeSettleSuppressNs: UInt64 = 800_000_000
+    static let retiredEngineGraceMs = 1500
     static let levelMinDelta: Float = 0.03
 
     var engine: AVAudioEngine?
     var playerNode: AVAudioPlayerNode?
+    var engineUsesVPIO = false
+    var engineGraphAttached = false
     var captureConverter: AVAudioConverter?
     var captureTapInstalled = false
     var captureBuffer: [UInt8] = []
@@ -165,7 +168,7 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
                 return .failure(VoiceAudioError("unsupported format \(sampleRate)Hz \(channels)ch"))
             }
             guard let inFmt = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(sampleRate), channels: 1, interleaved: true),
-                  let converter = AVAudioConverter(from: inFmt, to: playbackFormat) else {
+                  let converter = makeConverter(from: inFmt, to: playbackFormat, label: "startSpeaker.converter") else {
                 return .failure(VoiceAudioError("audio converter unavailable"))
             }
             guard !interrupted, ensureEngineRunning() else {
@@ -177,10 +180,7 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
             playbackGeneration &+= 1
             pendingPlaybackBuffers = 0
             if let engine, engine.isRunning, let playerNode {
-                _ = safelyRunAudio("startSpeaker.restart") {
-                    playerNode.stop()
-                    playerNode.play()
-                }
+                restartPlayer(playerNode, label: "startSpeaker")
             }
             return .success(())
         }
@@ -188,31 +188,35 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
 
     func playSpeaker(streamId: UInt32, pcm: [UInt8]) {
         queue.async { [self] in
-            guard !interrupted, spkStreamId == streamId, !pcm.isEmpty,
-                  let engine, engine.isRunning, let playerNode,
-                  let inFmt = spkInputFormat, let converter = spkConverter else { return }
-            guard pendingPlaybackBuffers < Self.maxPendingPlaybackBuffers else { return }
-            let samples = pcm.count / 2
-            guard samples > 0, let inBuf = AVAudioPCMBuffer(pcmFormat: inFmt, frameCapacity: AVAudioFrameCount(samples)),
-                  let dst = inBuf.int16ChannelData?[0] else { return }
-            inBuf.frameLength = AVAudioFrameCount(samples)
-            pcm.withUnsafeBytes { raw in
-                guard let base = raw.baseAddress else { return }
-                memcpy(dst, base, samples * 2)
-            }
-            updateSpeakerLevel(pcm: pcm, sampleCount: samples)
-            guard let outBuf = convert(inBuf, with: converter, to: playbackFormat), engine.isRunning else { return }
-            let generation = playbackGeneration
-            let scheduled = safelyRunAudio("playSpeaker.schedule") {
-                if !playerNode.isPlaying { playerNode.play() }
-                playerNode.scheduleBuffer(outBuf) { [weak self] in
+            autoreleasepool {
+                guard !interrupted, spkStreamId == streamId, !pcm.isEmpty,
+                      let engine, engine.isRunning, let playerNode,
+                      let inFmt = spkInputFormat, let converter = spkConverter else { return }
+                guard pendingPlaybackBuffers < Self.maxPendingPlaybackBuffers else { return }
+                let samples = pcm.count / 2
+                guard samples > 0, let inBuf = AVAudioPCMBuffer(pcmFormat: inFmt, frameCapacity: AVAudioFrameCount(samples)),
+                      let dst = inBuf.int16ChannelData?[0] else { return }
+                inBuf.frameLength = AVAudioFrameCount(samples)
+                pcm.withUnsafeBytes { raw in
+                    guard let base = raw.baseAddress else { return }
+                    memcpy(dst, base, samples * 2)
+                }
+                updateSpeakerLevel(pcm: pcm, sampleCount: samples)
+                guard let outBuf = convert(inBuf, with: converter, to: playbackFormat), engine.isRunning else { return }
+                let generation = playbackGeneration
+                var err: NSError?
+                let scheduled = RoamttyAudioPlayerScheduleBuffer(playerNode, outBuf, { [weak self] in
                     self?.queue.async {
                         guard let self, self.playbackGeneration == generation else { return }
                         self.pendingPlaybackBuffers = max(0, self.pendingPlaybackBuffers - 1)
                     }
+                }, &err)
+                if scheduled {
+                    pendingPlaybackBuffers += 1
+                } else {
+                    logAudioError("playSpeaker.schedule", err)
                 }
             }
-            if scheduled { pendingPlaybackBuffers += 1 }
         }
     }
 
@@ -223,10 +227,7 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
             playbackGeneration &+= 1
             pendingPlaybackBuffers = 0
             if let engine, engine.isRunning, let playerNode {
-                _ = safelyRunAudio("clearSpeaker") {
-                    playerNode.stop()
-                    playerNode.play()
-                }
+                restartPlayer(playerNode, label: "clearSpeaker")
             }
             resetSpeakerLevel()
         }
@@ -241,7 +242,8 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
             playbackGeneration &+= 1
             pendingPlaybackBuffers = 0
             if let engine, engine.isRunning, let playerNode {
-                _ = safelyRunAudio("stopSpeaker") { playerNode.stop() }
+                var err: NSError?
+                if !RoamttyAudioPlayerStop(playerNode, &err) { logAudioError("stopSpeaker", err) }
             }
             resetSpeakerLevel()
         }
@@ -249,6 +251,80 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
 
     func stopAll() {
         queue.async { [self] in teardownSync() }
+    }
+
+    // MARK: DSP & Level Metering (on `queue`)
+
+    func convert(_ input: AVAudioPCMBuffer, with converter: AVAudioConverter, to format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        guard input.format == converter.inputFormat else { return nil }
+        let ratio = format.sampleRate / max(1, input.format.sampleRate)
+        let capacity = max(1, AVAudioFrameCount((Double(input.frameLength) * ratio).rounded(.up)) + 32)
+        guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else { return nil }
+        var status: AVAudioConverterOutputStatus = .error
+        var err: NSError?
+        let ok = RoamttyAudioConverterConvert(converter, input, output, &status, &err)
+        guard ok, status != .error, output.frameLength > 0 else {
+            if let err { logAudioError("converter.convert", err) }
+            return nil
+        }
+        return output
+    }
+
+    func updateMicLevel(samples: UnsafePointer<Int16>, count: Int) {
+        var sumSq = 0.0
+        for i in 0..<count {
+            let s = Double(samples[i]) / 32768.0
+            sumSq += s * s
+        }
+        let rms = Float(min(1.0, (sumSq / Double(max(1, count))).squareRoot() * 3.2))
+        smoothedMicLevel = smoothedMicLevel * 0.65 + rms * 0.35
+        let now = DispatchTime.now().uptimeNanoseconds
+        guard now - lastEmittedMicNs >= Self.levelThrottleNs,
+              abs(smoothedMicLevel - lastEmittedMicLevel) > Self.levelMinDelta else { return }
+        lastEmittedMicNs = now
+        lastEmittedMicLevel = smoothedMicLevel
+        onMicLevel?(smoothedMicLevel)
+    }
+
+    func updateSpeakerLevel(pcm: [UInt8], sampleCount: Int) {
+        let count = min(sampleCount, pcm.count / 2)
+        guard count > 0 else { return }
+        var sumSq = 0.0
+        for i in 0..<count {
+            let lo = UInt16(pcm[i * 2])
+            let hi = UInt16(pcm[i * 2 + 1]) << 8
+            let s = Double(Int16(bitPattern: lo | hi)) / 32768.0
+            sumSq += s * s
+        }
+        let rms = Float(min(1.0, (sumSq / Double(count)).squareRoot() * 2.8))
+        smoothedSpkLevel = smoothedSpkLevel * 0.55 + rms * 0.45
+        let now = DispatchTime.now().uptimeNanoseconds
+        let elapsed = now - lastEmittedSpkNs
+        let activeFlip = (smoothedSpkLevel > 0.01) != (lastEmittedSpkLevel > 0.01)
+        let deltaChanged = elapsed >= Self.levelThrottleNs && abs(smoothedSpkLevel - lastEmittedSpkLevel) > Self.levelMinDelta
+        let keepalive = smoothedSpkLevel > 0.01 && elapsed >= Self.speakerKeepaliveNs
+        guard activeFlip || deltaChanged || keepalive else { return }
+        lastEmittedSpkNs = now
+        lastEmittedSpkLevel = smoothedSpkLevel
+        onSpeakerLevel?(smoothedSpkLevel)
+    }
+
+    func resetMicLevel() {
+        smoothedMicLevel = 0
+        lastEmittedMicNs = 0
+        if lastEmittedMicLevel != 0 {
+            lastEmittedMicLevel = 0
+            onMicLevel?(0)
+        }
+    }
+
+    func resetSpeakerLevel() {
+        smoothedSpkLevel = 0
+        lastEmittedSpkNs = 0
+        if lastEmittedSpkLevel != 0 {
+            lastEmittedSpkLevel = 0
+            onSpeakerLevel?(0)
+        }
     }
 }
 #endif
