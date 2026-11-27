@@ -53,7 +53,7 @@ struct HostAiUsageSection: View {
                     }.buttonStyle(.plain).accessibilityIdentifier("host-ai-range-\(option.rawValue)")
                 }
             }.padding(2).background(Palette.panel, in: Capsule())
-            Button { model.monitor.loadAiUsage(host, range: range, force: true, fetchAgyQuota: true) } label: {
+            Button { model.monitor.loadAiUsage(host, range: range, force: true) } label: {
                 Group {
                     if loading { ProgressView().scaleEffect(0.7) } else { AppIcon("ic_refresh", size: 16).foregroundStyle(Palette.secondary) }
                 }.frame(width: 28, height: 28).contentShape(Circle())

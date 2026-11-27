@@ -75,7 +75,7 @@ final class AgentStatusTests: XCTestCase {
         let launcher = AgentHooks.grokLauncher
         XCTAssertTrue(launcher.contains("\"StopCancelled\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"sh ~/.roamtty/agent-hook.sh grok stop\"}]}]"))
         XCTAssertTrue(launcher.contains("export ROAMTTY_AGENT=grok\ngrok \"$@\"\n"))
-        XCTAssertTrue(AgentHooks.script.contains("case \"$agent\" in grok|agy) [ \"$ROAMTTY_AGENT\" = \"$agent\" ] || exit 0 ;; esac"))
+        XCTAssertTrue(AgentHooks.script.contains("grok:*|agy:*) [ \"$ROAMTTY_AGENT\" = \"$agent\" ] || exit 0 ;;"))
         XCTAssertTrue(AgentHooks.script.hasPrefix("#!/bin/sh"))
     }
 
