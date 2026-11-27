@@ -172,15 +172,17 @@ struct TerminalScreen: View {
             let center = petCenter(in: viewport)
             ZStack(alignment: .topLeading) {
                 voiceCallOverlay(in: viewport, safeArea: safeArea, center: center)
-                GhostShortcuts(
-                    runtime: runtime, toolbox: $toolbox, center: center, viewport: viewport,
-                    voiceState: runtime.voice.ghostState,
-                    voiceNetworkUnstable: runtime.voice.networkUnstable,
-                    voiceStatusTag: runtime.voice.petStatusTag(english: model.english),
-                    voicePopoverOpen: runtime.voice.popoverOpen,
-                    onHoldBegan: { runtime.voice.popoverOpen = false },
-                    onTap: handleGhostTap
-                )
+                VoiceGhostReader(voice: runtime.voice) {
+                    GhostShortcuts(
+                        runtime: runtime, toolbox: $toolbox, center: center, viewport: viewport,
+                        voiceState: runtime.voice.ghostState,
+                        voiceNetworkUnstable: runtime.voice.networkUnstable,
+                        voiceStatusTag: runtime.voice.petStatusTag(english: model.english),
+                        voicePopoverOpen: runtime.voice.popoverOpen,
+                        onHoldBegan: { runtime.voice.popoverOpen = false },
+                        onTap: handleGhostTap
+                    )
+                }
                 if petArrowsShown { petArrows(center: center).transition(.opacity) }
             }.transition(.opacity.combined(with: .offset(x: 24)))
         }

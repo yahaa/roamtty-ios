@@ -116,41 +116,71 @@ public enum VoiceOpusMath {
     }
 }
 
-/// Capture front-end: 80 Hz 1st-order high-pass filter + soft-knee limiter before Opus encoding.
+/// Capture front-end: startup transient mute + cosine/linear fade-in + DC-step-free 80 Hz HPF + soft-knee limiter.
 public final class VoiceAudioPreprocessor: @unchecked Sendable {
     private let alpha: Float
+    private let muteSamples: Int
+    private let fadeSamples: Int
+    private var initialized = false
+    private var processedSamples = 0
     private var prevX: Float = 0
     private var prevY: Float = 0
 
-    public init(sampleRate: Double = 16_000) {
+    public init(sampleRate: Double = 16_000, startupMuteMs: Int = 180, fadeInMs: Int = 20) {
+        let rate = max(8_000.0, sampleRate)
         let rc = 1.0 / (2.0 * Double.pi * 80.0)
-        let dt = 1.0 / max(8_000.0, sampleRate)
+        let dt = 1.0 / rate
         self.alpha = Float(rc / (rc + dt))
+        self.muteSamples = max(0, Int((rate * Double(max(0, startupMuteMs)) / 1000.0).rounded()))
+        self.fadeSamples = max(0, Int((rate * Double(max(0, fadeInMs)) / 1000.0).rounded()))
     }
 
     public func reset() {
+        initialized = false
+        processedSamples = 0
         prevX = 0
         prevY = 0
     }
 
     public func processInPlace(_ samples: UnsafeMutablePointer<Int16>, count: Int) {
+        guard count > 0 else { return }
         var xPrev = prevX
         var yPrev = prevY
+        var isInit = initialized
+        var seen = processedSamples
         let a = alpha
+        let muteEnd = muteSamples
+        let fadeEnd = muteSamples + fadeSamples
         for i in 0..<count {
             let raw = Float(samples[i]) / 32768.0
-            let hp = a * (yPrev + raw - xPrev)
-            xPrev = raw
-            yPrev = hp
-            let limited: Float
+            let hp: Float
+            if !isInit {
+                xPrev = raw
+                yPrev = 0
+                isInit = true
+                hp = 0
+            } else {
+                hp = a * (yPrev + raw - xPrev)
+                xPrev = raw
+                yPrev = hp
+            }
+            var out: Float
             if abs(hp) > 0.85 {
                 let sign: Float = hp >= 0 ? 1 : -1
-                limited = sign * (0.85 + 0.15 * Float(tanh(Double((abs(hp) - 0.85) / 0.15))))
+                out = sign * (0.85 + 0.15 * Float(tanh(Double((abs(hp) - 0.85) / 0.15))))
             } else {
-                limited = hp
+                out = hp
             }
-            samples[i] = Int16(max(-32768.0, min(32767.0, (limited * 32767.0).rounded())))
+            if seen < muteEnd {
+                out = 0
+            } else if seen < fadeEnd && fadeSamples > 0 {
+                out *= Float(seen - muteEnd + 1) / Float(fadeSamples)
+            }
+            seen += 1
+            samples[i] = Int16(max(-32768.0, min(32767.0, (out * 32767.0).rounded())))
         }
+        initialized = isInit
+        processedSamples = seen
         prevX = xPrev
         prevY = yPrev
     }

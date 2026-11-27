@@ -170,7 +170,16 @@ import RoamttyTransport
         view.viewportChanged = { [weak self] in self?.queueCursorRefresh() }
         view.pasteStarted = { [weak self] bracketed in self?.clearModifiers(); self?.capturedPaste = TerminalPasteCapture(bracketed: bracketed) }
         view.pasteFinished = { [weak self] in self?.finishNativePaste() }
-        voiceRelay = voice.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        // Only relay discrete voice UI state changes to `TerminalScreen`; 15-30 Hz audio-level
+        // updates stay scoped inside `VoiceGhostReader` so the terminal never re-layouts mid-call.
+        voiceRelay = Publishers.MergeMany(
+            voice.$active.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            voice.$popoverOpen.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            voice.$recovering.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            voice.$networkPoor.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            voice.$toastMessage.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            voice.$errorMessage.removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher()
+        ).sink { [weak self] _ in self?.objectWillChange.send() }
         installGestures()
     }
     /// Fires before a change to what the screens outside this terminal show of it: the session list, the drawer

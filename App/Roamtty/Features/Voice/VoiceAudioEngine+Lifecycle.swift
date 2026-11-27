@@ -346,22 +346,11 @@ extension VoiceAudioEngine {
     func teardownSync() {
         stopSpeakerPumpLocked()
         retireCurrentEngineDeferred()
-        spkJitter = nil
-        spkResampler = nil
-        micStreamId = nil
-        spkStreamId = nil
-        micCallback = nil
+        spkJitter = nil; spkResampler = nil; micStreamId = nil; spkStreamId = nil; micCallback = nil
         captureBuffer.removeAll(keepingCapacity: false)
-        smoothedMicLevel = 0
-        smoothedSpkLevel = 0
-        lastEmittedMicLevel = -1
-        lastEmittedSpkLevel = -1
-        lastEmittedMicNs = 0
-        lastEmittedSpkNs = 0
-        interrupted = false
-        vpioFailed = false
-        lastHardwareSampleRate = 0
-        suppressRouteRebuildUntilNs = 0
+        smoothedMicLevel = 0; smoothedSpkLevel = 0; lastEmittedMicLevel = -1; lastEmittedSpkLevel = -1
+        lastEmittedMicNs = 0; lastEmittedSpkNs = 0; interrupted = false; vpioFailed = false
+        lastHardwareSampleRate = 0; suppressRouteRebuildUntilNs = 0
         if sessionActive {
             sessionActive = false
             AudioSessionCoordinator.shared.deactivate(token: sessionToken)
@@ -424,6 +413,13 @@ extension VoiceAudioEngine {
         queue.async { [weak self] in
             guard let self, self.sessionActive, !self.interrupted,
                   let eng = self.engine, sender === eng else { return }
+            let settled = DispatchTime.now().uptimeNanoseconds >= self.suppressRouteRebuildUntilNs
+            let sessionRate = AVAudioSession.sharedInstance().sampleRate
+            let rateChanged = sessionRate > 0 && self.lastHardwareSampleRate > 0 && sessionRate != self.lastHardwareSampleRate
+            if !settled && eng.isRunning && !rateChanged {
+                Diagnostics.shared.log("voice-engine-config-change-ignored", "rate=\(Int(sessionRate))")
+                return
+            }
             Diagnostics.shared.log("voice-engine-config-change")
             self.scheduleRebuild(delayMs: 350)
         }

@@ -123,10 +123,24 @@ final class VoiceOpusPipelineTests: XCTestCase {
         XCTAssertLessThan(compressed.count, 480)
         XCTAssertGreaterThan(VoiceOpusMath.pcmRms(compressed), 0.2)
 
-        let pp = VoiceAudioPreprocessor(sampleRate: 16_000)
+        let pp = VoiceAudioPreprocessor(sampleRate: 16_000, startupMuteMs: 0, fadeInMs: 0)
         var dc = [Int16](repeating: 20_000, count: 320)
         dc.withUnsafeMutableBufferPointer { pp.processInPlace($0.baseAddress!, count: $0.count) }
-        XCTAssertLessThan(abs(Int(dc.last!)), 10_000)
+        XCTAssertEqual(dc.first, 0)
+        XCTAssertEqual(dc.last, 0)
+
+        // Default startup mute suppresses 180 ms cold-start clicks, then passes speech cleanly after 20 ms fade-in.
+        let startupPp = VoiceAudioPreprocessor(sampleRate: 16_000)
+        var click = sineFrame(rate: 16_000, freqHz: 400, frameIdx: 0)
+        click.withUnsafeMutableBufferPointer { startupPp.processInPlace($0.baseAddress!, count: $0.count) }
+        XCTAssertTrue(click.allSatisfy { $0 == 0 })
+        for idx in 1..<10 {
+            var warmup = sineFrame(rate: 16_000, freqHz: 400, frameIdx: idx)
+            warmup.withUnsafeMutableBufferPointer { startupPp.processInPlace($0.baseAddress!, count: $0.count) }
+        }
+        var speech = sineFrame(rate: 16_000, freqHz: 400, frameIdx: 10)
+        speech.withUnsafeMutableBufferPointer { startupPp.processInPlace($0.baseAddress!, count: $0.count) }
+        XCTAssertGreaterThan(VoiceOpusMath.pcmRms(speech), 0.25)
     }
 
     func testClockDriftPauseAndTtsBurstNeverDropSpeech() throws {

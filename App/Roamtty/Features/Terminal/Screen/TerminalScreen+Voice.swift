@@ -108,6 +108,14 @@ extension TerminalScreen {
     }
 }
 
+/// Redraws only the floating voice ghost when 15-30 Hz mic/speaker levels or elapsed seconds tick,
+/// keeping `TerminalScreen` and `NativeTerminal` idle during active calls.
+struct VoiceGhostReader<Content: View>: View {
+    @ObservedObject var voice: VoiceController
+    @ViewBuilder let content: () -> Content
+    var body: some View { content() }
+}
+
 /// Subtle breathing status dot on the dock phone button during an active voice call.
 private struct VoiceBreathingDot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
