@@ -129,6 +129,35 @@ final class VoiceOpusPipelineTests: XCTestCase {
         XCTAssertLessThan(abs(Int(dc.last!)), 10_000)
     }
 
+    func testClockDriftPauseAndTtsBurstNeverDropSpeech() throws {
+        let rate: UInt32 = 24_000
+        let sender = try XCTUnwrap(VoiceRedSender(streamId: 3, sampleRate: rate, enableDtx: false))
+        let jb = try XCTUnwrap(VoiceJitterBuffer(streamId: 3, sampleRate: rate))
+
+        // 1. 600 ms TTS burst (30 frames arriving at once) must NOT be fast-forward-dropped.
+        for i in 0..<30 {
+            let pkt = try XCTUnwrap(sender.encodeSamples20ms(sineFrame(rate: rate, freqHz: 440, frameIdx: i)))
+            jb.push(pkt, nowMs: 0)
+        }
+        var burstPlayed = 0
+        for tick in 0..<35 {
+            if let pcm = jb.popFrame(nowMs: Int64(tick) * 20), VoiceOpusMath.pcmRms(pcm) > 0.05 { burstPlayed += 1 }
+        }
+        XCTAssertGreaterThanOrEqual(burstPlayed, 28)
+
+        // 2. 400 ms pause then sender resumes at seq 30.
+        for tick in 35..<55 { _ = jb.popFrame(nowMs: Int64(tick) * 20) }
+        var resumedAudible = 0
+        for i in 0..<15 {
+            let now = Int64(55 + i) * 20
+            let pkt = try XCTUnwrap(sender.encodeSamples20ms(sineFrame(rate: rate, freqHz: 440, frameIdx: 30 + i)))
+            jb.push(pkt, nowMs: now)
+            if let pcm = jb.popFrame(nowMs: now), VoiceOpusMath.pcmRms(pcm) > 0.05 { resumedAudible += 1 }
+        }
+        XCTAssertGreaterThanOrEqual(resumedAudible, 13)
+        XCTAssertEqual(jb.statsSnapshot(nowMs: 70 * 20).lossPermille, 0)
+    }
+
     private func makeOpusSession(
         audio: FakeVoiceAudioIO,
         streamBox: Box<FakeStream?>

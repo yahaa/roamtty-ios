@@ -17,20 +17,30 @@ public final class VoiceRxStats: @unchecked Sendable {
     public func resetSeqCursor() {
         maxSeq = nil
         currentLossStreak = 0
-        lastTransitMs = nil
+        resetTiming()
     }
 
-    public func onPrimary(seq: UInt32, nowMs: Int64) {
+    public func resetTiming() {
+        lastTransitMs = nil
+        arrivalAt.removeAll(keepingCapacity: true)
+        arrivalOffset.removeAll(keepingCapacity: true)
+    }
+
+    public func onPrimary(seq: UInt32, nowMs: Int64, resetDiscontinuity: Bool = false) {
         guard !seenSeqs.contains(seq) else { return }
         seenSeqs.append(seq)
         if seenSeqs.count > 256 { seenSeqs.removeFirst(seenSeqs.count - 256) }
-        recordArrival(seq: seq, nowMs: nowMs)
-        recordLossProgress(seq: seq, nowMs: nowMs)
+        recordArrival(seq: seq, nowMs: nowMs, resetDiscontinuity: resetDiscontinuity)
+        recordLossProgress(seq: seq, nowMs: nowMs, resetDiscontinuity: resetDiscontinuity)
         prune(nowMs: nowMs)
     }
 
-    private func recordArrival(seq: UInt32, nowMs: Int64) {
+    private func recordArrival(seq: UInt32, nowMs: Int64, resetDiscontinuity: Bool) {
         let transit = nowMs - Int64(seq) * Int64(VoiceOpusMath.frameMs)
+        if resetDiscontinuity {
+            lastTransitMs = transit
+            return
+        }
         if let prev = lastTransitMs {
             ewmaJitterMs += (Double(abs(transit - prev)) - ewmaJitterMs) / 16.0
         }
@@ -47,8 +57,8 @@ public final class VoiceRxStats: @unchecked Sendable {
         }
     }
 
-    private func recordLossProgress(seq: UInt32, nowMs: Int64) {
-        guard let prevMax = maxSeq else {
+    private func recordLossProgress(seq: UInt32, nowMs: Int64, resetDiscontinuity: Bool) {
+        guard !resetDiscontinuity, let prevMax = maxSeq else {
             maxSeq = seq
             windowEvents.append((nowMs, true))
             currentLossStreak = 0
@@ -130,6 +140,7 @@ public final class VoiceJitterBuffer: @unchecked Sendable {
 
     public let streamId: UInt32
     public let sampleRate: UInt32
+    private let maxSpanAboveTarget: Int
     private let decoder: VoiceOpusDecoder
     private var slots: [UInt32: Slot] = [:]
     private var playoutSeq: UInt32?
@@ -151,10 +162,11 @@ public final class VoiceJitterBuffer: @unchecked Sendable {
     public private(set) var redRecovered: UInt64 = 0
     public private(set) var lbrrRecovered: UInt64 = 0
 
-    public init?(streamId: UInt32, sampleRate: UInt32) {
+    public init?(streamId: UInt32, sampleRate: UInt32, maxSpanAboveTarget: Int = 50) {
         guard let dec = VoiceOpusDecoder(sampleRate: sampleRate) else { return nil }
         self.streamId = streamId
         self.sampleRate = sampleRate
+        self.maxSpanAboveTarget = maxSpanAboveTarget
         self.decoder = dec
     }
 
@@ -182,12 +194,26 @@ public final class VoiceJitterBuffer: @unchecked Sendable {
 
     public func push(_ pkt: VoiceOpusPacket, nowMs: Int64) {
         guard acceptTurnGen(VoiceProtocol.turnGenOf(pkt.flags)) else { return }
-        rxStats.onPrimary(seq: pkt.seq, nowMs: nowMs)
+        let isDtxPkt = (pkt.flags & VoiceProtocol.VOICE_FLAG_DTX) != 0
+        let isResetPkt = (pkt.flags & VoiceProtocol.VOICE_FLAG_RESET) != 0
+        rxStats.onPrimary(seq: pkt.seq, nowMs: nowMs, resetDiscontinuity: isDtxPkt || isResetPkt || inDtx)
         if firstArrivalMs == nil { firstArrivalMs = nowMs }
+        reanchorIfStale(pkt: pkt, isDtxPkt: isDtxPkt)
         insertPrimary(pkt)
         insertRedEntries(pkt)
         trimOldSlotsIfNeeded()
         updateTarget(nowMs: nowMs)
+    }
+
+    private func reanchorIfStale(pkt: VoiceOpusPacket, isDtxPkt: Bool) {
+        guard slots.isEmpty, let cur = playoutSeq else { return }
+        let behind = Int32(bitPattern: pkt.seq &- cur)
+        if (inDtx && !isDtxPkt) || (behind < 0 && behind >= -64 && (inDtx || consecutivePlc >= 2)) {
+            playoutSeq = pkt.seq
+            highestSeq = pkt.seq
+            inDtx = false
+            consecutivePlc = 0
+        }
     }
 
     public func queuedFrames() -> Int {
@@ -217,10 +243,10 @@ public final class VoiceJitterBuffer: @unchecked Sendable {
         if res.advanceSeq { playoutSeq = curSeq &+ 1 }
 
         let excess = Int(Int32(bitPattern: highestSeq &- curSeq)) - targetFrames
-        if excess >= 2 {
+        if excess >= 3 {
             if res.isSilence && !slots.isEmpty { return popFrame(nowMs: nowMs) }
             if !res.isSilence {
-                res.pcm = VoiceOpusMath.wsolaCompress(res.pcm, targetLen: (res.pcm.count * 88) / 100)
+                res.pcm = VoiceOpusMath.wsolaCompress(res.pcm, targetLen: (res.pcm.count * 90) / 100)
             }
         }
         if jumped && !lastTail.isEmpty { VoiceOpusMath.crossfadeHead(prevTail: lastTail, frame: &res.pcm) }
@@ -301,7 +327,7 @@ public final class VoiceJitterBuffer: @unchecked Sendable {
 
     private func enforceMaxSpan(current: UInt32) -> (UInt32, Bool) {
         let span = Int(Int32(bitPattern: highestSeq &- current))
-        guard span > targetFrames + 9 else { return (current, false) }
+        guard span > targetFrames + maxSpanAboveTarget else { return (current, false) }
         let jumpTo = highestSeq &- UInt32(targetFrames)
         slots = slots.filter { Int32(bitPattern: $0.key &- jumpTo) >= 0 }
         playoutSeq = jumpTo
@@ -316,7 +342,7 @@ public final class VoiceJitterBuffer: @unchecked Sendable {
             return decodeFromLookahead(nextEntry)
         }
         if inDtx {
-            return PopResult(pcm: [Int16](repeating: 0, count: decoder.frameLen), isSilence: true, advanceSeq: true)
+            return PopResult(pcm: [Int16](repeating: 0, count: decoder.frameLen), isSilence: true, advanceSeq: !slots.isEmpty)
         }
         return decodePlc(nowMs: nowMs)
     }
@@ -356,6 +382,7 @@ public final class VoiceJitterBuffer: @unchecked Sendable {
         }
         var pcm: [Int16]
         var isSilence = false
+        var advanceSeq = true
         if consecutivePlc <= VoiceOpusMath.maxConsecutivePlc {
             plcFrames += 1
             pcm = decoder.decodePlc() ?? [Int16](repeating: 0, count: decoder.frameLen)
@@ -363,18 +390,19 @@ public final class VoiceJitterBuffer: @unchecked Sendable {
                 let gain = max(0.0, 1.0 - Float(consecutivePlc - 2) * 0.28)
                 for i in 0..<pcm.count { pcm[i] = Int16(Float(pcm[i]) * gain) }
             }
+            if slots.isEmpty {
+                advanceSeq = false
+                if expandCredits > 0 { expandCredits -= 1 }
+            }
         } else {
             if slots.isEmpty {
-                playoutSeq = nil; started = false; firstArrivalMs = nil
+                playoutSeq = nil; started = false; firstArrivalMs = nil; consecutivePlc = 0
+                underrunPenaltyMs = 0.0
+                rxStats.resetTiming()
                 return nil
             }
             pcm = [Int16](repeating: 0, count: decoder.frameLen)
             isSilence = true
-        }
-        var advanceSeq = true
-        if expandCredits > 0 && slots.isEmpty && consecutivePlc <= 2 {
-            expandCredits -= 1
-            advanceSeq = false
         }
         return PopResult(pcm: pcm, isSilence: isSilence, advanceSeq: advanceSeq)
     }

@@ -26,7 +26,7 @@ extension VoiceSession {
             guard !closing else { return false }
             activeMicStreamId = streamId
             micSender = voiceOpusEnabled && VoiceOpusMath.isOpusSampleRate(sampleRate)
-                ? VoiceRedSender(streamId: streamId, sampleRate: sampleRate, enableDtx: true)
+                ? VoiceRedSender(streamId: streamId, sampleRate: sampleRate, enableDtx: false)
                 : nil
             return true
         }
