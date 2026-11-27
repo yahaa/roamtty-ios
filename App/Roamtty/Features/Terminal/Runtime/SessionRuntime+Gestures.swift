@@ -105,7 +105,9 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
 
     @objc private func verticalScroll(_ recognizer: UIPanGestureRecognizer) {
         switch recognizer.state {
-        case .began: scrollGeneration = generation; scrollAccumulator.reset(); stopScrollInertia()
+        case .began:
+            scrollGeneration = generation; scrollAccumulator.reset(); stopScrollInertia()
+            if !terminalView.selectionActive { terminalView.scrollToLiveOutput() }
         case .changed: break
         case .ended:
             defer { scrollGeneration = nil; scrollAccumulator.reset() }

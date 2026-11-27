@@ -7,6 +7,10 @@ extension SessionRuntime: @preconcurrency TerminalViewDelegate {
     func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
         columns = max(2, newCols); rows = max(2, newRows)
         if let mosh { mosh.resize(columns: columns, rows: rows) } else { ssh?.resize(columns: columns, rows: rows) }
+        let terminal = source.getTerminal()
+        if (terminal.mouseMode != .off || terminal.isCurrentBufferAlternate) && !source.selectionActive {
+            source.scrollToLiveOutput()
+        }
         queueCursorRefresh()
     }
     func setTerminalTitle(source: TerminalView, title: String) { terminalTitle = String(title.prefix(200)) }
