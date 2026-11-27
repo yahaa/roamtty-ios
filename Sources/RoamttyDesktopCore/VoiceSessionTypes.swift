@@ -150,3 +150,71 @@ public struct VoiceRemoteStreamTracker: Equatable, Sendable {
         return .ended
     }
 }
+
+/// Speakerphone residual echo suppressor (NLP gate) layered after hardware VPIO AEC.
+/// Suppresses near-field loudspeaker leakage (especially VPIO's first ~500 ms onset convergence)
+/// while passing quiet user speech cleanly once speaker + room tail ends and allowing loud barge-in.
+public final class VoiceSpeakerEchoGate: @unchecked Sendable {
+    public static let tailMs: Int64 = 280
+    public static let onsetMs: Int64 = 500
+    private var lastSpeakerSpeechMs: Int64 = 0
+    private var burstStartMs: Int64 = 0
+    private var recentSpeakerRms: Float = 0
+    private var currentGain: Float = 1.0
+    private var bargeInFrames = 0
+    private var bargeInHoldUntilMs: Int64 = 0
+
+    public init() {}
+
+    public func reset() {
+        lastSpeakerSpeechMs = 0; burstStartMs = 0; recentSpeakerRms = 0
+        currentGain = 1.0; bargeInFrames = 0; bargeInHoldUntilMs = 0
+    }
+
+    public func observeSpeaker(rms: Float, nowMs: Int64) {
+        if rms >= 0.004 {
+            if lastSpeakerSpeechMs == 0 || nowMs - lastSpeakerSpeechMs > 600 { burstStartMs = nowMs }
+            lastSpeakerSpeechMs = nowMs
+            recentSpeakerRms = max(rms, recentSpeakerRms * 0.85)
+        } else {
+            recentSpeakerRms *= 0.90
+        }
+    }
+
+    public func onSpeakerCleared(nowMs: Int64) {
+        if lastSpeakerSpeechMs > 0 { lastSpeakerSpeechMs = max(lastSpeakerSpeechMs, nowMs - 60) }
+    }
+
+    public func filterMicInPlace(_ samples: UnsafeMutablePointer<Int16>, count: Int, nowMs: Int64) {
+        guard count > 0 else { return }
+        let speakerActive = lastSpeakerSpeechMs > 0 && nowMs - lastSpeakerSpeechMs <= Self.tailMs
+        let targetGain: Float
+        if !speakerActive {
+            bargeInFrames = 0
+            recentSpeakerRms *= 0.85
+            targetGain = 1.0
+        } else {
+            var sumSq = 0.0
+            for i in 0..<count { let f = Double(samples[i]) / 32768.0; sumSq += f * f }
+            let micRms = Float((sumSq / Double(count)).squareRoot())
+            let inOnset = nowMs - burstStartMs < Self.onsetMs
+            let threshold = inOnset ? max(0.095, recentSpeakerRms * 0.70) : max(0.060, recentSpeakerRms * 0.50)
+            if micRms >= threshold {
+                bargeInFrames += 1
+                if bargeInFrames >= 2 { bargeInHoldUntilMs = nowMs + 280 }
+            } else {
+                bargeInFrames = 0
+            }
+            targetGain = nowMs <= bargeInHoldUntilMs ? 1.0 : 0.0
+        }
+        if currentGain == 1.0 && targetGain == 1.0 { return }
+        if currentGain == 0.0 && targetGain == 0.0 { memset(samples, 0, count * 2); return }
+        let step: Float = targetGain < currentGain ? (1.0 / 80.0) : (1.0 / 320.0)
+        var g = currentGain
+        for i in 0..<count {
+            g = targetGain < g ? max(targetGain, g - step) : min(targetGain, g + step)
+            samples[i] = Int16(max(-32768.0, min(32767.0, (Float(samples[i]) * g).rounded())))
+        }
+        currentGain = g
+    }
+}

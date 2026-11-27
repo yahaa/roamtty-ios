@@ -141,6 +141,28 @@ final class VoiceOpusPipelineTests: XCTestCase {
         var speech = sineFrame(rate: 16_000, freqHz: 400, frameIdx: 10)
         speech.withUnsafeMutableBufferPointer { startupPp.processInPlace($0.baseAddress!, count: $0.count) }
         XCTAssertGreaterThan(VoiceOpusMath.pcmRms(speech), 0.25)
+
+        // Speakerphone residual echo gate: suppresses leaked echo during speaker playback,
+        // passes quiet speech after tail, and allows loud user barge-in.
+        let gate = VoiceSpeakerEchoGate()
+        gate.observeSpeaker(rms: 0.16, nowMs: 1_000)
+        var echo = [Int16](repeating: 0, count: 320)
+        for i in 0..<320 { echo[i] = Int16(sin(Double(i) * 0.15) * 900.0) } // ~0.02 rms leaked echo
+        echo.withUnsafeMutableBufferPointer { gate.filterMicInPlace($0.baseAddress!, count: $0.count, nowMs: 1_020) }
+        XCTAssertLessThan(VoiceOpusMath.pcmRms(echo), 0.008)
+        var echo2 = [Int16](repeating: 0, count: 320)
+        for i in 0..<320 { echo2[i] = Int16(sin(Double(i) * 0.15) * 900.0) }
+        echo2.withUnsafeMutableBufferPointer { gate.filterMicInPlace($0.baseAddress!, count: $0.count, nowMs: 1_040) }
+        XCTAssertEqual(VoiceOpusMath.pcmRms(echo2), 0.0)
+
+        // After 280 ms tail clears, quiet user speech (~0.015 rms) passes cleanly.
+        var quiet = [Int16](repeating: 0, count: 320)
+        for i in 0..<320 { quiet[i] = Int16(sin(Double(i) * 0.15) * 700.0) }
+        quiet.withUnsafeMutableBufferPointer { gate.filterMicInPlace($0.baseAddress!, count: $0.count, nowMs: 1_350) }
+        var quiet2 = [Int16](repeating: 0, count: 320)
+        for i in 0..<320 { quiet2[i] = Int16(sin(Double(i) * 0.15) * 700.0) }
+        quiet2.withUnsafeMutableBufferPointer { gate.filterMicInPlace($0.baseAddress!, count: $0.count, nowMs: 1_370) }
+        XCTAssertGreaterThan(VoiceOpusMath.pcmRms(quiet2), 0.012)
     }
 
     func testClockDriftPauseAndTtsBurstNeverDropSpeech() throws {

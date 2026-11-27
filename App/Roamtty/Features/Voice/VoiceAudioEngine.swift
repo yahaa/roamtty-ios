@@ -32,6 +32,7 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
     var engineGraphAttached = false
     var captureConverter: AVAudioConverter?
     var capturePreprocessor = VoiceAudioPreprocessor(sampleRate: 16_000)
+    let echoGate = VoiceSpeakerEchoGate()
     var captureTapInstalled = false
     var captureBuffer: [UInt8] = []
     var micStreamId: UInt32?
@@ -198,9 +199,11 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
             guard !interrupted, spkStreamId == streamId, pcm.count >= 2,
                   let engine, engine.isRunning, let resampler = spkResampler else { return }
             let samples = VoiceOpusMath.bytesToInt16(pcm)
+            let nowNs = DispatchTime.now().uptimeNanoseconds
+            echoGate.observeSpeaker(rms: VoiceOpusMath.pcmRms(samples), nowMs: Int64(nowNs / 1_000_000))
             updateSpeakerLevel(samples: samples)
             pcmRing.write(resampler.resample(samples))
-            lastSpeakerAudioNs = DispatchTime.now().uptimeNanoseconds
+            lastSpeakerAudioNs = nowNs
         }
     }
 
@@ -233,6 +236,7 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
             spkJitter?.clearForBargeIn()
             spkResampler?.reset()
             pcmRing.clear()
+            echoGate.onSpeakerCleared(nowMs: Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000))
             resetSpeakerLevel()
         }
     }

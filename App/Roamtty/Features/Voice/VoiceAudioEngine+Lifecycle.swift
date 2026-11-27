@@ -286,8 +286,9 @@ extension VoiceAudioEngine {
                       let outBuf = self.convert(srcBuf, with: converter, to: self.captureFormat),
                       let samples = outBuf.int16ChannelData?[0], outBuf.frameLength > 0 else { return }
                 let sampleCount = Int(outBuf.frameLength) * Int(self.captureFormat.channelCount)
-                // 80 Hz high-pass filter + soft-knee limiter before Opus encoding.
+                // 80 Hz high-pass filter + soft-knee limiter, then speakerphone residual echo gate.
                 self.capturePreprocessor.processInPlace(samples, count: sampleCount)
+                if self.route == .speaker { self.echoGate.filterMicInPlace(samples, count: sampleCount, nowMs: Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000)) }
                 let byteCount = sampleCount * 2
                 var bytes = [UInt8](repeating: 0, count: byteCount)
                 bytes.withUnsafeMutableBytes { dst in
@@ -327,13 +328,8 @@ extension VoiceAudioEngine {
         let oldSource = sourceNode
         let hadTap = captureTapInstalled
         let wasAttached = engineGraphAttached
-        captureTapInstalled = false
-        engineGraphAttached = false
-        engineUsesVPIO = false
-        captureConverter = nil
-        pcmRing.clear()
-        engine = nil
-        sourceNode = nil
+        captureTapInstalled = false; engineGraphAttached = false; engineUsesVPIO = false
+        captureConverter = nil; pcmRing.clear(); engine = nil; sourceNode = nil
         guard let oldEngine else { return }
         var err: NSError?
         if hadTap { _ = RoamttyAudioNodeRemoveTap(oldEngine.inputNode, 0, &err) }
@@ -352,7 +348,7 @@ extension VoiceAudioEngine {
     func teardownSync() {
         stopSpeakerPumpLocked()
         retireCurrentEngineDeferred()
-        spkJitter = nil; spkResampler = nil; micStreamId = nil; spkStreamId = nil; micCallback = nil
+        spkJitter = nil; spkResampler = nil; micStreamId = nil; spkStreamId = nil; micCallback = nil; echoGate.reset()
         captureBuffer.removeAll(keepingCapacity: false)
         smoothedMicLevel = 0; smoothedSpkLevel = 0; lastEmittedMicLevel = -1; lastEmittedSpkLevel = -1
         lastEmittedMicNs = 0; lastEmittedSpkNs = 0; interrupted = false; vpioFailed = false

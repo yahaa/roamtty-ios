@@ -195,6 +195,7 @@ extension VoiceAudioEngine {
         while pcmRing.queuedSamples < Self.pumpTargetRingSamples {
             guard let samples = jb.popFrame(nowMs: nowMs) else { break }
             poppedAny = true
+            echoGate.observeSpeaker(rms: VoiceOpusMath.pcmRms(samples), nowMs: nowMs)
             updateSpeakerLevel(samples: samples)
             pcmRing.write(resampler.resample(samples))
             lastSpeakerAudioNs = nowNs
