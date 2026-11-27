@@ -43,6 +43,7 @@ public final class UdpSocketTransport: UdpTransport, @unchecked Sendable {
         guard s >= 0 else { throw Failure.socket(errno) }
         var tv = timeval(tv_sec: 0, tv_usec: 200_000)
         setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        Self.applyVoiceQoS(socket: s, family: family)
         let rc = address.withUnsafeBytes { connect(s, $0.baseAddress!.assumingMemoryBound(to: sockaddr.self), socklen_t(address.count)) }
         guard rc == 0 else { let e = errno; _ = systemClose(s); throw Failure.socket(e) }
         lock.lock(); let old = fd; fd = s; lock.unlock()
@@ -106,5 +107,20 @@ public final class UdpSocketTransport: UdpTransport, @unchecked Sendable {
         #else
         return Glibc.close(s)
         #endif
+    }
+
+    /// Marks the UDP socket for real-time voice QoS: Apple `NET_SERVICE_TYPE_VO` (Wi-Fi WMM AC_VO + cellular)
+    /// and DSCP Expedited Forwarding (`0xB8`) for IPv4/IPv6 routers.
+    private static func applyVoiceQoS(socket s: Int32, family: Int32) {
+        #if canImport(Darwin)
+        var serviceType: Int32 = NET_SERVICE_TYPE_VO
+        _ = setsockopt(s, SOL_SOCKET, SO_NET_SERVICE_TYPE, &serviceType, socklen_t(MemoryLayout<Int32>.size))
+        #endif
+        var tos: Int32 = 0xB8 // DSCP EF (46 << 2)
+        if family == AF_INET6 {
+            _ = setsockopt(s, IPPROTO_IPV6, IPV6_TCLASS, &tos, socklen_t(MemoryLayout<Int32>.size))
+        } else {
+            _ = setsockopt(s, IPPROTO_IP, IP_TOS, &tos, socklen_t(MemoryLayout<Int32>.size))
+        }
     }
 }

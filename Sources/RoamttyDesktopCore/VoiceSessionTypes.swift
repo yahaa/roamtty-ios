@@ -41,9 +41,16 @@ public protocol VoiceAudioIO: AnyObject {
     func stopMic(streamId: UInt32)
     func startSpeaker(streamId: UInt32, sampleRate: UInt32, channels: UInt8) -> Result<Void, VoiceAudioError>
     func playSpeaker(streamId: UInt32, pcm: [UInt8])
+    func playSpeakerOpus(streamId: UInt32, packet: VoiceOpusPacket)
+    func speakerStats(streamId: UInt32, nowMs: Int64) -> VoiceStats?
     func clearSpeaker(streamId: UInt32)
     func stopSpeaker(streamId: UInt32)
     func stopAll()
+}
+
+public extension VoiceAudioIO {
+    func playSpeakerOpus(streamId: UInt32, packet: VoiceOpusPacket) {}
+    func speakerStats(streamId: UInt32, nowMs: Int64) -> VoiceStats? { nil }
 }
 
 /// Transport-level events emitted by `VoiceSession` to drive the UI state machine.

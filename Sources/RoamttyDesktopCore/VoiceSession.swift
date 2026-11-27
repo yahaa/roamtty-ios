@@ -80,6 +80,11 @@ public final class VoiceSession: @unchecked Sendable {
     var ping = DesktopPingClock()
     var goodSinceMs: Int64 = 0
     var _networkPoor = false
+    var voiceOpusEnabled = false
+    var micSender: VoiceRedSender?
+    var lastSpkStats: VoiceStats?
+    var lastUplinkStats: VoiceStats?
+    var lastStallRebindMs: Int64 = 0
 
     public init(
         config: Config,

@@ -3,7 +3,7 @@ import AVFoundation
 import Foundation
 import RoamttyDesktopCore
 
-// MARK: - Engine lifecycle, DSP, and session notifications (on `queue`)
+// MARK: - Engine lifecycle, pull-mode source node, capture DSP, and session notifications (on `queue`)
 extension VoiceAudioEngine {
     func logAudioError(_ label: String, _ error: Error?) {
         let desc = error?.localizedDescription ?? "unknown error"
@@ -16,13 +16,6 @@ extension VoiceAudioEngine {
         let converter = RoamttyAudioConverterCreate(from, to, &err)
         if converter == nil, let err { logAudioError(label, err) }
         return converter
-    }
-
-    func restartPlayer(_ player: AVAudioPlayerNode, label: String) {
-        var err: NSError?
-        _ = RoamttyAudioPlayerStop(player, &err)
-        err = nil
-        if !RoamttyAudioPlayerPlay(player, &err) { logAudioError("\(label).play", err) }
     }
 
     func ensureEngineRunning(forceRestart: Bool = false) -> Bool {
@@ -39,8 +32,8 @@ extension VoiceAudioEngine {
         }
         // Prefer restarting the existing engine in-place rather than deallocating/recreating it,
         // so Apple's internal IOUnitConfigurationChanged queue never races `-[AVAudioEngine dealloc]`.
-        if let existing = engine, let existingPlayer = playerNode {
-            if startExistingEngine(existing, player: existingPlayer) { return true }
+        if let existing = engine, let existingSource = sourceNode {
+            if startExistingEngine(existing, source: existingSource) { return true }
             let wasVPIO = engineUsesVPIO
             retireCurrentEngineDeferred()
             if wasVPIO && !vpioFailed {
@@ -59,7 +52,22 @@ extension VoiceAudioEngine {
     private func createAndStartEngine(useVPIO: Bool) -> Bool {
         retireCurrentEngineDeferred()
         let eng = AVAudioEngine()
-        let player = AVAudioPlayerNode()
+        let ring = pcmRing
+        let source = AVAudioSourceNode(format: playbackFormat) { _, _, frameCount, audioBufferList -> OSStatus in
+            let abl = UnsafeMutableAudioBufferListPointer(audioBufferList)
+            let frames = Int(frameCount)
+            if let first = abl.first, let ptr = first.mData?.assumingMemoryBound(to: Float.self) {
+                ring.readRealtime(into: ptr, frameCount: frames)
+                if abl.count > 1 {
+                    for i in 1..<abl.count {
+                        if let ch = abl[i].mData?.assumingMemoryBound(to: Float.self) {
+                            memcpy(ch, ptr, frames * MemoryLayout<Float>.size)
+                        }
+                    }
+                }
+            }
+            return noErr
+        }
         var err: NSError?
 
         // Access inputNode and enable VPIO once on the fresh stopped engine.
@@ -68,25 +76,25 @@ extension VoiceAudioEngine {
         let input = eng.inputNode
         if useVPIO, !RoamttyAudioSetVoiceProcessing(input, true, &err) {
             logAudioError("setVoiceProcessing(true)", err)
-            retireEngineDeferred(eng, player: player)
+            retireEngineDeferred(eng, source: source)
             return false
         }
-        guard RoamttyAudioEngineAttach(eng, player, &err) else {
-            logAudioError("attach(player)", err)
-            retireEngineDeferred(eng, player: player)
+        guard RoamttyAudioEngineAttach(eng, source, &err) else {
+            logAudioError("attach(source)", err)
+            retireEngineDeferred(eng, source: source)
             return false
         }
         engine = eng
-        playerNode = player
+        sourceNode = source
         engineUsesVPIO = useVPIO
         engineGraphAttached = true
 
-        if startExistingEngine(eng, player: player) { return true }
+        if startExistingEngine(eng, source: source) { return true }
         retireCurrentEngineDeferred()
         return false
     }
 
-    private func startExistingEngine(_ eng: AVAudioEngine, player: AVAudioPlayerNode) -> Bool {
+    private func startExistingEngine(_ eng: AVAudioEngine, source: AVAudioSourceNode) -> Bool {
         autoreleasepool {
             var err: NSError?
             let input = eng.inputNode
@@ -95,12 +103,11 @@ extension VoiceAudioEngine {
                 captureTapInstalled = false
             }
             if eng.isRunning {
-                _ = RoamttyAudioPlayerStop(player, &err)
                 _ = RoamttyAudioEngineStop(eng, false, &err)
             }
             err = nil
-            guard RoamttyAudioEngineConnect(eng, player, eng.mainMixerNode, playbackFormat, &err) else {
-                logAudioError("connect(player->mixer)", err)
+            guard RoamttyAudioEngineConnect(eng, source, eng.mainMixerNode, playbackFormat, &err) else {
+                logAudioError("connect(source->mixer)", err)
                 return false
             }
             var tapInstalled = installTapIfFormatReady(on: input)
@@ -112,18 +119,15 @@ extension VoiceAudioEngine {
                 return false
             }
             if !tapInstalled { tapInstalled = installTapIfFormatReady(on: input) }
-            err = nil
-            _ = RoamttyAudioPlayerPlay(player, &err)
 
             captureTapInstalled = tapInstalled
             captureConverter = nil
-            playbackGeneration &+= 1
-            pendingPlaybackBuffers = 0
+            pcmRing.clear()
             lastHardwareSampleRate = AVAudioSession.sharedInstance().sampleRate
             suppressRouteRebuildUntilNs = DispatchTime.now().uptimeNanoseconds + Self.routeSettleSuppressNs
             Diagnostics.shared.log(
                 "voice-engine-started",
-                "vpio=\(engineUsesVPIO) rate=\(Int(lastHardwareSampleRate)) tap=\(tapInstalled)"
+                "vpio=\(engineUsesVPIO) rate=\(Int(lastHardwareSampleRate)) tap=\(tapInstalled) pull=1"
             )
             return true
         }
@@ -136,10 +140,11 @@ extension VoiceAudioEngine {
             if let err { logAudioError("input.outputFormat", err) }
             return false
         }
+        // Match tap size to 20 ms at the active hardware sample rate (e.g. 320 frames on 16 kHz Bluetooth HFP
+        // instead of 1024 frames = 64 ms, and 960 frames on 48 kHz built-in mic).
+        let tapFrames = AVAudioFrameCount(max(160, min(1024, Int((fmt.sampleRate * 0.02).rounded()))))
         err = nil
-        let installed = RoamttyAudioNodeInstallTap(input, 0, 1024, nil, { [weak self] buffer, _ in
-            // Copy samples synchronously on CoreAudio's tap thread before dispatching off-thread,
-            // so CoreAudio can safely recycle `buffer` immediately after this block returns.
+        let installed = RoamttyAudioNodeInstallTap(input, 0, tapFrames, nil, { [weak self] buffer, _ in
             guard let self, let copy = Self.copyMonoFloatBuffer(buffer) else { return }
             self.processCopiedMicBuffer(copy)
         }, &err)
@@ -147,9 +152,7 @@ extension VoiceAudioEngine {
         return installed
     }
 
-    /// Synchronously extracts a standalone mono Float32 copy of channel 0 from any CoreAudio tap buffer
-    /// (1-ch or multi-ch VPIO aggregate, float32 or int16, planar or interleaved) so `AVAudioConverter`
-    /// never sees recycled tap buffers or multi-channel layout mismatches.
+    /// Synchronously extracts a standalone mono Float32 copy of channel 0 from any CoreAudio tap buffer.
     static func copyMonoFloatBuffer(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
         let frames = Int(buffer.frameLength)
         let rate = buffer.format.sampleRate
@@ -185,7 +188,8 @@ extension VoiceAudioEngine {
                 try? session.setPreferredInput(nil)
                 try? session.overrideOutputAudioPort(.none)
             }
-            try? session.setPreferredIOBufferDuration(0.02)
+            // 10 ms low-latency IO cycle cuts duplex hardware turnaround latency.
+            try? session.setPreferredIOBufferDuration(0.01)
         }
         sessionActive = true
         if routeExplicitlyChosen {
@@ -253,13 +257,10 @@ extension VoiceAudioEngine {
     private func restartInPlaceAfterChange() {
         guard sessionActive, !interrupted else { return }
         captureBuffer.removeAll(keepingCapacity: true)
+        capturePreprocessor.reset()
         guard ensureEngineRunning(forceRestart: true) else { return }
-        if spkStreamId != nil, let inFmt = spkInputFormat {
-            spkConverter = makeConverter(from: inFmt, to: playbackFormat, label: "rebuild.spkConverter")
-            if let engine, engine.isRunning, let playerNode {
-                var err: NSError?
-                if !RoamttyAudioPlayerPlay(playerNode, &err) { logAudioError("rebuild.play", err) }
-            }
+        if spkStreamId != nil {
+            spkResampler = VoiceLinearResampler(inputRate: Double(spkSampleRate), outputRate: playbackFormat.sampleRate)
         }
     }
 
@@ -279,6 +280,8 @@ extension VoiceAudioEngine {
                       let outBuf = self.convert(srcBuf, with: converter, to: self.captureFormat),
                       let samples = outBuf.int16ChannelData?[0], outBuf.frameLength > 0 else { return }
                 let sampleCount = Int(outBuf.frameLength) * Int(self.captureFormat.channelCount)
+                // 80 Hz high-pass filter + soft-knee limiter before Opus encoding.
+                self.capturePreprocessor.processInPlace(samples, count: sampleCount)
                 let byteCount = sampleCount * 2
                 var bytes = [UInt8](repeating: 0, count: byteCount)
                 bytes.withUnsafeMutableBytes { dst in
@@ -297,60 +300,54 @@ extension VoiceAudioEngine {
         }
     }
 
-    /// Stops the current engine in-place without deallocating it (used on interruptions).
     private func pauseCurrentEngine() {
         pendingRebuild?.cancel()
         pendingRebuild = nil
         captureConverter = nil
-        playbackGeneration &+= 1
-        pendingPlaybackBuffers = 0
+        pcmRing.clear()
         guard let eng = engine else { return }
         var err: NSError?
         if captureTapInstalled {
             _ = RoamttyAudioNodeRemoveTap(eng.inputNode, 0, &err)
             captureTapInstalled = false
         }
-        if let playerNode { _ = RoamttyAudioPlayerStop(playerNode, &err) }
         _ = RoamttyAudioEngineStop(eng, false, &err)
     }
 
-    /// Stops and detaches the current engine, keeping strong references alive briefly after `stop()`
-    /// so in-flight Apple `IOUnitConfigurationChanged` / `IOFormatsChanged` blocks never race `dealloc`.
     private func retireCurrentEngineDeferred() {
         pendingRebuild?.cancel()
         pendingRebuild = nil
         let oldEngine = engine
-        let oldPlayer = playerNode
+        let oldSource = sourceNode
         let hadTap = captureTapInstalled
         let wasAttached = engineGraphAttached
         captureTapInstalled = false
         engineGraphAttached = false
         engineUsesVPIO = false
         captureConverter = nil
-        playbackGeneration &+= 1
-        pendingPlaybackBuffers = 0
+        pcmRing.clear()
         engine = nil
-        playerNode = nil
+        sourceNode = nil
         guard let oldEngine else { return }
         var err: NSError?
         if hadTap { _ = RoamttyAudioNodeRemoveTap(oldEngine.inputNode, 0, &err) }
-        if let oldPlayer { _ = RoamttyAudioPlayerStop(oldPlayer, &err) }
         _ = RoamttyAudioEngineStop(oldEngine, true, &err)
-        if wasAttached, let oldPlayer { _ = RoamttyAudioEngineDetach(oldEngine, oldPlayer, &err) }
-        retireEngineDeferred(oldEngine, player: oldPlayer)
+        if wasAttached, let oldSource { _ = RoamttyAudioEngineDetach(oldEngine, oldSource, &err) }
+        retireEngineDeferred(oldEngine, source: oldSource)
     }
 
-    private func retireEngineDeferred(_ oldEngine: AVAudioEngine, player oldPlayer: AVAudioPlayerNode?) {
+    private func retireEngineDeferred(_ oldEngine: AVAudioEngine, source oldSource: AVAudioSourceNode?) {
         queue.asyncAfter(deadline: .now() + .milliseconds(Self.retiredEngineGraceMs)) {
-            _ = oldPlayer
+            _ = oldSource
             _ = oldEngine
         }
     }
 
     func teardownSync() {
+        stopSpeakerPumpLocked()
         retireCurrentEngineDeferred()
-        spkInputFormat = nil
-        spkConverter = nil
+        spkJitter = nil
+        spkResampler = nil
         micStreamId = nil
         spkStreamId = nil
         micCallback = nil
@@ -428,8 +425,6 @@ extension VoiceAudioEngine {
             guard let self, self.sessionActive, !self.interrupted,
                   let eng = self.engine, sender === eng else { return }
             Diagnostics.shared.log("voice-engine-config-change")
-            // Per Apple AVAudioEngine docs: NEVER deallocate the engine in response to a configuration change;
-            // debounce and restart the same engine instance in-place once hardware negotiation settles.
             self.scheduleRebuild(delayMs: 350)
         }
     }

@@ -316,6 +316,8 @@ final class FakeVoiceAudioIO: VoiceAudioIO, @unchecked Sendable {
     var micStoppedIds: [UInt32] = []
     var spkStarted: [StartedSpeaker] = []
     var spkPlayed: [PlayedChunk] = []
+    var spkOpusPackets: [VoiceOpusPacket] = []
+    var mockStats: VoiceStats?
     var spkCleared: [UInt32] = []
     var spkStoppedIds: [UInt32] = []
     var speakerStartError: VoiceAudioError?
@@ -333,6 +335,8 @@ final class FakeVoiceAudioIO: VoiceAudioIO, @unchecked Sendable {
         }
     }
     func playSpeaker(streamId: UInt32, pcm: [UInt8]) { lock.withLock { spkPlayed.append(.init(streamId: streamId, pcm: pcm)) } }
+    func playSpeakerOpus(streamId: UInt32, packet: VoiceOpusPacket) { lock.withLock { spkOpusPackets.append(packet) } }
+    func speakerStats(streamId: UInt32, nowMs: Int64) -> VoiceStats? { lock.withLock { mockStats } }
     func clearSpeaker(streamId: UInt32) { lock.withLock { spkCleared.append(streamId) } }
     func stopSpeaker(streamId: UInt32) { lock.withLock { spkStoppedIds.append(streamId) } }
     func stopAll() { lock.withLock { onPcm = nil } }

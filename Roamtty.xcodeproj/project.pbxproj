@@ -74,6 +74,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "F29D2CBFE59662B7EEDFF4CF";
 		};
+		"1C297997A4406777C204A968" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/CNative/opus.c";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.c.c";
+		};
+		"E206FB77FF4A75DAB1E96909" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "1C297997A4406777C204A968";
+		};
 		"9DA935E7F972A8D85DA74A18" = {
 			"isa" = "PBXFileReference";
 			"path" = "Sources/CNative/socket.c";
@@ -100,6 +110,7 @@
 			"files" = (
 				"DECB1AF52840537ECFD98A24",
 				"5CED979BE6BB92D811C54CE3",
+				"E206FB77FF4A75DAB1E96909",
 				"F245A039DFDD49C11184082C",
 				"748A732986B25DCBE3FE2822",
 			);
@@ -151,6 +162,7 @@
 					"$(inherited)",
 					"-lssh2",
 					"-lcrypto",
+					"-lopus",
 					"-lz",
 					"-lsqlite3",
 				);
@@ -208,6 +220,7 @@
 					"$(inherited)",
 					"-lssh2",
 					"-lcrypto",
+					"-lopus",
 					"-lz",
 					"-lsqlite3",
 				);
@@ -946,6 +959,7 @@
 					"$(inherited)",
 					"-lssh2",
 					"-lcrypto",
+					"-lopus",
 					"-lz",
 					"-lsqlite3",
 				);
@@ -1001,6 +1015,7 @@
 					"$(inherited)",
 					"-lssh2",
 					"-lcrypto",
+					"-lopus",
 					"-lz",
 					"-lsqlite3",
 				);
@@ -1298,6 +1313,7 @@
 					"$(inherited)",
 					"-lssh2",
 					"-lcrypto",
+					"-lopus",
 					"-lz",
 					"-lsqlite3",
 				);
@@ -1353,6 +1369,7 @@
 					"$(inherited)",
 					"-lssh2",
 					"-lcrypto",
+					"-lopus",
 					"-lz",
 					"-lsqlite3",
 				);
@@ -1792,6 +1809,26 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "48A6D14F0C34DCC85EABB46A";
 		};
+		"253400D652BB4DD0EEAF948E" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/VoiceJitterBuffer.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"07E9CFDDA09F2818BCEFBF1E" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "253400D652BB4DD0EEAF948E";
+		};
+		"140A5696A069EBE863A13A4A" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/VoiceOpusPipeline.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"4D272C232D45133A3008BC2D" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "140A5696A069EBE863A13A4A";
+		};
 		"4799E6E1EB268447AA9A6176" = {
 			"isa" = "PBXFileReference";
 			"path" = "Sources/RoamttyDesktopCore/VoiceProtocol.swift";
@@ -1801,6 +1838,16 @@
 		"0B4FF2AF607708B4B37605D3" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "4799E6E1EB268447AA9A6176";
+		};
+		"832F7EFBEEC78204E25B0B7A" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/VoiceSession+Audio.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"ADB0C4CD05C3BD23B1E013A9" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "832F7EFBEEC78204E25B0B7A";
 		};
 		"7201AB6EC56D639E8570C610" = {
 			"isa" = "PBXFileReference";
@@ -1872,17 +1919,25 @@
 				"D699A753B79EABE070C27E1A",
 				"5033FC126D0FE363C417B6C0",
 				"09A23B867741A32F3CF47666",
+				"07E9CFDDA09F2818BCEFBF1E",
+				"4D272C232D45133A3008BC2D",
 				"0B4FF2AF607708B4B37605D3",
+				"ADB0C4CD05C3BD23B1E013A9",
 				"3EBA15915F6EA954A5F8A1A2",
 				"32136654FFBBA59E2004229E",
 				"0C5917A086B889B7D204A054",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
 		};
+		"D53E6B19ACCB88087A683C72" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "669A012A12A1F2A99AD17919";
+		};
 		"D70A59B87B1F16165E843B48" = {
 			"isa" = "PBXFrameworksBuildPhase";
 			"buildActionMask" = "2147483647";
 			"files" = (
+				"D53E6B19ACCB88087A683C72",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
 		};
@@ -1925,6 +1980,7 @@
 					"$(inherited)",
 					"-lssh2",
 					"-lcrypto",
+					"-lopus",
 					"-lz",
 					"-lsqlite3",
 				);
@@ -1980,6 +2036,7 @@
 					"$(inherited)",
 					"-lssh2",
 					"-lcrypto",
+					"-lopus",
 					"-lz",
 					"-lsqlite3",
 				);
@@ -2004,6 +2061,18 @@
 			"defaultConfigurationIsVisible" = "0";
 			"defaultConfigurationName" = "Release";
 		};
+		"3E8BD089A1B6D794CCFF5E61" = {
+			"isa" = "PBXContainerItemProxy";
+			"containerPortal" = "244210E48437B6556980A702";
+			"proxyType" = "1";
+			"remoteGlobalIDString" = "17CB739106A4D48F677BA476";
+			"remoteInfo" = "CNative";
+		};
+		"FCB6B0D507217821BC168A99" = {
+			"isa" = "PBXTargetDependency";
+			"target" = "17CB739106A4D48F677BA476";
+			"targetProxy" = "3E8BD089A1B6D794CCFF5E61";
+		};
 		"67921D83F12005AC57BD7887" = {
 			"isa" = "PBXNativeTarget";
 			"buildConfigurationList" = "674CBB01F6EFAFE7FEDC8EB0";
@@ -2014,6 +2083,7 @@
 			"buildRules" = (
 			);
 			"dependencies" = (
+				"FCB6B0D507217821BC168A99",
 			);
 			"name" = "RoamttyDesktopCore";
 			"productName" = "RoamttyDesktopCore";
@@ -3140,6 +3210,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "2D014E603245B00F01AED3E8";
 		};
+		"537BDBBC0A0B3B2F074A5408" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Features/Voice/VoiceAudioBuffers.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"7325B17FE86C698D14382BB6" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "537BDBBC0A0B3B2F074A5408";
+		};
 		"86D9A56A7D591F4DD7E8C109" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/Roamtty/Features/Voice/VoiceAudioEngine+Lifecycle.swift";
@@ -3656,6 +3736,7 @@
 				"0E68F39258516EDAD83D1558",
 				"8F30D1E895B04AC790F1631F",
 				"6AC846F53773FDFBF0FA574E",
+				"7325B17FE86C698D14382BB6",
 				"427DF1F2DAF00D311A75287F",
 				"91E1B1D2A1A1BA8DF6AB8F79",
 				"5F9DA408631CF85BFA3A1E7F",
@@ -3921,6 +4002,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "DFCD1B6754864CBE3794BC73";
 		};
+		"7D58515BDDCC4A139C7F8C0C" = {
+			"isa" = "PBXFileReference";
+			"path" = "licenses/Opus-BSD-3-Clause.txt";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "text";
+		};
+		"55AC9A7EC4CA0B0C23058DF8" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "7D58515BDDCC4A139C7F8C0C";
+		};
 		"8D1E3595E2522D81ABA871BE" = {
 			"isa" = "PBXFileReference";
 			"path" = "licenses/PolyForm-Shield-1.0.0.txt";
@@ -4054,6 +4145,7 @@
 				"A969E4DFF74CA6EEA67B247C",
 				"80AB4D6C10CC407E7B933F46",
 				"D40790972EED527630C2D7B1",
+				"55AC9A7EC4CA0B0C23058DF8",
 				"3673DAC36C5870E549D72EBF",
 				"D8051A93DB277B6C5B8F992F",
 				"ADF89413B33FB9DCB6165748",
@@ -4127,6 +4219,7 @@
 					"$(inherited)",
 					"-lssh2",
 					"-lcrypto",
+					"-lopus",
 					"-lz",
 					"-lsqlite3",
 				);
@@ -4189,6 +4282,7 @@
 					"$(inherited)",
 					"-lssh2",
 					"-lcrypto",
+					"-lopus",
 					"-lz",
 					"-lsqlite3",
 				);
@@ -5099,6 +5193,7 @@
 			"children" = (
 				"B6017F4F9715BEEF46CF61B5",
 				"F29D2CBFE59662B7EEDFF4CF",
+				"1C297997A4406777C204A968",
 				"9DA935E7F972A8D85DA74A18",
 				"12A0B07E1396A716062069BF",
 				"DD135AE328425E2795939845",
@@ -5211,7 +5306,10 @@
 				"2920228034DC1736EC9D27A2",
 				"94A275D205A0E28ED2D2601E",
 				"48A6D14F0C34DCC85EABB46A",
+				"253400D652BB4DD0EEAF948E",
+				"140A5696A069EBE863A13A4A",
 				"4799E6E1EB268447AA9A6176",
+				"832F7EFBEEC78204E25B0B7A",
 				"7201AB6EC56D639E8570C610",
 				"A52EC7C4276BE23759CA549D",
 				"52DB96C0DE5EC4B6986CA788",
@@ -5327,6 +5425,7 @@
 				"BC52B6BBBB6D3A89A0560E1B",
 				"36AB27C70F28FDAC82A4E6F0",
 				"2D014E603245B00F01AED3E8",
+				"537BDBBC0A0B3B2F074A5408",
 				"86D9A56A7D591F4DD7E8C109",
 				"B858F23C3C96308271FBEE86",
 				"9F2C90D807E60C4211D460EF",
@@ -5386,6 +5485,7 @@
 				"9789D90C956BC7DB806DAE5E",
 				"9E84F66AD690AF75CD5F9B51",
 				"DFCD1B6754864CBE3794BC73",
+				"7D58515BDDCC4A139C7F8C0C",
 				"8D1E3595E2522D81ABA871BE",
 				"86B1887CC7D99431749E76C8",
 				"39A94AA2D50729A699082130",
@@ -5480,6 +5580,7 @@
 					"$(inherited)",
 					"-lssh2",
 					"-lcrypto",
+					"-lopus",
 					"-lz",
 					"-lsqlite3",
 				);
@@ -5529,6 +5630,7 @@
 					"$(inherited)",
 					"-lssh2",
 					"-lcrypto",
+					"-lopus",
 					"-lz",
 					"-lsqlite3",
 				);

@@ -25,7 +25,7 @@ public protocol UdpTransport: AnyObject {
 /// so the main thread (touches become pointer input there) never does network I/O.
 public final class UdpLink: @unchecked Sendable {
     public static let ALIVE_US: Int64 = 3_000_000
-    private static let maxPendingMicSends = 24
+    private static let maxPendingMicSends = 8
 
     private let crypto: UdpCrypto
     private let transport: UdpTransport
@@ -172,7 +172,7 @@ public final class UdpLink: @unchecked Sendable {
     /// Sends a whole protocol frame; `reliable` ones are resent until the host acknowledges them.
     public func send(_ frame: [UInt8], reliable: Bool, fecRatio: Float? = nil) {
         // Ids are u32 on the wire (RACKs come back as u32): wrap the same way here, so they still match.
-        let isMic = !reliable && frame.first == UInt8(VoiceProtocol.MIC_AUDIO)
+        let isMic = !reliable && (frame.first == UInt8(VoiceProtocol.MIC_AUDIO) || frame.first == UInt8(VoiceProtocol.MIC_OPUS))
         let ratio = fecRatio ?? (reliable && frame.count > UdpWire.SHARD ? 0.25 : 0)
         let id: Int64 = locked {
             if reliable { defer { reliableSeq += 1 }; return (reliableSeq * 2 + 1) & 0xFFFF_FFFF }
@@ -282,7 +282,8 @@ public final class UdpLink: @unchecked Sendable {
     public static func reliable(_ frame: [UInt8]) -> Bool {
         guard let type = frame.first else { return true }
         switch Int(type) {
-        case DesktopProtocol.ACK, DesktopProtocol.PING, DesktopProtocol.PONG, VoiceProtocol.MIC_AUDIO: return false
+        case DesktopProtocol.ACK, DesktopProtocol.PING, DesktopProtocol.PONG,
+             VoiceProtocol.MIC_AUDIO, VoiceProtocol.MIC_OPUS, VoiceProtocol.VOICE_STATS_C2S: return false
         case DesktopProtocol.INPUT: return ![1, 2, 4].contains(frame.count > 4 ? Int(frame[4]) : 0)
         default: return true
         }
