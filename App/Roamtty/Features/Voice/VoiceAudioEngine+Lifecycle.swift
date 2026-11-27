@@ -74,10 +74,15 @@ extension VoiceAudioEngine {
         // Do NOT manually call `eng.connect(eng.mainMixerNode, to: eng.outputNode, ...)`:
         // accessing `mainMixerNode` lets AVAudioEngine manage the VPIO mixer->output link natively.
         let input = eng.inputNode
-        if useVPIO, !RoamttyAudioSetVoiceProcessing(input, true, &err) {
-            logAudioError("setVoiceProcessing(true)", err)
-            retireEngineDeferred(eng, source: source)
-            return false
+        if useVPIO {
+            guard RoamttyAudioSetVoiceProcessing(input, true, &err),
+                  RoamttyAudioSetVoiceProcessing(eng.outputNode, true, &err) else {
+                logAudioError("setVoiceProcessing(true)", err)
+                retireEngineDeferred(eng, source: source)
+                return false
+            }
+            input.isVoiceProcessingBypassed = false
+            input.isVoiceProcessingAGCEnabled = true
         }
         guard RoamttyAudioEngineAttach(eng, source, &err) else {
             logAudioError("attach(source)", err)
@@ -110,6 +115,7 @@ extension VoiceAudioEngine {
                 logAudioError("connect(source->mixer)", err)
                 return false
             }
+            eng.mainMixerNode.outputVolume = (engineUsesVPIO && route == .speaker) ? 0.78 : 1.0
             var tapInstalled = installTapIfFormatReady(on: input)
             err = nil
             guard RoamttyAudioEngineStart(eng, &err), eng.isRunning else {
@@ -120,14 +126,14 @@ extension VoiceAudioEngine {
             }
             if !tapInstalled { tapInstalled = installTapIfFormatReady(on: input) }
 
-            captureTapInstalled = tapInstalled
-            captureConverter = nil
-            pcmRing.clear()
-            lastHardwareSampleRate = AVAudioSession.sharedInstance().sampleRate
+            captureTapInstalled = tapInstalled; captureConverter = nil; pcmRing.clear()
+            let session = AVAudioSession.sharedInstance()
+            lastHardwareSampleRate = session.sampleRate
             suppressRouteRebuildUntilNs = DispatchTime.now().uptimeNanoseconds + Self.routeSettleSuppressNs
+            let ioMs = Int((session.ioBufferDuration * 1000).rounded())
             Diagnostics.shared.log(
                 "voice-engine-started",
-                "vpio=\(engineUsesVPIO) rate=\(Int(lastHardwareSampleRate)) tap=\(tapInstalled) pull=1"
+                "vpio=\(engineUsesVPIO) in=\(input.isVoiceProcessingEnabled) out=\(eng.outputNode.isVoiceProcessingEnabled) ioMs=\(ioMs) rate=\(Int(lastHardwareSampleRate)) tap=\(tapInstalled) pull=1"
             )
             return true
         }
@@ -188,8 +194,8 @@ extension VoiceAudioEngine {
                 try? session.setPreferredInput(nil)
                 try? session.overrideOutputAudioPort(.none)
             }
-            // 10 ms low-latency IO cycle cuts duplex hardware turnaround latency.
-            try? session.setPreferredIOBufferDuration(0.01)
+            // 20 ms IO cycle matches Apple VPIO AEC native frame alignment and 20 ms Opus frames.
+            try? session.setPreferredIOBufferDuration(0.02)
         }
         sessionActive = true
         if routeExplicitlyChosen {
