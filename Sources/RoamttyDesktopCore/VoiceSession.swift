@@ -93,7 +93,7 @@ public final class VoiceSession: @unchecked Sendable {
         callbackQueue: DispatchQueue = DispatchQueue(label: "roamtty.voice.callbacks"),
         login: @escaping () -> DesktopLogin,
         fetch: @escaping (String) throws -> Data = HTTPFetch.get,
-        makeUdp: @escaping (String, Int) throws -> UdpTransport = { try UdpSocketTransport(host: $0, port: $1) },
+        makeUdp: @escaping (String, Int) throws -> UdpTransport = { try UdpSocketTransport(host: $0, port: $1, voiceQoS: true) },
         injectMicPort: ((DesktopHost, Int, Bool) -> Void)? = nil,
         clearMicPort: ((DesktopHost, Bool) -> Void)? = nil
     ) {

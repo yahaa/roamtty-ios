@@ -17,8 +17,10 @@ public final class UdpSocketTransport: UdpTransport, @unchecked Sendable {
     private var closed = false
     private let address: [UInt8]
     private let family: Int32
+    private let voiceQoS: Bool
 
-    public init(host: String, port: Int) throws {
+    public init(host: String, port: Int, voiceQoS: Bool = false) throws {
+        self.voiceQoS = voiceQoS
         var hints = addrinfo()
         hints.ai_family = AF_UNSPEC
         #if canImport(Glibc)
@@ -43,7 +45,7 @@ public final class UdpSocketTransport: UdpTransport, @unchecked Sendable {
         guard s >= 0 else { throw Failure.socket(errno) }
         var tv = timeval(tv_sec: 0, tv_usec: 200_000)
         setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
-        Self.applyVoiceQoS(socket: s, family: family)
+        if voiceQoS { Self.applyVoiceQoS(socket: s, family: family) }
         let rc = address.withUnsafeBytes { connect(s, $0.baseAddress!.assumingMemoryBound(to: sockaddr.self), socklen_t(address.count)) }
         guard rc == 0 else { let e = errno; _ = systemClose(s); throw Failure.socket(e) }
         lock.lock(); let old = fd; fd = s; lock.unlock()
