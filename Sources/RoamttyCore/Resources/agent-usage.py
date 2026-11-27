@@ -2,20 +2,18 @@
 """Roamtty: read-only local token, context-window, reasoning-effort and quota collector for AI coding CLIs.
 
 Usage:
-  python3 - session <agent> [tmux_session] [cwd] [--fetch-agy-quota]
-  python3 - host <today|7d|30d> [--fetch-agy-quota]
+  python3 - session <agent> [tmux_session] [cwd]
+  python3 - host <today|7d|30d>
 
-Reads only local CLI session transcripts and non-secret settings/caches by default (never credentials
-or auth files); runs `agy -p /quota --output-format json` only when `--fetch-agy-quota` is explicitly
-requested by the user. Prints key=value lines; exits 0 even when no data is found.
+Reads only local CLI session transcripts and non-secret settings/caches (such as ~/.roamtty/quota-*.json
+populated passively by each CLI's official statusLine hook); never accesses credentials or auth files and
+never spawns agent CLI subcommands. Prints key=value lines; exits 0 even when no data is found.
 """
 import datetime
 import glob
 import json
 import os
 import re
-import select
-import shlex
 import subprocess
 import sys
 import time
@@ -754,202 +752,21 @@ def parse_agy_quota_payload(data, model, now):
     return None, None
 
 
-_AUTH_REQUIRED_MARKERS = (
-    b"authentication required",
-    b"oauth2/auth",
-    b"visit the url to log in",
-)
-
-
-def _run_agy_quota_direct(timeout=18.0):
-    """Runs `agy -p /quota --output-format json`, aborting promptly if interactive OAuth starts."""
-    proc = None
-    try:
-        proc = subprocess.Popen(
-            ["agy", "-p", "/quota", "--output-format", "json"],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=cmd_env(),
-        )
-        out_buf = bytearray()
-        err_buf = bytearray()
-        auth_required = False
-        deadline = time.monotonic() + timeout
-        out_fd = proc.stdout.fileno()
-        err_fd = proc.stderr.fileno()
-        fds = [out_fd, err_fd]
-        while fds:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                proc.kill()
-                try:
-                    proc.wait(timeout=2)
-                except Exception:
-                    pass
-                return None, False
-            ready, _, _ = select.select(fds, [], [], min(0.5, remaining))
-            for fd in ready:
-                try:
-                    chunk = os.read(fd, 4096)
-                except OSError:
-                    chunk = b""
-                if not chunk:
-                    fds.remove(fd)
-                    continue
-                if fd == out_fd:
-                    out_buf.extend(chunk)
-                else:
-                    err_buf.extend(chunk)
-                    lower_err = err_buf.lower()
-                    if any(marker in lower_err for marker in _AUTH_REQUIRED_MARKERS):
-                        auth_required = True
-                        break
-            if auth_required:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=1.5)
-                except Exception:
-                    proc.kill()
-                    try:
-                        proc.wait(timeout=1.5)
-                    except Exception:
-                        pass
-                return None, True
-        try:
-            proc.wait(timeout=max(0.5, deadline - time.monotonic()))
-        except Exception:
-            proc.kill()
-            try:
-                proc.wait(timeout=1.5)
-            except Exception:
-                pass
-            return None, False
-        text = out_buf.decode("utf-8", "replace")
-        if proc.returncode != 0:
-            if any(marker in err_buf.lower() for marker in _AUTH_REQUIRED_MARKERS) or "authentication" in text.lower():
-                return None, True
-            return None, False
-        if '"status":"ERROR"' in text.replace(" ", "") and "authentication" in text.lower():
-            return None, True
-        return text, False
-    except Exception:
-        if proc is not None and proc.poll() is None:
-            try:
-                proc.kill()
-                proc.wait(timeout=1)
-            except Exception:
-                pass
-        return None, False
-    finally:
-        if proc is not None:
-            for stream in (proc.stdout, proc.stderr):
-                if stream is not None:
-                    try:
-                        stream.close()
-                    except Exception:
-                        pass
-
-
-def _run_agy_quota_via_tmux(cache_path, timeout=16.0):
-    """Fallback for macOS SSH where sshd cannot unlock login Keychain, but the running tmux server can."""
-    out_path = os.path.join(os.path.dirname(cache_path), f".quota-agy-tmux.{os.getpid()}.tmp")
-    inner_py = (
-        "import os,select,subprocess,sys,time\n"
-        "env=dict(os.environ); env['PATH']=env.get('PATH','')+sys.argv[2]\n"
-        "p=subprocess.Popen(['agy','-p','/quota','--output-format','json'],"
-        "stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=env)\n"
-        "ob=bytearray(); eb=bytearray(); dl=time.monotonic()+14.0; auth=False\n"
-        "ofd,efd=p.stdout.fileno(),p.stderr.fileno(); fds=[ofd,efd]\n"
-        "while fds:\n"
-        " rem=dl-time.monotonic()\n"
-        " if rem<=0: p.kill(); p.wait(); sys.exit(0)\n"
-        " r,_,_=select.select(fds,[],[],min(0.5,rem))\n"
-        " for fd in r:\n"
-        "  c=os.read(fd,4096)\n"
-        "  if not c: fds.remove(fd); continue\n"
-        "  if fd==ofd: ob.extend(c)\n"
-        "  else:\n"
-        "   eb.extend(c); le=eb.lower()\n"
-        "   if b'authentication required' in le or b'oauth2/auth' in le: auth=True; break\n"
-        " if auth: p.terminate(); p.wait(timeout=2); sys.exit(0)\n"
-        "p.wait(timeout=2)\n"
-        "if p.returncode==0 and ob:\n"
-        " fd=os.open(sys.argv[1],os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600)\n"
-        " with os.fdopen(fd,'wb') as f: f.write(ob)\n"
-    )
-    py_exe = sys.executable or "python3"
-    shell_cmd = (
-        f"{shlex.quote(py_exe)} -c {shlex.quote(inner_py)} "
-        f"{shlex.quote(out_path)} {shlex.quote(EXTRA_PATH)} </dev/null >/dev/null 2>&1 || true"
-    )
-    try:
-        subprocess.run(
-            ["tmux", "-u", "run-shell", shell_cmd],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=timeout,
-            env=cmd_env(),
-        )
-        if os.path.isfile(out_path):
-            with open(out_path, "r", encoding="utf-8", errors="replace") as f:
-                text = f.read()
-            if text.strip():
-                return text
-    except Exception:
-        return None
-    finally:
-        try:
-            if os.path.exists(out_path):
-                os.unlink(out_path)
-        except OSError:
-            pass
-    return None
-
-
-def fetch_agy_quota_file(cache_path):
-    if os.environ.get("ROAMTTY_NO_LIVE_QUOTA") == "1":
-        return None
-    try:
-        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-        out, auth_required = _run_agy_quota_direct(timeout=18.0)
-        if out is None and auth_required:
-            out = _run_agy_quota_via_tmux(cache_path, timeout=16.0)
-        if not out:
-            return None
-        data = json.loads(out)
-        now = time.time()
-        if isinstance(data, dict) and (
-            parse_agy_quota_payload(data, "gemini", now) != (None, None)
-            or parse_agy_quota_payload(data, "claude", now) != (None, None)
-        ):
-            data["_fetched_at"] = int(now)
-            data["_source"] = "live"
-            tmp = f"{cache_path}.{os.getpid()}.tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(data, f)
-            os.replace(tmp, cache_path)
-            return data
-    except Exception:
-        return None
-    return None
-
-
-def read_agy_quota(model, now, fetch_live=False):
+def read_agy_quota(model, now):
+    """Reads cached quota written passively by agy's official statusLine hook (strictly read-only)."""
     cache_path = os.path.join(HOME, ".roamtty", "quota-agy.json")
-    if fetch_live:
-        fresh = fetch_agy_quota_file(cache_path)
-        if fresh is not None:
-            return parse_agy_quota_payload(fresh, model, now)
-    if os.path.isfile(cache_path):
-        try:
-            cached = json.load(open(cache_path, "r", encoding="utf-8", errors="replace"))
-            if isinstance(cached, dict):
-                return parse_agy_quota_payload(cached, model, now)
-        except Exception:
-            pass
-    return None, None
+    if not os.path.isfile(cache_path):
+        return None, None
+    try:
+        cached = json.load(open(cache_path, "r", encoding="utf-8", errors="replace"))
+        if not isinstance(cached, dict):
+            return None, None
+        fetched = safe_int(cached.get("_fetched_at"))
+        if fetched > 0 and now - fetched > 7 * 86400:
+            return None, None
+        return parse_agy_quota_payload(cached, model, now)
+    except Exception:
+        return None, None
 
 
 def parse_agy_file(path, cutoff=None):
@@ -1299,7 +1116,7 @@ def find_grok_transcript(transcript, sid, cwd, pane_pid=0):
     return None
 
 
-def run_session(agent_arg, tmux_session, cwd_arg, fetch_agy_quota=False):
+def run_session(agent_arg, tmux_session, cwd_arg):
     now = time.time()
     t_agent, t_sid, t_transcript, t_cwd, t_pid = tmux_meta(tmux_session)
     agent = (t_agent or agent_arg or "").strip().lower()
@@ -1344,7 +1161,7 @@ def run_session(agent_arg, tmux_session, cwd_arg, fetch_agy_quota=False):
         p = find_agy_transcript(t_transcript, t_sid, cwd)
         if p:
             data = parse_agy_file(p)
-        q5h, q7d = read_agy_quota((data or {}).get("model", ""), now, fetch_live=fetch_agy_quota)
+        q5h, q7d = read_agy_quota((data or {}).get("model", ""), now)
         if data is None and (q5h or q7d):
             data = {}
         if data is not None:
@@ -1381,7 +1198,7 @@ def run_session(agent_arg, tmux_session, cwd_arg, fetch_agy_quota=False):
             print(f"q7d_reset={int(q7d[1])}")
 
 
-def run_host(rng, fetch_agy_quota=False):
+def run_host(rng):
     now = time.time()
     if rng == "7d":
         cutoff = now - 7 * 86400
@@ -1496,7 +1313,7 @@ def run_host(rng, fetch_agy_quota=False):
         "agy",
         agy_paths,
         lambda p: parse_agy_file(p, cutoff=cutoff),
-        extra_quotas=lambda latest_m, _has: read_agy_quota(latest_m, now, fetch_live=fetch_agy_quota) if has_agy else (None, None),
+        extra_quotas=lambda latest_m, _has: read_agy_quota(latest_m, now) if has_agy else (None, None),
     )
 
     # 4. Grok
@@ -1516,17 +1333,16 @@ def main():
     if len(sys.argv) < 2:
         return
     mode = sys.argv[1]
-    raw_args = sys.argv[2:]
-    fetch_agy_quota = "--fetch-agy-quota" in raw_args
-    args = [a for a in raw_args if a != "--fetch-agy-quota"]
+    # Silently ignore legacy --fetch-agy-quota flag; never spawn `agy -p`.
+    args = [a for a in sys.argv[2:] if a != "--fetch-agy-quota"]
     if mode == "session":
         agent = args[0] if len(args) > 0 else ""
         tmux_s = args[1] if len(args) > 1 else ""
         cwd = args[2] if len(args) > 2 else ""
-        run_session(agent, tmux_s, cwd, fetch_agy_quota=fetch_agy_quota)
+        run_session(agent, tmux_s, cwd)
     elif mode == "host":
         rng = args[0] if len(args) > 0 else "today"
-        run_host(rng, fetch_agy_quota=fetch_agy_quota)
+        run_host(rng)
 
 
 if __name__ == "__main__":

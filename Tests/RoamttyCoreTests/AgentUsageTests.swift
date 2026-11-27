@@ -219,9 +219,9 @@ final class AgentUsageTests: XCTestCase {
         XCTAssertEqual(usage.contextTurn, 0)
     }
 
-    func testAgyQuotaNeverPollsAutomaticallyAndFetchesOnlyWhenRequested() throws {
+    func testAgyQuotaIsStrictlyReadOnlyAndNeverInvokesAgy() throws {
         let fm = FileManager.default
-        let home = fm.temporaryDirectory.appendingPathComponent("roamtty-agy-manual-\(UUID().uuidString)")
+        let home = fm.temporaryDirectory.appendingPathComponent("roamtty-agy-ro-\(UUID().uuidString)")
         try fm.createDirectory(at: home, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: home) }
 
@@ -229,18 +229,10 @@ final class AgentUsageTests: XCTestCase {
         try fm.createDirectory(at: binDir, withIntermediateDirectories: true)
         let marker = home.appendingPathComponent("agy-invoked.log")
         let fakeAgy = binDir.appendingPathComponent("agy")
-        let quotaJSON = #"{"command":{"data":{"groups":[{"name":"Gemini Models","buckets":"#
-            + #"[{"window":"5h","remaining_fraction":0.64,"reset_time":"2099-01-01T05:00:00Z"},"#
-            + #"{"window":"weekly","remaining_fraction":0.52,"reset_time":"2099-01-07T00:00:00Z"}]}]}}}"#
-        let scriptBody = """
-        #!/bin/sh
-        echo "$@" >> "\(marker.path)"
-        printf '%s\\n' '\(quotaJSON)'
-        """
-        try scriptBody.write(to: fakeAgy, atomically: true, encoding: .utf8)
+        try "#!/bin/sh\necho \"$@\" >> \"\(marker.path)\"\nexit 0\n".write(to: fakeAgy, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeAgy.path)
 
-        let agyDir = home.appendingPathComponent(".gemini/antigravity-cli/brain/conv-manual/.system_generated/logs")
+        let agyDir = home.appendingPathComponent(".gemini/antigravity-cli/brain/conv-ro/.system_generated/logs")
         try fm.createDirectory(at: agyDir, withIntermediateDirectories: true)
         try #"{"type":"PLANNER_RESPONSE","created_at":"2099-01-01T00:00:01Z","model":"gemini-4-neon-xhigh","input_tokens":5000,"output_tokens":500,"cache_read_tokens":20000}"#
             .appending("\n")
@@ -253,7 +245,6 @@ final class AgentUsageTests: XCTestCase {
             var env = ProcessInfo.processInfo.environment
             env["HOME"] = home.path
             env["PATH"] = "\(binDir.path):\(env["PATH"] ?? "/usr/bin:/bin")"
-            env.removeValue(forKey: "ROAMTTY_NO_LIVE_QUOTA")
             proc.environment = env
             let stdinPipe = Pipe(), stdoutPipe = Pipe()
             proc.standardInput = stdinPipe
@@ -266,7 +257,7 @@ final class AgentUsageTests: XCTestCase {
             return String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         }
 
-        // 1. Default reads never invoke `agy -p /quota`.
+        // 1. Session & host reads never invoke `agy` when no statusLine cache exists.
         let autoSess = try XCTUnwrap(AgentUsage.parseSession(try run(AgentUsage.sessionCommand(agent: .agy, tmuxSession: nil, directory: "/work/app"))))
         XCTAssertNil(autoSess.quota5h)
         XCTAssertNil(autoSess.quota7d)
@@ -277,21 +268,9 @@ final class AgentUsageTests: XCTestCase {
         XCTAssertNil(autoHost.agents[0].quota5h)
         XCTAssertFalse(fm.fileExists(atPath: marker.path))
 
-        // 2. Manual tap passes fetchAgyQuota: true -> invokes `agy -p /quota` once and caches result.
-        let manualSess = try XCTUnwrap(AgentUsage.parseSession(
-            try run(AgentUsage.sessionCommand(agent: .agy, tmuxSession: nil, directory: "/work/app", fetchAgyQuota: true))
-        ))
-        XCTAssertEqual(manualSess.quota5h?.remainingRounded, 64)
-        XCTAssertEqual(manualSess.quota7d?.remainingRounded, 52)
-        let linesAfterManual = try String(contentsOf: marker, encoding: .utf8).split(separator: "\n")
-        XCTAssertEqual(linesAfterManual.count, 1)
-
-        // 3. Subsequent default host read serves the cached snapshot without invoking `agy` again.
-        let cachedHost = AgentUsage.parseHost(try run(AgentUsage.hostCommand(range: .today)), requestedRange: .today)
-        XCTAssertEqual(cachedHost.agents[0].quota5h?.remainingRounded, 64)
-        XCTAssertEqual(cachedHost.agents[0].quota7d?.remainingRounded, 52)
-        let linesAfterCache = try String(contentsOf: marker, encoding: .utf8).split(separator: "\n")
-        XCTAssertEqual(linesAfterCache.count, 1)
+        // 2. Legacy --fetch-agy-quota flag is ignored and never invokes `agy`.
+        _ = try run("python3 - session agy '' /work/app --fetch-agy-quota")
+        XCTAssertFalse(fm.fileExists(atPath: marker.path))
     }
 }
 

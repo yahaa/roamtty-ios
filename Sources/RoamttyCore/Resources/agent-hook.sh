@@ -6,8 +6,12 @@ PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/home/linuxbrew/.lin
 agent=$1
 event=$2
 session=$3
-# Grok and Antigravity hooks are global: only an agent the app started (through ~/.roamtty/<agent>) reports.
-case "$agent" in grok|agy) [ "$ROAMTTY_AGENT" = "$agent" ] || exit 0 ;; esac
+# Grok and Antigravity hooks are global: only an agent the app started (through ~/.roamtty/<agent>) reports,
+# except Antigravity's statusLine command which only runs when explicitly pointed at agent-hook.sh.
+case "$agent:$event" in
+  agy:statusline) ;;
+  grok:*|agy:*) [ "$ROAMTTY_AGENT" = "$agent" ] || exit 0 ;;
+esac
 # A Claude Code session sent to the background (/bg, or the agents view) runs on outside tmux. Its hooks report to the
 # tmux session named in its settings; with older settings, to the pane whose recorded session it resumes.
 # statusLine hooks also cache live quotas even if started outside tmux.
@@ -52,8 +56,8 @@ except Exception:
   fi
   exit 0
 fi
-# Antigravity CLI statusLine hook receives live 5h/weekly quota JSON from the authenticated session; cache atomically
-# (works even over macOS SSH where `agy -p /quota` cannot unlock Keychain) and forward any user statusLine command.
+# Antigravity CLI's official statusLine hook receives live 5h/weekly quota JSON from the running session;
+# cache atomically (passively, without spawning extra CLI processes) and forward any user statusLine command.
 if [ "$agent" = agy ] && [ "$event" = statusline ]; then
   if command -v python3 >/dev/null 2>&1; then
     user_cmd=$(printf '%s' "$input" | python3 -c '
@@ -129,33 +133,55 @@ if isinstance(quota, dict):
             except Exception:
                 existing = None
 
+        def is_valid_reset(ts_str):
+            return isinstance(ts_str, str) and len(ts_str) >= 10 and ts_str > "1970-01-02"
+
+        now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
+
         should_write = True
         if existing is not None:
             if prev_sig is not None and prev_sig == sig:
                 # Idle session TUI redraw re-emits unchanged in-memory quota; do not clobber fresher readings.
                 should_write = False
-            elif prev_sig is None:
+            else:
                 ex_ts = int(existing.get("_fetched_at") or 0) if isinstance(existing, dict) else 0
-                if ex_ts > 0 and now - ex_ts < 300:
+                if ex_ts == 0 or now - ex_ts < 7 * 86400:
                     ex_buckets = extract_existing_buckets(existing)
                     same_window = False
                     newer_reset = False
+                    older_reset = False
                     more_consumed = False
                     less_consumed = False
                     for bk, (nfrac, nreset) in ((k, (v["remaining_fraction"], v.get("reset_time") or "")) for k, v in cleaned.items()):
                         if bk not in ex_buckets:
                             continue
                         efrac, ereset = ex_buckets[bk]
-                        if nreset and ereset and nreset != ereset:
-                            if nreset > ereset:
+                        n_valid = is_valid_reset(nreset)
+                        e_valid = is_valid_reset(ereset)
+                        if n_valid and e_valid:
+                            if nreset != ereset:
+                                if nreset > ereset:
+                                    newer_reset = True
+                                else:
+                                    older_reset = True
+                            else:
+                                same_window = True
+                                if nfrac < efrac - 1e-6:
+                                    more_consumed = True
+                                elif nfrac > efrac + 1e-6:
+                                    less_consumed = True
+                        elif not n_valid and e_valid:
+                            # Untouched 100% bucket (1970-01-01): newer only if the previous window already expired.
+                            if ereset < now_iso:
                                 newer_reset = True
-                        elif nreset == ereset:
-                            same_window = True
-                            if nfrac < efrac - 1e-6:
-                                more_consumed = True
-                            elif nfrac > efrac + 1e-6:
-                                less_consumed = True
-                    if same_window and not newer_reset and not more_consumed and less_consumed:
+                            elif efrac < 1.0 - 1e-6:
+                                older_reset = True
+                        elif n_valid and not e_valid:
+                            if nreset >= now_iso:
+                                newer_reset = True
+                    if older_reset and not newer_reset:
+                        should_write = False
+                    elif prev_sig is None and same_window and not newer_reset and not more_consumed and less_consumed:
                         should_write = False
 
         seen[caller] = {"ts": now, "sig": sig}

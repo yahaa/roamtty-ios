@@ -69,21 +69,20 @@ extension SessionRuntime {
         }
     }
 
-    /// Reads current session context, quota and token counts; only runs `agy -p /quota` when `fetchAgyQuota` is true.
-    func refreshAgentUsage(force: Bool = true, fetchAgyQuota: Bool = false) {
+    /// Reads current session context, quota and token counts from local transcripts and passive statusLine caches.
+    func refreshAgentUsage(force: Bool = true) {
         guard phase == .connected else { return }
         if !force, agentUsageTask != nil { return }
         guard let kind = activeAgentKind ?? agentUsage?.agent ?? launchedAgent else { return }
         let directory = (agentStatus?.directory.isEmpty == false ? agentStatus?.directory : nil) ?? paneDirectory
         let tmuxName = record.mode == .tmux ? record.remoteName : nil
-        let fetchAgy = fetchAgyQuota && kind == .agy
         agentUsageTask?.cancel()
         if force { agentUsageLoading = true }
         agentUsageTask = Task { [weak self] in
             defer { self?.agentUsageTask = nil; self?.agentUsageLoading = false }
             guard let self, let ssh = await self.sideConnection() else { return }
-            let cmd = AgentUsage.sessionCommand(agent: kind, tmuxSession: tmuxName, directory: directory, fetchAgyQuota: fetchAgy)
-            let result = try? await ssh.run(cmd, input: AgentUsage.scriptData, timeout: fetchAgy ? 25 : 15, cancellation: self.lifetimeCancellation)
+            let cmd = AgentUsage.sessionCommand(agent: kind, tmuxSession: tmuxName, directory: directory)
+            let result = try? await ssh.run(cmd, input: AgentUsage.scriptData, timeout: 15, cancellation: self.lifetimeCancellation)
             guard !Task.isCancelled, self.ssh === ssh, self.phase == .connected else { return }
             self.lastAgentUsageAt = Date()
             if let parsed = AgentUsage.parseSession(result?.text) { self.agentUsage = parsed }

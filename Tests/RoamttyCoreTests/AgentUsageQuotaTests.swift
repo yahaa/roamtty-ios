@@ -3,41 +3,43 @@ import XCTest
 @testable import RoamttyCore
 
 final class AgentUsageQuotaTests: XCTestCase {
-    func testAgyLiveFetchFallsBackToTmuxOnSshOAuthAndAvoidsDoubleRounding() throws {
+    func testAgyStatusLineAvoidsDoubleRoundingAndNeverInvokesAgyOrTmux() throws {
         let fm = FileManager.default
-        let home = fm.temporaryDirectory.appendingPathComponent("roamtty-agy-tmux-fb-\(UUID().uuidString)")
+        let home = fm.temporaryDirectory.appendingPathComponent("roamtty-agy-ro-precision-\(UUID().uuidString)")
         try fm.createDirectory(at: home, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: home) }
 
         let binDir = home.appendingPathComponent(".local/bin")
         try fm.createDirectory(at: binDir, withIntermediateDirectories: true)
+        let agyMarker = home.appendingPathComponent("agy-invoked.log")
         let tmuxMarker = home.appendingPathComponent("tmux-used.log")
-        try writeFakeQuotaBinaries(binDir: binDir, tmuxMarker: tmuxMarker)
+        try writeGuardBinaries(binDir: binDir, agyMarker: agyMarker, tmuxMarker: tmuxMarker)
 
-        let agyDir = home.appendingPathComponent(".gemini/antigravity-cli/brain/conv-ssh/.system_generated/logs")
+        let hookFile = home.appendingPathComponent("agent-hook.sh")
+        try AgentHooks.script.write(to: hookFile, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hookFile.path)
+
+        let agyDir = home.appendingPathComponent(".gemini/antigravity-cli/brain/conv-ro/.system_generated/logs")
         try fm.createDirectory(at: agyDir, withIntermediateDirectories: true)
         try #"{"type":"PLANNER_RESPONSE","created_at":"2099-01-01T00:00:01Z","model":"gemini-4-neon-xhigh","input_tokens":5000,"output_tokens":500,"cache_read_tokens":20000}"#
             .appending("\n").write(to: agyDir.appendingPathComponent("transcript.jsonl"), atomically: true, encoding: .utf8)
 
-        let cacheDir = home.appendingPathComponent(".roamtty")
-        try fm.createDirectory(at: cacheDir, withIntermediateDirectories: true)
-        let stale = #"{"_fetched_at":1,"quota":{"gemini-5h":{"remaining_fraction":0.98,"reset_time":"2099-01-01T05:00:00Z"},"#
-            + #""gemini-weekly":{"remaining_fraction":0.78,"reset_time":"2099-01-07T00:00:00Z"}}}"#
-        try stale.write(to: cacheDir.appendingPathComponent("quota-agy.json"), atomically: true, encoding: .utf8)
+        // Works even without ROAMTTY_AGENT (e.g. user-configured /statusline).
+        try runStatusLine(
+            hook: hookFile, home: home, convId: "conv-ro", f5h: 0.9454, f7d: 0.7648,
+            r5h: "2099-01-01T05:00:00Z", r7d: "2099-01-07T00:00:00Z", sec: 5000, setRoamttyEnv: false
+        )
 
-        let started = Date()
-        let out = try runSessionCommand(home: home, pathPrefix: binDir.path, fetchAgyQuota: true)
-        let elapsed = Date().timeIntervalSince(started)
-        XCTAssertLessThan(elapsed, 8.0, "OAuth abort + tmux fallback must not wait for sleep 10")
-        XCTAssertTrue(fm.fileExists(atPath: tmuxMarker.path))
-
+        let out = try runSessionCommand(home: home, pathPrefix: binDir.path)
         let parsed = try XCTUnwrap(AgentUsage.parseSession(out))
         XCTAssertEqual(parsed.quota5h?.remainingRounded, 95)
         // 0.7648 -> 76.48% must round to 76%, not double-round 76.48 -> 76.5 -> 77%.
         XCTAssertEqual(parsed.quota7d?.remainingRounded, 76)
+        XCTAssertFalse(fm.fileExists(atPath: agyMarker.path))
+        XCTAssertFalse(fm.fileExists(atPath: tmuxMarker.path))
     }
 
-    func testAgyStatusLineIdleRedrawDoesNotClobberFresherQuotaCache() throws {
+    func testAgyStatusLineIdleRedrawAndOlderWindowDoNotClobberFresherQuotaCache() throws {
         let fm = FileManager.default
         let home = fm.temporaryDirectory.appendingPathComponent("roamtty-agy-sl-stale-\(UUID().uuidString)")
         try fm.createDirectory(at: home, withIntermediateDirectories: true)
@@ -72,57 +74,31 @@ final class AgentUsageQuotaTests: XCTestCase {
         XCTAssertEqual(try readCachedAgy(home: home).quota7d?.remainingRounded, 75)
         try runStatusLine(hook: hookFile, home: home, convId: "sess-D", f5h: 1.0, f7d: 0.748, r5h: "2099-01-01T10:00:00Z", r7d: r7d, sec: 18000)
         XCTAssertEqual(try readCachedAgy(home: home).quota5h?.remainingRounded, 100)
+
+        // Unseen idle Session E holding the older 05:00 window (40%) must NOT clobber rolled-over 10:00 window.
+        try runStatusLine(hook: hookFile, home: home, convId: "sess-E", f5h: 0.40, f7d: 0.748, r5h: r5h, r7d: r7d, sec: 100)
+        XCTAssertEqual(try readCachedAgy(home: home).quota5h?.remainingRounded, 100)
+        XCTAssertEqual(try readCachedAgy(home: home).quota7d?.remainingRounded, 75)
     }
 
-    private func writeFakeQuotaBinaries(binDir: URL, tmuxMarker: URL) throws {
+    private func writeGuardBinaries(binDir: URL, agyMarker: URL, tmuxMarker: URL) throws {
         let fm = FileManager.default
-        let payload = #"{"command":{"data":{"groups":[{"name":"Gemini Models","buckets":"#
-            + #"[{"id":"gemini-5h","window":"5h","remaining_fraction":0.9454,"reset_time":"2099-01-01T05:00:00Z"},"#
-            + #"{"id":"gemini-weekly","window":"weekly","remaining_fraction":0.7648,"reset_time":"2099-01-07T00:00:00Z"}]}]}}}"#
-        let fakeAgy = """
-        #!/bin/sh
-        if [ "${FAKE_TMUX_AQUA:-0}" != "1" ]; then
-          echo "Authentication required. Please visit the URL to log in:" >&2
-          echo "  https://accounts.google.com/o/oauth2/auth?client_id=test" >&2
-          sleep 10
-          exit 1
-        fi
-        printf '%s\\n' '\(payload)'
-        """
         let agyURL = binDir.appendingPathComponent("agy")
-        try fakeAgy.write(to: agyURL, atomically: true, encoding: .utf8)
+        try "#!/bin/sh\necho \"$@\" >> \"\(agyMarker.path)\"\nexit 0\n".write(to: agyURL, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: agyURL.path)
 
-        let fakeTmux = """
-        #!/bin/sh
-        while [ "$#" -gt 0 ]; do
-          if [ "$1" = "run-shell" ]; then
-            shift
-            echo "run-shell" >> "\(tmuxMarker.path)"
-            FAKE_TMUX_AQUA=1 /bin/sh -c "$1"
-            exit $?
-          fi
-          shift
-        done
-        exit 1
-        """
         let tmuxURL = binDir.appendingPathComponent("tmux")
-        try fakeTmux.write(to: tmuxURL, atomically: true, encoding: .utf8)
+        try "#!/bin/sh\necho \"$@\" >> \"\(tmuxMarker.path)\"\nexit 0\n".write(to: tmuxURL, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tmuxURL.path)
     }
 
-    private func runSessionCommand(home: URL, pathPrefix: String?, fetchAgyQuota: Bool) throws -> String {
+    private func runSessionCommand(home: URL, pathPrefix: String?) throws -> String {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/sh")
-        proc.arguments = ["-c", AgentUsage.sessionCommand(agent: .agy, tmuxSession: nil, directory: "/work/app", fetchAgyQuota: fetchAgyQuota)]
+        proc.arguments = ["-c", AgentUsage.sessionCommand(agent: .agy, tmuxSession: nil, directory: "/work/app")]
         var env = ProcessInfo.processInfo.environment
         env["HOME"] = home.path
-        if let pathPrefix {
-            env["PATH"] = "\(pathPrefix):\(env["PATH"] ?? "/usr/bin:/bin")"
-            env.removeValue(forKey: "ROAMTTY_NO_LIVE_QUOTA")
-        } else {
-            env["ROAMTTY_NO_LIVE_QUOTA"] = "1"
-        }
+        if let pathPrefix { env["PATH"] = "\(pathPrefix):\(env["PATH"] ?? "/usr/bin:/bin")" }
         proc.environment = env
         let stdinPipe = Pipe(), stdoutPipe = Pipe()
         proc.standardInput = stdinPipe
@@ -136,16 +112,19 @@ final class AgentUsageQuotaTests: XCTestCase {
     }
 
     private func readCachedAgy(home: URL) throws -> AgentSessionUsage {
-        try XCTUnwrap(AgentUsage.parseSession(try runSessionCommand(home: home, pathPrefix: nil, fetchAgyQuota: false)))
+        try XCTUnwrap(AgentUsage.parseSession(try runSessionCommand(home: home, pathPrefix: nil)))
     }
 
-    private func runStatusLine(hook: URL, home: URL, convId: String, f5h: Double, f7d: Double, r5h: String, r7d: String, sec: Int) throws {
+    private func runStatusLine(
+        hook: URL, home: URL, convId: String, f5h: Double, f7d: Double,
+        r5h: String, r7d: String, sec: Int, setRoamttyEnv: Bool = true
+    ) throws {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/sh")
         proc.arguments = [hook.path, "agy", "statusline"]
         var env = ProcessInfo.processInfo.environment
         env["HOME"] = home.path
-        env["ROAMTTY_AGENT"] = "agy"
+        if setRoamttyEnv { env["ROAMTTY_AGENT"] = "agy" } else { env.removeValue(forKey: "ROAMTTY_AGENT") }
         proc.environment = env
         let pipe = Pipe()
         proc.standardInput = pipe

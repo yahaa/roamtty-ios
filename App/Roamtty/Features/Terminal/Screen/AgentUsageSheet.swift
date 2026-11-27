@@ -186,7 +186,7 @@ struct AgentUsageSheet: View {
         .background(Palette.sheet.ignoresSafeArea())
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-        .onAppear { runtime.refreshAgentUsage(force: true, fetchAgyQuota: true) }
+        .onAppear { runtime.refreshAgentUsage(force: true) }
         .accessibilityIdentifier("agent-usage-sheet")
     }
 
@@ -205,7 +205,7 @@ struct AgentUsageSheet: View {
                     .font(.system(size: 11.5, design: .monospaced))
                     .foregroundStyle(Palette.secondary).lineLimit(1).truncationMode(.middle)
             }.frame(maxWidth: .infinity, alignment: .leading)
-            Button { runtime.refreshAgentUsage(force: true, fetchAgyQuota: true) } label: {
+            Button { runtime.refreshAgentUsage(force: true) } label: {
                 Group {
                     if runtime.agentUsageLoading { ProgressView().scaleEffect(0.8) } else { AppIcon("ic_refresh", size: 20).foregroundStyle(Palette.secondary) }
                 }.frame(width: 40, height: 40).contentShape(Rectangle())
