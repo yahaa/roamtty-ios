@@ -193,12 +193,15 @@ extension VoiceAudioEngine {
         let nowMs = Int64(nowNs / 1_000_000)
         var poppedAny = false
         while pcmRing.queuedSamples < Self.pumpTargetRingSamples {
+            let hasQueued = jb.queuedFrames() > 0
+            if !hasQueued && pcmRing.queuedSamples >= Self.plcLowWaterRingSamples { break }
             guard let samples = jb.popFrame(nowMs: nowMs) else { break }
             poppedAny = true
             echoGate.observeSpeaker(rms: VoiceOpusMath.pcmRms(samples), nowMs: nowMs)
             updateSpeakerLevel(samples: samples)
             pcmRing.write(resampler.resample(samples))
             lastSpeakerAudioNs = nowNs
+            if !hasQueued { break }
         }
         let silentNs = nowNs > lastSpeakerAudioNs ? nowNs - lastSpeakerAudioNs : 0
         if !poppedAny && pcmRing.queuedSamples == 0 && smoothedSpkLevel > 0 && silentNs > Self.speakerSilenceDecayNs {

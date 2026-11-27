@@ -149,6 +149,9 @@ public final class VoiceJitterBuffer: @unchecked Sendable {
     private var firstArrivalMs: Int64?
     private var turnGen: UInt8 = 0
     private var turnGenLocked = false
+    private var pendingClearSkips = 0
+    private var lastImplicitAdvanceMs: Int64 = 0
+    private static let lateClearWindowMs: Int64 = 5_000
     private var targetFrames = 1
     private var underrunPenaltyMs = 0.0
     private var lastDecayMs: Int64 = 0
@@ -170,7 +173,7 @@ public final class VoiceJitterBuffer: @unchecked Sendable {
         self.decoder = dec
     }
 
-    public func clear(nextTurnGen: UInt8? = nil) {
+    public func clear(nextTurnGen: UInt8? = nil, resetPendingSkips: Bool = true) {
         slots.removeAll(keepingCapacity: true)
         playoutSeq = nil
         started = false
@@ -181,19 +184,33 @@ public final class VoiceJitterBuffer: @unchecked Sendable {
         lastTail.removeAll(keepingCapacity: true)
         decoder.reset()
         rxStats.resetSeqCursor()
+        if resetPendingSkips {
+            pendingClearSkips = 0
+            lastImplicitAdvanceMs = 0
+        }
         if let g = nextTurnGen {
             turnGen = g & 0x0F
             turnGenLocked = true
         }
     }
 
-    public func clearForBargeIn() {
+    @discardableResult
+    public func clearForBargeIn(nowMs: Int64 = 0) -> Bool {
+        if pendingClearSkips > 0 {
+            let withinWindow = nowMs <= 0 || lastImplicitAdvanceMs <= 0 || (nowMs - lastImplicitAdvanceMs) <= Self.lateClearWindowMs
+            if withinWindow {
+                pendingClearSkips -= 1
+                return false
+            }
+            pendingClearSkips = 0
+        }
         let next: UInt8? = turnGenLocked ? ((turnGen &+ 1) & 0x0F) : nil
         clear(nextTurnGen: next)
+        return true
     }
 
     public func push(_ pkt: VoiceOpusPacket, nowMs: Int64) {
-        guard acceptTurnGen(VoiceProtocol.turnGenOf(pkt.flags)) else { return }
+        guard acceptTurnGen(VoiceProtocol.turnGenOf(pkt.flags), nowMs: nowMs) else { return }
         let isDtxPkt = (pkt.flags & VoiceProtocol.VOICE_FLAG_DTX) != 0
         let isResetPkt = (pkt.flags & VoiceProtocol.VOICE_FLAG_RESET) != 0
         rxStats.onPrimary(seq: pkt.seq, nowMs: nowMs, resetDiscontinuity: isDtxPkt || isResetPkt || inDtx)
@@ -217,7 +234,7 @@ public final class VoiceJitterBuffer: @unchecked Sendable {
     }
 
     public func queuedFrames() -> Int {
-        guard let p = playoutSeq else { return 0 }
+        guard !slots.isEmpty, let p = playoutSeq else { return 0 }
         let span = Int(Int32(bitPattern: highestSeq &- p))
         return span < 0 ? 0 : min(span + 1, slots.count + 4)
     }
@@ -255,7 +272,7 @@ public final class VoiceJitterBuffer: @unchecked Sendable {
         return res.pcm
     }
 
-    private func acceptTurnGen(_ pktGen: UInt8) -> Bool {
+    private func acceptTurnGen(_ pktGen: UInt8, nowMs: Int64) -> Bool {
         if !turnGenLocked {
             turnGen = pktGen
             turnGenLocked = true
@@ -264,7 +281,9 @@ public final class VoiceJitterBuffer: @unchecked Sendable {
         if pktGen == turnGen { return true }
         let ahead = (pktGen &- turnGen) & 0x0F
         guard ahead > 0 && ahead < 8 else { return false }
-        clear(nextTurnGen: pktGen)
+        pendingClearSkips = min(7, pendingClearSkips + Int(ahead))
+        lastImplicitAdvanceMs = nowMs
+        clear(nextTurnGen: pktGen, resetPendingSkips: false)
         return true
     }
 

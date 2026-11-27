@@ -351,6 +351,7 @@ public final class VoiceRedSender: @unchecked Sendable {
     public let streamId: UInt32
     public let sampleRate: UInt32
     public let controller: VoiceLinkController
+    public var frameBytes: Int { encoder.frameLen * 2 }
     private let enableDtx: Bool
     private let encoder: VoiceOpusEncoder
     private var recent: [(seq: UInt32, data: [UInt8])] = []

@@ -112,13 +112,17 @@ extension VoiceSession {
         }
     }
 
-    /// Sends captured 16 kHz mono s16le PCM as Opus+RED frames when negotiated (single UDP shard, DTX),
+    /// Sends captured mono s16le PCM as Opus+RED frames when negotiated (using the negotiated 20 ms frame size),
     /// otherwise falls back to legacy single-shard PCM16 (`<= 640 B`).
     public func sendMicPcm(streamId: UInt32, pcm: [UInt8]) {
         let alignedCount = pcm.count & ~1
-        let (ok, useOpus) = sync { (!closing && !_muted && activeMicStreamId == streamId, voiceOpusEnabled) }
+        let (ok, useOpus, opusChunk) = sync { () -> (Bool, Bool, Int) in
+            let active = !closing && !_muted && activeMicStreamId == streamId
+            let frameBytes = (micSender?.streamId == streamId ? micSender?.frameBytes : nil) ?? VoiceProtocol.micChunkBytes
+            return (active, voiceOpusEnabled, frameBytes)
+        }
         guard alignedCount > 0, ok else { return }
-        let chunk = VoiceProtocol.micChunkBytes
+        let chunk = useOpus ? opusChunk : VoiceProtocol.micChunkBytes
         var offset = 0
         while offset < alignedCount {
             let end = min(offset + chunk, alignedCount)

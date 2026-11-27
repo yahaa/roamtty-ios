@@ -257,5 +257,40 @@ final class VoiceOpusPipelineTests: XCTestCase {
         stream.feed(DesktopProtocol.frame(VoiceProtocol.SPK_OPUS, spkWire.payload))
         XCTAssertTrue(waitUntil(2) { audio.spkOpusPackets.count == 1 && audio.spkOpusPackets[0].seq == 1 })
         XCTAssertTrue(waitUntil(2) { stream.received.contains { $0.type == VoiceProtocol.VOICE_STATS_C2S } })
+
+        // Negotiated 24 kHz MIC_START frames 960-byte Opus chunks instead of hardcoded 640 B.
+        stream.feed(DesktopProtocol.frame(VoiceProtocol.MIC_START, [3, 0, 0, 0, 0xC0, 0x5D, 0, 0, 1]))
+        XCTAssertTrue(waitUntil(2) { audio.micStartedIds.contains(3) })
+        let speech24 = VoiceOpusMath.int16ToBytes(sineFrame(rate: 24_000, freqHz: 440, frameIdx: 0))
+        XCTAssertEqual(speech24.count, 960)
+        audio.emitMic(streamId: 3, pcm: speech24)
+        XCTAssertTrue(waitUntil(2) {
+            stream.received.contains { f in
+                f.type == VoiceProtocol.MIC_OPUS && VoiceProtocol.decodeVoiceOpus(f.payload)?.streamId == 3
+            }
+        })
+    }
+
+    func testLateSpkClearAfterNewTurnPacketDoesNotDoubleAdvanceTurnGen() throws {
+        let enc = try XCTUnwrap(VoiceOpusEncoder(sampleRate: 24_000, bitrate: 32_000, dtx: false))
+        let frame = try XCTUnwrap(enc.encode(sineFrame(rate: 24_000, freqHz: 440, frameIdx: 0)))
+        let jb = try XCTUnwrap(VoiceJitterBuffer(streamId: 9, sampleRate: 24_000))
+
+        jb.push(VoiceOpusPacket(streamId: 9, seq: 1, tsSamples: 480, flags: VoiceProtocol.withTurnGen(VoiceProtocol.VOICE_FLAG_SPEECH, turnGen: 1), red: [], primary: frame), nowMs: 100)
+        XCTAssertNotNil(jb.popFrame(nowMs: 120))
+
+        // New-turn gen=2 packet arrives over UDP before delayed SPK_CLEAR arrives over SSH.
+        let gen2Reset = VoiceProtocol.withTurnGen(VoiceProtocol.VOICE_FLAG_SPEECH | VoiceProtocol.VOICE_FLAG_RESET, turnGen: 2)
+        jb.push(VoiceOpusPacket(streamId: 9, seq: 2, tsSamples: 960, flags: gen2Reset, red: [], primary: frame), nowMs: 140)
+        XCTAssertFalse(jb.clearForBargeIn(nowMs: 160))
+
+        jb.push(VoiceOpusPacket(streamId: 9, seq: 3, tsSamples: 1440, flags: VoiceProtocol.withTurnGen(VoiceProtocol.VOICE_FLAG_SPEECH, turnGen: 2), red: [], primary: frame), nowMs: 180)
+        XCTAssertNotNil(jb.popFrame(nowMs: 180))
+        XCTAssertNotNil(jb.popFrame(nowMs: 200))
+
+        // Next genuine SPK_CLEAR still advances turnGen 2 -> 3 and drops stale gen=2 packets.
+        XCTAssertTrue(jb.clearForBargeIn(nowMs: 220))
+        jb.push(VoiceOpusPacket(streamId: 9, seq: 4, tsSamples: 1920, flags: VoiceProtocol.withTurnGen(VoiceProtocol.VOICE_FLAG_SPEECH, turnGen: 2), red: [], primary: frame), nowMs: 240)
+        XCTAssertNil(jb.popFrame(nowMs: 260))
     }
 }

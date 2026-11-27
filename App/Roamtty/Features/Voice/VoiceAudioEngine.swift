@@ -25,6 +25,8 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
     static let levelMinDelta: Float = 0.03
     /// Keep at most 60 ms (2880 samples @ 48 kHz) ahead in the hardware pull ring so JitterBuffer stays in control.
     static let pumpTargetRingSamples = 2_880
+    /// Only invoke PLC when the hardware pull ring drops below ~18.75 ms (below a single 20 ms VPIO quantum).
+    static let plcLowWaterRingSamples = 900
 
     var engine: AVAudioEngine?
     var sourceNode: AVAudioSourceNode?
@@ -233,10 +235,11 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
     func clearSpeaker(streamId: UInt32) {
         queue.async { [self] in
             guard spkStreamId == streamId else { return }
-            spkJitter?.clearForBargeIn()
+            let nowMs = Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000)
+            if let jb = spkJitter, !jb.clearForBargeIn(nowMs: nowMs) { return }
             spkResampler?.reset()
             pcmRing.clear()
-            echoGate.onSpeakerCleared(nowMs: Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000))
+            echoGate.onSpeakerCleared(nowMs: nowMs)
             resetSpeakerLevel()
         }
     }
