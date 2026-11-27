@@ -35,6 +35,22 @@ import RoamttyTransport
     private func savedKey(_ hostID: String) -> Data? { try? vault.read(hostID: hostID, purpose: .key) }
     /// The password of the login in memory, for a tool on the host that asks for it again (sudo).
     func loginPassword(for hostID: String) -> String? { cache[hostID]?.password.flatMap { String(data: $0, encoding: .utf8) } }
+    /// Returns cached or Keychain-saved credentials without prompting, or `nil` when interactive input is required.
+    func silentCredentials(for host: Host) -> Credentials? {
+        if let existing = cache[host.id] { return existing }
+        let password = cache.savedPasswordRejected(host.id) ? nil : (try? vault.read(hostID: host.id, purpose: .password))
+        let key = try? vault.read(hostID: host.id, purpose: .key)
+        switch host.auth {
+        case .password:
+            guard let password else { return nil }
+            return Credentials(password: password, privateKey: key, passphrase: nil)
+        case .key:
+            guard let key, !PrivateKeys.needsPassphrase(key) else { return nil }
+            return Credentials(password: password, privateKey: key, passphrase: nil)
+        case .interactive:
+            return environment.foreground ? Credentials() : nil
+        }
+    }
     /// A host whose login needs nothing typed: a saved password, a key without a passphrase, or a login still cached.
     func canLoginSilently(_ host: Host) -> Bool {
         if cache[host.id] != nil { return true }

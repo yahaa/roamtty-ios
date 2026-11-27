@@ -95,4 +95,57 @@ public enum RemoteCommands {
         let target = "=" + sanitizeSessionName(name) + ":"
         return shell(pathSetup + "; tmux display-message -p -t " + shellQuote(target) + " '#{alternate_on}'")
     }
+    /// Sets a tmux session environment variable (e.g. `ANTIGRAVITY_MIC` for `agy /voice`).
+    public static func tmuxSetEnvironment(session: String, name: String, value: String) -> String? {
+        guard isValidEnvName(name) else { return nil }
+        let safe = sanitizeSessionName(session)
+        return shell(pathSetup + "; tmux set-environment -t =\(safe) \(name) " + shellQuote(value))
+    }
+    /// Unsets a tmux session environment variable.
+    public static func tmuxUnsetEnvironment(session: String, name: String) -> String? {
+        guard isValidEnvName(name) else { return nil }
+        let safe = sanitizeSessionName(session)
+        return shell(pathSetup + "; tmux set-environment -u -t =\(safe) \(name) 2>/dev/null || true")
+    }
+    /// Injects `ANTIGRAVITY_MIC=127.0.0.1:<micPort>` atomically into `~/.roamtty/voice-mic`, keeps `~/.roamtty/agy` on the
+    /// dynamic default template, and (when attached to tmux) sets `ANTIGRAVITY_MIC` on the exact tmux session target.
+    public static func injectAntigravityMicScript(micPort: Int, tmuxSession: String? = nil) -> String? {
+        guard let addr = AgentHooks.voiceMicAddress(port: micPort) else { return nil }
+        return antigravityMicScript(addr: addr, tmuxSession: tmuxSession)
+    }
+    /// Clears transient `~/.roamtty/voice-mic` and tmux override on clean hangup while keeping the default `24713` launcher.
+    public static func clearAntigravityMicScript(tmuxSession: String? = nil) -> String {
+        antigravityMicScript(addr: nil, tmuxSession: tmuxSession)
+    }
+    private static func antigravityMicScript(addr: String?, tmuxSession: String?) -> String {
+        let launcher = AgentHooks.agyLauncher(micPort: nil)
+        var parts = [
+            pathSetup,
+            "mkdir -p \"$HOME/.roamtty\""
+        ]
+        if let addr {
+            let writeMic = "tmp=$(mktemp \"$HOME/.roamtty/voice-mic.XXXXXX\") && " +
+                "{ printf '%s\\n' \(shellQuote(addr)) > \"$tmp\" && mv -f \"$tmp\" \"$HOME/.roamtty/voice-mic\" || { rm -f \"$tmp\"; false; }; }"
+            parts.append(writeMic)
+        } else {
+            parts.append("rm -f \"$HOME/.roamtty/voice-mic\"")
+        }
+        let writeAgy = "tmp=$(mktemp \"$HOME/.roamtty/agy.XXXXXX\") && " +
+            "{ printf '%s' \(shellQuote(launcher)) > \"$tmp\" && chmod +x \"$tmp\" && mv -f \"$tmp\" \"$HOME/.roamtty/agy\" || { rm -f \"$tmp\"; false; }; }"
+        parts.append(writeAgy)
+        if let session = tmuxSession, !session.isEmpty {
+            let safe = sanitizeSessionName(session)
+            if let addr {
+                parts.append("tmux set-environment -t =\(safe) ANTIGRAVITY_MIC \(shellQuote(addr)) 2>/dev/null || true")
+            } else {
+                parts.append("tmux set-environment -u -t =\(safe) ANTIGRAVITY_MIC 2>/dev/null || true")
+            }
+        }
+        return parts.joined(separator: "\n") + "\n"
+    }
+    private static func isValidEnvName(_ name: String) -> Bool {
+        guard let first = name.unicodeScalars.first, first.isASCII,
+              CharacterSet.letters.contains(first) || first == "_" else { return false }
+        return name.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "_") }
+    }
 }

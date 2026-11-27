@@ -143,6 +143,57 @@ public enum WindowsDesktop {
         #"cmd /c ""%USERPROFILE%\.roamtty\bin\roamtty-desktop.exe" serve "# + args + "\""
     }
 
+    /// Headless `voice` subcommand through cmd /c so the binary stream passes cleanly.
+    public static func voiceCommand(_ args: String) -> String {
+        #"cmd /c ""%USERPROFILE%\.roamtty\bin\roamtty-desktop.exe" voice "# + args + "\""
+    }
+
+    /// Writes `%USERPROFILE%\.roamtty\voice-mic` atomically and dynamic `agy.ps1` (defaulting to `127.0.0.1:24713`).
+    public static func writeAgyLauncherCommand(micPort: Int) -> String? {
+        guard (1...65535).contains(micPort) else { return nil }
+        let addr = "127.0.0.1:\(micPort)"
+        let script = """
+        $d = "$env:USERPROFILE\\.roamtty"
+        New-Item -ItemType Directory -Force $d | Out-Null
+        $micTmp = "$d\\voice-mic.$PID.tmp"
+        Set-Content -Path $micTmp -Value \(quote(addr)) -Encoding UTF8 -NoNewline
+        Move-Item -Force $micTmp "$d\\voice-mic"
+        $launcher = @"
+        # Roamtty: starts Antigravity CLI with voice mic forwarding when active.
+        `$env:ROAMTTY_AGENT = 'agy'
+        if (-not `$env:ANTIGRAVITY_MIC) {
+          if (Test-Path "`$env:USERPROFILE\\.roamtty\\voice-mic") {
+            `$env:ANTIGRAVITY_MIC = (Get-Content "`$env:USERPROFILE\\.roamtty\\voice-mic" -Raw).Trim()
+          }
+          if (-not `$env:ANTIGRAVITY_MIC) { `$env:ANTIGRAVITY_MIC = '127.0.0.1:24713' }
+        }
+        `$settingsDir = "`$env:USERPROFILE\\.roamtty"
+        `$settingsFile = "`$settingsDir\\agy-settings.json"
+        New-Item -ItemType Directory -Force `$settingsDir | Out-Null
+        [IO.File]::WriteAllText(`$settingsFile, '{"voice":{"fullDuplex":true}}')
+        `$hasSettings = (`$args | Where-Object { `$_ -eq '--settings' -or `$_ -like '--settings=*' }).Count -gt 0
+        `$launchArgs = if (`$hasSettings) { `$args } else { @('--settings', `$settingsFile) + `$args }
+        `$cmd = Get-Command agy.exe, agy.cmd, agy -CommandType Application -ErrorAction SilentlyContinue | Where-Object { `$_.Source -ne `$PSCommandPath } | Select-Object -First 1
+        if (`$cmd) { & `$cmd.Source @launchArgs } else { & agy @launchArgs }
+        exit `$LASTEXITCODE
+        "@
+        $psTmp = "$d\\agy.$PID.tmp"
+        Set-Content -Path $psTmp -Value $launcher -Encoding UTF8
+        Move-Item -Force $psTmp "$d\\agy.ps1"
+        exit 0
+        """
+        return PowerShell.command(script)
+    }
+
+    /// Removes transient `%USERPROFILE%\.roamtty\voice-mic` on clean hangup.
+    public static func clearAgyLauncherCommand() -> String {
+        let script = """
+        Remove-Item "$env:USERPROFILE\\.roamtty\\voice-mic" -ErrorAction SilentlyContinue
+        exit 0
+        """
+        return PowerShell.command(script)
+    }
+
     private static func quote(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "''") + "'" }
 
     /// Stops a running agent (its exe is locked while it runs), checks `path` against `sha`, moves it into place.

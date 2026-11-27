@@ -294,3 +294,103 @@ final class AgentUsageTests: XCTestCase {
         XCTAssertEqual(linesAfterCache.count, 1)
     }
 }
+
+extension AgentUsageTests {
+    func testAgyStatusLineCachesQuotaAndCodexUsesNewestAccountQuota() throws {
+        let fm = FileManager.default
+        let home = fm.temporaryDirectory.appendingPathComponent("roamtty-quota-fresh-\(UUID().uuidString)")
+        try fm.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: home) }
+
+        let nowSec = Int(Date().timeIntervalSince1970)
+        let futureReset = nowSec + 7200
+
+        // 1. agy statusLine hook writes ~/.roamtty/quota-agy.json atomically and keeps 1970-01-01 100% buckets.
+        let hookFile = home.appendingPathComponent("agent-hook.sh")
+        try AgentHooks.script.write(to: hookFile, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hookFile.path)
+
+        let sl = Process()
+        sl.executableURL = URL(fileURLWithPath: "/bin/sh")
+        sl.arguments = [hookFile.path, "agy", "statusline"]
+        var slEnv = ProcessInfo.processInfo.environment
+        slEnv["HOME"] = home.path
+        slEnv["ROAMTTY_AGENT"] = "agy"
+        sl.environment = slEnv
+        let slIn = Pipe()
+        sl.standardInput = slIn
+        try sl.run()
+        let slPayload = #"{"model":{"id":"Gemini 4 Neon (XHigh)"},"quota":{"#
+            + #""gemini-5h":{"remaining_fraction":0.835,"reset_time":"2099-01-01T05:00:00Z","reset_in_seconds":5214},"#
+            + #""gemini-weekly":{"remaining_fraction":0.798,"reset_time":"2099-01-07T00:00:00Z","reset_in_seconds":574014},"#
+            + #""3p-5h":{"remaining_fraction":1.0,"reset_time":"1970-01-01T00:00:00Z","reset_in_seconds":0},"#
+            + #""3p-weekly":{"remaining_fraction":1.0,"reset_time":"1970-01-01T00:00:00Z","reset_in_seconds":0}}}"#
+        slIn.fileHandleForWriting.write(Data(slPayload.utf8))
+        try slIn.fileHandleForWriting.close()
+        sl.waitUntilExit()
+        XCTAssertEqual(sl.terminationStatus, 0)
+
+        let agyDir = home.appendingPathComponent(".gemini/antigravity-cli/brain/conv-sl/.system_generated/logs")
+        try fm.createDirectory(at: agyDir, withIntermediateDirectories: true)
+        let transcript = agyDir.appendingPathComponent("transcript.jsonl")
+
+        func runSession(_ agent: CodingAgent, cwd: String) throws -> AgentSessionUsage {
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/bin/sh")
+            proc.arguments = ["-c", AgentUsage.sessionCommand(agent: agent, tmuxSession: nil, directory: cwd)]
+            var env = ProcessInfo.processInfo.environment
+            env["HOME"] = home.path
+            env["ROAMTTY_NO_LIVE_QUOTA"] = "1"
+            proc.environment = env
+            let stdinPipe = Pipe(), stdoutPipe = Pipe()
+            proc.standardInput = stdinPipe
+            proc.standardOutput = stdoutPipe
+            try proc.run()
+            stdinPipe.fileHandleForWriting.write(AgentUsage.scriptData)
+            try stdinPipe.fileHandleForWriting.close()
+            proc.waitUntilExit()
+            XCTAssertEqual(proc.terminationStatus, 0)
+            let out = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
+            return try XCTUnwrap(AgentUsage.parseSession(out))
+        }
+
+        let claudeLine = #"{"type":"PLANNER_RESPONSE","created_at":"2099-01-01T00:00:01Z","model":"claude-opus-4-6","#
+            + #""input_tokens":1000,"output_tokens":200,"cache_read_tokens":5000}"# + "\n"
+        try claudeLine.write(to: transcript, atomically: true, encoding: .utf8)
+        let claude3p = try runSession(.agy, cwd: "/work/app")
+        XCTAssertEqual(claude3p.quota5h?.remainingRounded, 100)
+        XCTAssertNil(claude3p.quota5h?.resetsAtEpochSeconds)
+        XCTAssertEqual(claude3p.quota7d?.remainingRounded, 100)
+
+        let geminiLine = #"{"type":"PLANNER_RESPONSE","created_at":"2099-01-01T00:00:01Z","model":"gemini-4-neon-xhigh","#
+            + #""input_tokens":1000,"output_tokens":200,"cache_read_tokens":5000}"# + "\n"
+        try geminiLine.write(to: transcript, atomically: true, encoding: .utf8)
+        let geminiSess = try runSession(.agy, cwd: "/work/app")
+        XCTAssertEqual(geminiSess.quota5h?.remainingRounded, 84)
+        XCTAssertEqual(geminiSess.quota7d?.remainingRounded, 80)
+
+        // 2. Codex older session refreshes with the newer rollout's account-wide quota.
+        let codexDir = home.appendingPathComponent(".codex/sessions/2026/11/26")
+        try fm.createDirectory(at: codexDir, withIntermediateDirectories: true)
+        let oldTokenEvent = #"{"timestamp":"2099-01-01T00:01:00Z","type":"event_msg","payload":{"type":"token_count","#
+            + #""info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":0,"output_tokens":100},"#
+            + #""last_token_usage":{"input_tokens":1000,"cached_input_tokens":0,"output_tokens":100},"model_context_window":200000},"#
+            + #""rate_limits":{"limit_id":"codex","primary":{"used_percent":10.0,"window_minutes":300,"resets_at":\#(futureReset)},"#
+            + #""secondary":{"used_percent":5.0,"window_minutes":10080,"resets_at":\#(futureReset + 100000)}}}}"#
+        let oldRollout = [#"{"timestamp":"2099-01-01T00:00:00Z","type":"session_meta","payload":{"cwd":"/work/old"}}"#, oldTokenEvent]
+            .joined(separator: "\n") + "\n"
+        try oldRollout.write(to: codexDir.appendingPathComponent("rollout-old.jsonl"), atomically: true, encoding: .utf8)
+        let newTokenEvent = #"{"timestamp":"2099-01-01T01:05:00Z","type":"event_msg","payload":{"type":"token_count","#
+            + #""info":{"total_token_usage":{"input_tokens":2000,"cached_input_tokens":0,"output_tokens":200},"#
+            + #""last_token_usage":{"input_tokens":2000,"cached_input_tokens":0,"output_tokens":200},"model_context_window":200000},"#
+            + #""rate_limits":{"limit_id":"codex","primary":{"used_percent":55.0,"window_minutes":300,"resets_at":\#(futureReset)},"#
+            + #""secondary":{"used_percent":40.0,"window_minutes":10080,"resets_at":\#(futureReset + 100000)}}}}"#
+        let newRollout = [#"{"timestamp":"2099-01-01T01:00:00Z","type":"session_meta","payload":{"cwd":"/work/new"}}"#, newTokenEvent]
+            .joined(separator: "\n") + "\n"
+        try newRollout.write(to: codexDir.appendingPathComponent("rollout-new.jsonl"), atomically: true, encoding: .utf8)
+
+        let oldCodex = try runSession(.codex, cwd: "/work/old")
+        XCTAssertEqual(oldCodex.quota5h?.remainingRounded, 45)
+        XCTAssertEqual(oldCodex.quota7d?.remainingRounded, 60)
+    }
+}

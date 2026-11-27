@@ -55,6 +55,10 @@ import RoamttyTransport
     /// Remote desktops' thumbnails, and their controllers once the first desktop opens.
     let desktopThumbnails = DesktopThumbnails()
     private(set) var desktopStore: DesktopStore?
+    /// Tracks whether any terminal session currently has an active voice call (auto-mutes desktop audio).
+    private(set) var voiceCallActive = false
+    /// Known per-host `roamtty-desktop` binary installation status (`nil` = unknown, `false` = missing, `true` = installed).
+    @Published var desktopPluginInstalled: [String: Bool] = [:]
     /// The host whose desktop shows in the small window over its terminal (the dock's desktop button).
     @Published var pipDesktopHostID: String?
     let desktopNetwork = DesktopNetworkMonitor()
@@ -100,6 +104,7 @@ import RoamttyTransport
             try installUITestFixture(store)
             try installDesktopControlsFixture()
             try installDesktopGestureFixture()
+            try installVoiceUIFixture(store)
             #endif
         } catch { self.error = error.localizedDescription }
         installAgentNotifications()
@@ -132,7 +137,27 @@ import RoamttyTransport
     /// Remote desktops for every host; created on first use.
     var desktops: DesktopStore {
         if let desktopStore { return desktopStore }
-        let store = DesktopStore(); desktopStore = store; return store
+        let store = DesktopStore()
+        store.setVoiceCallActive(voiceCallActive)
+        desktopStore = store
+        return store
+    }
+
+    func setVoiceCallActive(_ active: Bool) {
+        let anyActive = active || runtimes.values.contains { $0.voice.active }
+        voiceCallActive = anyActive
+        desktopStore?.setVoiceCallActive(anyActive)
+    }
+
+    /// Stops any active or starting voice call on other sessions (sending F7 and releasing audio synchronously) so only one call owns the audio session.
+    @discardableResult
+    func stopOtherVoiceCalls(except sessionID: String) -> Bool {
+        var stoppedAny = false
+        for (id, runtime) in runtimes where id != sessionID && runtime.voice.isBusy {
+            runtime.voice.handoverStop(runtime: runtime)
+            stoppedAny = true
+        }
+        return stoppedAny
     }
 
     // MARK: Presentation

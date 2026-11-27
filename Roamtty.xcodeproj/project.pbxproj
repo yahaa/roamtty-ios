@@ -620,6 +620,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "CA40783062D85E118B48D1B3";
 		};
+		"6EC3A16E32583FCC95C4AED7" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyCore/Terminal/GhostVoiceState.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"BA97E4A0CDBE9672B77C282A" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "6EC3A16E32583FCC95C4AED7";
+		};
 		"D8C04439A049DB28EC095138" = {
 			"isa" = "PBXFileReference";
 			"path" = "Sources/RoamttyCore/Terminal/TerminalAttachment.swift";
@@ -861,6 +871,7 @@
 				"B067C6C226A34C844ADF8BF8",
 				"4E3E0A6FCA83095DCE7BEC7D",
 				"5E179FC0D45020473EAF29F3",
+				"BA97E4A0CDBE9672B77C282A",
 				"AC686F43342E9263D06AC2B8",
 				"957D41FCC3E4B9DB0735E62D",
 				"797EA799965C33210DE454FE",
@@ -1781,6 +1792,46 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "48A6D14F0C34DCC85EABB46A";
 		};
+		"4799E6E1EB268447AA9A6176" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/VoiceProtocol.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"0B4FF2AF607708B4B37605D3" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "4799E6E1EB268447AA9A6176";
+		};
+		"7201AB6EC56D639E8570C610" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/VoiceSession+Stream.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"3EBA15915F6EA954A5F8A1A2" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "7201AB6EC56D639E8570C610";
+		};
+		"A52EC7C4276BE23759CA549D" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/VoiceSession.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"32136654FFBBA59E2004229E" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "A52EC7C4276BE23759CA549D";
+		};
+		"52DB96C0DE5EC4B6986CA788" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/VoiceSessionTypes.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"0C5917A086B889B7D204A054" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "52DB96C0DE5EC4B6986CA788";
+		};
 		"7721621C46A1D0D416C5EE10" = {
 			"isa" = "PBXSourcesBuildPhase";
 			"buildActionMask" = "2147483647";
@@ -1821,6 +1872,10 @@
 				"D699A753B79EABE070C27E1A",
 				"5033FC126D0FE363C417B6C0",
 				"09A23B867741A32F3CF47666",
+				"0B4FF2AF607708B4B37605D3",
+				"3EBA15915F6EA954A5F8A1A2",
+				"32136654FFBBA59E2004229E",
+				"0C5917A086B889B7D204A054",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
 		};
@@ -3065,6 +3120,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "BC52B6BBBB6D3A89A0560E1B";
 		};
+		"36AB27C70F28FDAC82A4E6F0" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Features/Terminal/Screen/TerminalScreen+Voice.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"8F30D1E895B04AC790F1631F" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "36AB27C70F28FDAC82A4E6F0";
+		};
 		"2D014E603245B00F01AED3E8" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/Roamtty/Features/Terminal/Screen/TerminalScreen.swift";
@@ -3074,6 +3139,56 @@
 		"6AC846F53773FDFBF0FA574E" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "2D014E603245B00F01AED3E8";
+		};
+		"86D9A56A7D591F4DD7E8C109" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Features/Voice/VoiceAudioEngine+Lifecycle.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"427DF1F2DAF00D311A75287F" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "86D9A56A7D591F4DD7E8C109";
+		};
+		"B858F23C3C96308271FBEE86" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Features/Voice/VoiceAudioEngine.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"91E1B1D2A1A1BA8DF6AB8F79" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "B858F23C3C96308271FBEE86";
+		};
+		"9F2C90D807E60C4211D460EF" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Features/Voice/VoiceCallPopover.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"5F9DA408631CF85BFA3A1E7F" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "9F2C90D807E60C4211D460EF";
+		};
+		"6B6BE6D429B23A50E845CF3D" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Features/Voice/VoiceController+Lifecycle.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"F523276F3F84B99D1C3ADFC2" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "6B6BE6D429B23A50E845CF3D";
+		};
+		"05B5780AFCDB13E90B030369" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Features/Voice/VoiceController.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"3FA64EF4DB773827B4F9C072" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "05B5780AFCDB13E90B030369";
 		};
 		"8E8427A2DDD2474D8B373AE7" = {
 			"isa" = "PBXFileReference";
@@ -3325,6 +3440,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "7A3FA0B3936A8E0267F8A04B";
 		};
+		"3CBCBD51884AF5DFAC83650E" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Services/AudioSessionCoordinator.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"0D03A441A2784587F8177CA3" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "3CBCBD51884AF5DFAC83650E";
+		};
 		"4945D30DB826049A20AB314B" = {
 			"isa" = "PBXFileReference";
 			"path" = "App/Roamtty/Services/BackgroundWork.swift";
@@ -3384,6 +3509,16 @@
 		"F2664F6988963FD8EF5C00F8" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "07EC1078D64F2213288D559C";
+		};
+		"457D60E8489A9E67FDEFC334" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/Roamtty/Services/ObjCExceptionCatcher.m";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.c.objc";
+		};
+		"A50C5698C49313D90DB26DDF" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "457D60E8489A9E67FDEFC334";
 		};
 		"275E3DB022CBE6D670178A5A" = {
 			"isa" = "PBXFileReference";
@@ -3519,7 +3654,13 @@
 				"FB1CD6DC15464512E2E44D57",
 				"973556BD83BB2AB6AAD02560",
 				"0E68F39258516EDAD83D1558",
+				"8F30D1E895B04AC790F1631F",
 				"6AC846F53773FDFBF0FA574E",
+				"427DF1F2DAF00D311A75287F",
+				"91E1B1D2A1A1BA8DF6AB8F79",
+				"5F9DA408631CF85BFA3A1E7F",
+				"F523276F3F84B99D1C3ADFC2",
+				"3FA64EF4DB773827B4F9C072",
 				"7DCB7B78CD1A08AC1AF0F0AF",
 				"72BF447BBEE0540CF4121741",
 				"99698B244948659734AD9930",
@@ -3545,12 +3686,14 @@
 				"52CB89989DDE4D35930F7F42",
 				"F2C98F46E87F513CF4DE91F6",
 				"1834C758470B2D750BA6F33E",
+				"0D03A441A2784587F8177CA3",
 				"960754CB326E8238838DD365",
 				"743DB4EFD34F3A8CC0B09B54",
 				"96E31590497DD5F2463F1D45",
 				"1E5E6B100ACE77F830AECC1A",
 				"3CA37FF21651889E6D99B981",
 				"F2664F6988963FD8EF5C00F8",
+				"A50C5698C49313D90DB26DDF",
 				"1FC050EFE9B74172005CD96C",
 				"35FF0A10D774AB5B8D1DA8B0",
 			);
@@ -3999,6 +4142,7 @@
 				);
 				"CODE_SIGN_ENTITLEMENTS" = "$(ROAMTTY_ENTITLEMENTS)";
 				"GENERATE_INFOPLIST_FILE" = "NO";
+				"SWIFT_OBJC_BRIDGING_HEADER" = "App/Support/Roamtty-Bridging-Header.h";
 				"SWIFT_OPTIMIZATION_LEVEL" = "-Onone";
 				"GCC_OPTIMIZATION_LEVEL" = "0";
 				"DEBUG_INFORMATION_FORMAT" = "dwarf";
@@ -4060,6 +4204,7 @@
 				);
 				"CODE_SIGN_ENTITLEMENTS" = "$(ROAMTTY_ENTITLEMENTS)";
 				"GENERATE_INFOPLIST_FILE" = "NO";
+				"SWIFT_OBJC_BRIDGING_HEADER" = "App/Support/Roamtty-Bridging-Header.h";
 				"SWIFT_OPTIMIZATION_LEVEL" = "-O";
 				"DEBUG_INFORMATION_FORMAT" = "dwarf-with-dsym";
 				"SWIFT_COMPILATION_MODE" = "wholemodule";
@@ -4725,6 +4870,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "E3B676570A0896087DEDF330";
 		};
+		"76CE82F5E62087B3E5964953" = {
+			"isa" = "PBXFileReference";
+			"path" = "App/UITests/VoiceUITests.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"6A71D72B66A1C59B0A569C63" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "76CE82F5E62087B3E5964953";
+		};
 		"13FBDC136B79F83D32EA8510" = {
 			"isa" = "PBXSourcesBuildPhase";
 			"buildActionMask" = "2147483647";
@@ -4766,6 +4921,7 @@
 				"564E8FB01B635C30E8767736",
 				"63791E5A4ED8648C72F0EB45",
 				"1505D11C5E5873A8800F80D2",
+				"6A71D72B66A1C59B0A569C63",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
 		};
@@ -4982,6 +5138,7 @@
 				"509F207EB17BDF731A4E75FC",
 				"61C76A1052AAC076E578C27B",
 				"CA40783062D85E118B48D1B3",
+				"6EC3A16E32583FCC95C4AED7",
 				"D8C04439A049DB28EC095138",
 				"5D352DFC0CB3932BE4310117",
 				"8829EFED30FF69AC57070DD3",
@@ -5054,6 +5211,10 @@
 				"2920228034DC1736EC9D27A2",
 				"94A275D205A0E28ED2D2601E",
 				"48A6D14F0C34DCC85EABB46A",
+				"4799E6E1EB268447AA9A6176",
+				"7201AB6EC56D639E8570C610",
+				"A52EC7C4276BE23759CA549D",
+				"52DB96C0DE5EC4B6986CA788",
 				"E253649D0644962204A856CE",
 				"8AADF96DA52A4385487B76A0",
 				"5840B97A1E2E2F0D654FAFB9",
@@ -5164,7 +5325,13 @@
 				"2689F2E76AEBD72E7C6B2595",
 				"CC7BA764DE00F4180212A23F",
 				"BC52B6BBBB6D3A89A0560E1B",
+				"36AB27C70F28FDAC82A4E6F0",
 				"2D014E603245B00F01AED3E8",
+				"86D9A56A7D591F4DD7E8C109",
+				"B858F23C3C96308271FBEE86",
+				"9F2C90D807E60C4211D460EF",
+				"6B6BE6D429B23A50E845CF3D",
+				"05B5780AFCDB13E90B030369",
 				"8E8427A2DDD2474D8B373AE7",
 				"8D0D86AAD40EC80D68CBB5F2",
 				"7D5228076E00B068894DFD80",
@@ -5190,12 +5357,14 @@
 				"96C8AD42D649B47E8836D756",
 				"DADE823230C8E3ECCC666E16",
 				"7A3FA0B3936A8E0267F8A04B",
+				"3CBCBD51884AF5DFAC83650E",
 				"4945D30DB826049A20AB314B",
 				"EC4C008C4F1F0E4A42D53E21",
 				"DACDF14B148B60D710793B90",
 				"DD8FC09DB204B207B66DA7B8",
 				"52C0E61190107DD201A7D211",
 				"07EC1078D64F2213288D559C",
+				"457D60E8489A9E67FDEFC334",
 				"275E3DB022CBE6D670178A5A",
 				"D513F8D4A0521592F6428607",
 				"097A7C2C4390D748BC2209E8",
@@ -5267,6 +5436,7 @@
 				"53A3BE6ED3921EE9F96B4F5F",
 				"D38178006D297C0F2B706917",
 				"E3B676570A0896087DEDF330",
+				"76CE82F5E62087B3E5964953",
 				"0A3E27B8CA818264D75C8D81",
 			);
 			"sourceTree" = "<group>";

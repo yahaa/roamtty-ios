@@ -83,7 +83,7 @@ extension SessionRuntime {
             defer { self?.agentUsageTask = nil; self?.agentUsageLoading = false }
             guard let self, let ssh = await self.sideConnection() else { return }
             let cmd = AgentUsage.sessionCommand(agent: kind, tmuxSession: tmuxName, directory: directory, fetchAgyQuota: fetchAgy)
-            let result = try? await ssh.run(cmd, input: AgentUsage.scriptData, timeout: fetchAgy ? 20 : 15, cancellation: self.lifetimeCancellation)
+            let result = try? await ssh.run(cmd, input: AgentUsage.scriptData, timeout: fetchAgy ? 25 : 15, cancellation: self.lifetimeCancellation)
             guard !Task.isCancelled, self.ssh === ssh, self.phase == .connected else { return }
             self.lastAgentUsageAt = Date()
             if let parsed = AgentUsage.parseSession(result?.text) { self.agentUsage = parsed }
@@ -146,6 +146,7 @@ extension SessionRuntime {
     /// Restarts the tmux pane in its folder and types its foreground program again; false when tmux was not reached.
     func restartPane() async -> Bool {
         guard record.mode == .tmux, phase == .connected, let ssh = await sideConnection() else { return false }
+        voice.shutdown()
         let command = RemoteCommands.restartPane(record.remoteName), cancellation = lifetimeCancellation
         guard let result = try? await ssh.run(command, timeout: 10, cancellation: cancellation), result.status == 0 else { return false }
         let program = result.trimmedText

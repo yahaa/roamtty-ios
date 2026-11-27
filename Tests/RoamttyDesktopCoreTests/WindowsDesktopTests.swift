@@ -45,6 +45,19 @@ final class WindowsDesktopTests: XCTestCase {
                        #"cmd /c ""%USERPROFILE%\.roamtty\bin\roamtty-desktop.exe" serve --proto 1 --client 2400x1080@420""#)
     }
 
+    func testWriteAndClearAgyLauncherGuardCmdAndWriteAtomically() throws {
+        XCTAssertNil(WindowsDesktop.writeAgyLauncherCommand(micPort: 0))
+        let cmd = try XCTUnwrap(WindowsDesktop.writeAgyLauncherCommand(micPort: 24713))
+        let script = decode(cmd)
+        XCTAssertTrue(script.contains("127.0.0.1:24713"))
+        XCTAssertTrue(script.contains("Move-Item -Force"))
+        XCTAssertTrue(script.contains("agy.exe, agy.cmd, agy"))
+        XCTAssertTrue(script.contains("$PSCommandPath"))
+        let clear = decode(WindowsDesktop.clearAgyLauncherCommand())
+        XCTAssertTrue(clear.contains("Remove-Item"))
+        XCTAssertTrue(clear.contains("voice-mic"))
+    }
+
     func testServiceInstallCommandIsWhatTheHintCopies() {
         XCTAssertEqual(WindowsDesktop.SERVICE_INSTALL, #"& "$env:USERPROFILE\.roamtty\bin\roamtty-desktop.exe" install"#)
         XCTAssertEqual(WindowsDesktop.installScript(), #"& "$env:USERPROFILE\.roamtty\bin\roamtty-desktop.exe" install; exit $LASTEXITCODE"#)

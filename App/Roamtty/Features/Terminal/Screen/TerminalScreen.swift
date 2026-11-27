@@ -45,8 +45,13 @@ struct TerminalScreen: View {
     var connected: Bool { runtime.phase == .connected }
     var isAgentSession: Bool { runtime.activeAgentKind != nil }
     var dockAvailable: Bool { connected && !editor && !commandSheet && !usageSheet }
-    /// A double tap or a line starting with `/` brings arrow keys around the pet, while its ring is closed.
-    var petArrowsShown: Bool { dockAvailable && !toolbox.dockVisible && !toolbox.ringOpen && (petArrowsUntil > now || runtime.slashCommandLine) }
+    var voiceControlsAvailable: Bool { runtime.voice.active && !editor && !commandSheet && !usageSheet }
+    /// A double tap or a line starting with `/` brings arrow keys around the pet, while its ring and voice popover are closed.
+    var petArrowsShown: Bool {
+        dockAvailable && !toolbox.dockVisible && !toolbox.ringOpen
+            && !(runtime.voice.active && runtime.voice.popoverOpen)
+            && (petArrowsUntil > now || runtime.slashCommandLine)
+    }
     var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
     /// The terminal view sits inside these insets of its viewport, as on Android (portrait 4 / 4 / 6 dp; landscape 10 / 6 / 6 dp).
     static func inset(landscape: Bool) -> EdgeInsets {
@@ -80,6 +85,7 @@ struct TerminalScreen: View {
         let landscape = windowSize.width > windowSize.height
         let twoColumns = TerminalDockGeometry.twoColumns(landscape: landscape, keyboardVisible: keyboardVisible, height: page.size.height)
         let reserved = dockAvailable && toolbox.pinned
+        let insets = safeAreaInsets(for: page)
         return ZStack(alignment: .topLeading) {
             HStack(spacing: 0) {
                 terminalColumn(page, landscape: landscape)
@@ -90,10 +96,11 @@ struct TerminalScreen: View {
             }
             // The dock and the pet step aside from the cursor row, so they follow it without the page.
             CursorRowReader(cursor: runtime.cursorRow) {
-                if dockAvailable && !reserved { floatingControls(in: page.size, twoColumns: twoColumns) }
+                if (dockAvailable || voiceControlsAvailable) && !reserved {
+                    floatingControls(in: page.size, safeArea: insets, twoColumns: twoColumns)
+                }
             }
             if connected && !editor && isAgentSession {
-                let insets = safeAreaInsets(for: page)
                 let ringTrailing = reserved ? max(insets.trailing, twoColumns ? 96 : 48) + 4 : insets.trailing + 8
                 TerminalContextRing(percent: runtime.agentUsage?.contextPercent) {
                     _ = runtime.terminalView.resignFirstResponder()
@@ -106,6 +113,8 @@ struct TerminalScreen: View {
             }
             if let desktop = pipDesktop { desktopWindow(desktop, page: page, landscape: landscape, reserved: reserved, twoColumns: twoColumns) }
             ImageInsertStatus(transfers: model.files, jobs: $imageJobs, topInset: page.safeAreaInsets.top).frame(width: page.size.width, height: page.size.height)
+            voiceToast(topInset: insets.top)
+                .frame(width: page.size.width, height: page.size.height, alignment: .top)
         }
     }
 
@@ -156,15 +165,22 @@ struct TerminalScreen: View {
         }
     }
 
-    /// The floating dock, or the pet with its shortcut ring and arrow keys.
+    /// The floating dock, or the pet with its shortcut ring, arrow keys, and active voice popover.
     @ViewBuilder
-    private func floatingControls(in viewport: CGSize, twoColumns: Bool) -> some View {
+    private func floatingControls(in viewport: CGSize, safeArea: EdgeInsets, twoColumns: Bool) -> some View {
         if toolbox.dockVisible { dock(in: viewport, twoColumns: twoColumns, reserved: false) } else if toolbox.ghostVisible || petArrowsShown {
             let center = petCenter(in: viewport)
             ZStack(alignment: .topLeading) {
-                GhostShortcuts(runtime: runtime, toolbox: $toolbox, center: center, viewport: viewport) {
-                    withAnimation(.easeOut(duration: 0.18)) { toolbox.openDock(at: now) }
-                }
+                voiceCallOverlay(in: viewport, safeArea: safeArea, center: center)
+                GhostShortcuts(
+                    runtime: runtime, toolbox: $toolbox, center: center, viewport: viewport,
+                    voiceState: runtime.voice.ghostState,
+                    voiceNetworkUnstable: runtime.voice.networkUnstable,
+                    voiceStatusTag: runtime.voice.petStatusTag(english: model.english),
+                    voicePopoverOpen: runtime.voice.popoverOpen,
+                    onHoldBegan: { runtime.voice.popoverOpen = false },
+                    onTap: handleGhostTap
+                )
                 if petArrowsShown { petArrows(center: center).transition(.opacity) }
             }.transition(.opacity.combined(with: .offset(x: 24)))
         }
@@ -205,6 +221,7 @@ struct TerminalScreen: View {
         }
         .onChange(of: model.settings.toolboxPinned) { pinned in if pinned != toolbox.pinned { toolbox.setPinned(pinned, at: now) } }
         .onChange(of: commandSheet) { _ in toolbox.closeRing() }
+        .onChange(of: runtime.voice.active) { active in toolbox.setVoiceActive(active, at: now) }
         .onChange(of: runtime.petArrowTouches) { _ in withAnimation(.easeOut(duration: 0.12)) { petArrowsUntil = now + 4 }; toolbox.wake(at: now) }
         // A terminal whose connection dropped, or that came back from the journal, reconnects as soon as it is shown.
         .task(id: runtime.end) { await model.reconnectOnOpen(runtime.record) }
@@ -214,6 +231,13 @@ struct TerminalScreen: View {
     /// The terminal's callbacks into this screen: the font size it was pinched to, and the links and paths tapped in it.
     private func connectRuntime() {
         toolbox.setPinned(model.settings.toolboxPinned, at: now)
+        toolbox.setVoiceActive(runtime.voice.active, at: now)
+        #if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        if ProcessInfo.processInfo.arguments.contains("--voice-ui-fixture") {
+            if env["ROAMTTY_VOICE_FIXTURE_DOCK"] == "1" { toolbox.openDock(at: now) }
+        }
+        #endif
         runtime.onFontScaled = { size in model.settings.fontSize = size; model.saveSettings() }
         runtime.onOpenLoopback = { [weak runtime] url in
             guard let runtime else { return }
@@ -258,6 +282,14 @@ struct TerminalScreen: View {
         .modifier(TerminalPasteConfirmation(runtime: runtime, enabled: !commandSheet && !usageSheet))
         .sheet(isPresented: $commandSheet) { CommandSheet(runtime: runtime).environmentObject(model) }
         .sheet(isPresented: $usageSheet) { AgentUsageSheet(runtime: runtime).environmentObject(model) }
+        .alert(model.text("语音通话提示", "Voice Session"), isPresented: Binding(
+            get: { runtime.voice.errorMessage != nil },
+            set: { if !$0 { runtime.voice.errorMessage = nil } }
+        )) {
+            Button(model.text("知道了", "OK"), role: .cancel) { runtime.voice.errorMessage = nil }
+        } message: {
+            Text(runtime.voice.errorMessage ?? "")
+        }
         .sheet(item: $fileAction, onDismiss: {
             // The root launch sheet must wait until its child picker has gone.
             if let launchAfterFiles { self.launchAfterFiles = nil; model.sheet = launchAfterFiles }

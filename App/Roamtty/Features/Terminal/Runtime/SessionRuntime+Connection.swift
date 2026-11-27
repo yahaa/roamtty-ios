@@ -47,6 +47,7 @@ extension SessionRuntime {
                     try overSSH()
                 }
                 guard self?.generation == token else { return }
+                self?.voice.shutdown()
                 self?.cancelStartup(); self?.end = .ended; self?.phase = .disconnected
             } catch { guard self?.generation == token else { return }; self?.cancelStartup(); self?.fail(error) }
         }

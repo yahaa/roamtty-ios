@@ -12,6 +12,7 @@ final class DesktopAudioPlayer: DesktopAudioSink, @unchecked Sendable {
     struct Level: Equatable { var rms = 0, crossings = 0 }
 
     private let queue = DispatchQueue(label: "roamtty.desktop.audio", qos: .userInteractive)
+    private let sessionToken = UUID()
     private let pcm = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)!
     private let opus: AVAudioFormat
     private var engine: AVAudioEngine?
@@ -23,6 +24,8 @@ final class DesktopAudioPlayer: DesktopAudioSink, @unchecked Sendable {
     private let muted: Bool
 
     private let lock = NSLock()
+    /// Temporarily silenced while an interactive terminal voice call is active, protecting VPIO AEC.
+    private var _voiceMuted = false
     /// The end of what was scheduled, on the player's timeline (frames since `play`); only on `queue`.
     private var scheduledEnd: Int64 = 0
     private var _packets: Int64 = 0, _dropped: Int64 = 0, _cushions: Int64 = 0, _queuedMs = 0, _targetMs = 0
@@ -45,12 +48,26 @@ final class DesktopAudioPlayer: DesktopAudioSink, @unchecked Sendable {
     var targetMs: Int { lock.withLock { _targetMs } }
     var level: Level { lock.withLock { _level } }
     var rate: Double { queue.sync { jitter.rate } }
+    var voiceMuted: Bool { lock.withLock { _voiceMuted } }
 
-    func submit(_ audio: Audio) { queue.async { self.play(audio) } }
+    func setVoiceMuted(_ muted: Bool) {
+        let changed = lock.withLock { () -> Bool in
+            guard _voiceMuted != muted else { return false }
+            _voiceMuted = muted
+            return true
+        }
+        if changed && muted { queue.async { self.teardown() } }
+    }
+
+    func submit(_ audio: Audio) {
+        guard !lock.withLock({ _voiceMuted }) else { return }
+        queue.async { self.play(audio) }
+    }
 
     func stop() { queue.async { self.teardown() } }
 
     private func play(_ audio: Audio) {
+        guard !lock.withLock({ _voiceMuted }) else { return }
         if engine?.isRunning != true {
             // First packet, or an interruption (a call) stopped the engine: start over.
             teardown()
@@ -80,12 +97,14 @@ final class DesktopAudioPlayer: DesktopAudioSink, @unchecked Sendable {
     }
 
     private func start() -> Bool {
+        guard !lock.withLock({ _voiceMuted }) else { return false }
         do {
-            let s = AVAudioSession.sharedInstance()
-            try s.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-            // Short output buffers: the player's render position, which the backlog is read from, moves in their steps.
-            try? s.setPreferredIOBufferDuration(0.01)
-            try s.setActive(true)
+            let acquired = try AudioSessionCoordinator.shared.activate(token: sessionToken, role: .desktop) { s in
+                try s.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+                // Short output buffers: the player's render position, which the backlog is read from, moves in their steps.
+                try? s.setPreferredIOBufferDuration(0.01)
+            }
+            guard acquired else { return false }
             let e = AVAudioEngine(), n = AVAudioPlayerNode(), v = AVAudioUnitVarispeed()
             e.attach(n); e.attach(v)
             e.connect(n, to: v, format: pcm)
@@ -93,7 +112,7 @@ final class DesktopAudioPlayer: DesktopAudioSink, @unchecked Sendable {
             if muted { e.mainMixerNode.outputVolume = 0 }
             e.prepare()
             try e.start()
-            n.play()
+            if e.isRunning { n.play() }
             engine = e; node = n; varispeed = v
             converter = AVAudioConverter(from: opus, to: pcm)
             jitter = AudioJitter()
@@ -107,13 +126,12 @@ final class DesktopAudioPlayer: DesktopAudioSink, @unchecked Sendable {
     }
 
     private func teardown() {
-        node?.stop()
+        if engine?.isRunning == true { node?.stop() }
         engine?.stop()
-        let wasRunning = engine != nil
         engine = nil; node = nil; varispeed = nil; converter = nil
         scheduledEnd = 0
         lock.withLock { _queuedMs = 0 }
-        if wasRunning { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
+        AudioSessionCoordinator.shared.deactivate(token: sessionToken)
     }
 
     /// Frames the player has taken so far: where its render position is, before the mixer, Varispeed

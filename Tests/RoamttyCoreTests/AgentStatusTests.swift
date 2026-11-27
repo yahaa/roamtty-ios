@@ -89,7 +89,9 @@ final class AgentStatusTests: XCTestCase {
         XCTAssertTrue(launcher.contains("\"PreToolUse\":[{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"sh ~/.roamtty/agent-hook.sh agy tool\"}]}]"))
         XCTAssertTrue(launcher.contains("\"PostToolUse\":[{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"sh ~/.roamtty/agent-hook.sh agy post\"}]}]"))
         XCTAssertTrue(launcher.contains("\"Stop\":[{\"type\":\"command\",\"command\":\"sh ~/.roamtty/agent-hook.sh agy stop\"}]"))
-        XCTAssertTrue(launcher.contains("export ROAMTTY_AGENT=agy\nsh ~/.roamtty/agent-hook.sh agy start </dev/null\nagy \"$@\"\n"))
+        XCTAssertTrue(launcher.contains("export ROAMTTY_AGENT=agy\nsh ~/.roamtty/agent-hook.sh agy start </dev/null\n"))
+        XCTAssertTrue(launcher.contains("\"voice\":{\"fullDuplex\":true}"))
+        XCTAssertTrue(launcher.contains("sh ~/.roamtty/agent-hook.sh agy statusline"))
         XCTAssertTrue(launcher.contains("status=$?\nsh ~/.roamtty/agent-hook.sh agy end </dev/null\nexit $status\n"))
     }
 

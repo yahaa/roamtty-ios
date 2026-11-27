@@ -53,6 +53,12 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to your SSH hosts on the local network.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Forward microphone audio to remote terminal voice sessions.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>RoamttyAppGroupEnabled</key>
 	<string>$(ROAMTTY_APP_GROUP_ENABLED)</string>
 	<key>RoamttySharedKeychainGroup</key>

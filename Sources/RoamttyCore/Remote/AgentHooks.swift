@@ -143,10 +143,17 @@ public enum AgentHooks {
         return (lines + launcherEnd(.grok)).joined(separator: "\n") + "\n"
     }
 
+    /// Default loopback `ANTIGRAVITY_MIC` endpoint pre-configured in Roamtty's `agy` launchers.
+    public static let defaultAntigravityMic = "127.0.0.1:24713"
+
     /// `~/.roamtty/agy`: Antigravity CLI loads global hooks from plugins under `~/.gemini/config/plugins/`, so this
     /// writes a small `roamtty` plugin whose hooks act only for an `agy` started here (`script` checks `ROAMTTY_AGENT`),
     /// reports the initial idle state (Antigravity fires `SessionStart` only on the first prompt), then runs `agy`.
-    public static var agyLauncher: String {
+    public static var agyLauncher: String { agyLauncher(micPort: nil) }
+
+    /// `~/.roamtty/agy` with `ANTIGRAVITY_MIC` injection for `/voice`.
+    /// When `micPort` is nil, honors an existing `ANTIGRAVITY_MIC` or `~/.roamtty/voice-mic`, falling back to `127.0.0.1:24713`.
+    public static func agyLauncher(micPort: Int?) -> String {
         let plugin = "{\"name\":\"roamtty\",\"displayName\":\"Roamtty\",\"version\":\"1.0.0\"," +
             "\"description\":\"Reports Antigravity CLI status to Roamtty.\"}"
         let hooks = "{\"roamtty\":{" +
@@ -155,15 +162,31 @@ public enum AgentHooks {
             "\"PostToolUse\":[{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"\(hookCommand(.agy, "post"))\"}]}]," +
             "\"Stop\":[{\"type\":\"command\",\"command\":\"\(hookCommand(.agy, "stop"))\"}]" +
             "}}"
-        let lines = [
+        var lines = [
             "#!/bin/sh",
             "# Roamtty: starts Antigravity CLI with hooks that report its state to agent-hook.sh.",
             "dir=\"$HOME/.gemini/config/plugins/roamtty\"",
-            "mkdir -p \"$dir\" && printf '%s\\n' '\(plugin)' > \"$dir/plugin.json\" && printf '%s\\n' '\(hooks)' > \"$dir/hooks.json\"",
-            "export ROAMTTY_AGENT=agy",
-            "\(hookCommand(.agy, "start")) </dev/null",
-            "agy \"$@\""
+            "mkdir -p \"$dir\" && printf '%s\\n' '\(plugin)' > \"$dir/plugin.json\" && printf '%s\\n' '\(hooks)' > \"$dir/hooks.json\""
         ]
+        if let addr = voiceMicAddress(port: micPort) {
+            lines.append("export ANTIGRAVITY_MIC=\(addr)")
+        } else {
+            let fallback = "[ -s \"$HOME/.roamtty/voice-mic\" ] && export ANTIGRAVITY_MIC=\"$(cat \"$HOME/.roamtty/voice-mic\")\" " +
+                "|| export ANTIGRAVITY_MIC=\(defaultAntigravityMic)"
+            lines.append("[ -n \"${ANTIGRAVITY_MIC:-}\" ] || { \(fallback); }")
+        }
+        lines.append("export ROAMTTY_AGENT=agy")
+        lines.append("\(hookCommand(.agy, "start")) </dev/null")
+        let agySettings = "{\"voice\":{\"fullDuplex\":true},\"statusLine\":{\"type\":\"command\",\"command\":\"\(hookCommand(.agy, "statusline"))\",\"enabled\":true,\"stack_with_default\":true}}"
+        lines.append("agy_has_settings=0")
+        lines.append("for arg in \"$@\"; do case \"$arg\" in --settings|--settings=*) agy_has_settings=1; break ;; esac; done")
+        lines.append("if [ \"$agy_has_settings\" = 1 ]; then agy \"$@\"; else agy --settings '\(agySettings)' \"$@\"; fi")
         return (lines + launcherEnd(.agy)).joined(separator: "\n") + "\n"
+    }
+
+    /// Loopback `ANTIGRAVITY_MIC` address for a valid port, nil otherwise.
+    public static func voiceMicAddress(port: Int?) -> String? {
+        guard let port, (1...65535).contains(port) else { return nil }
+        return "127.0.0.1:\(port)"
     }
 }

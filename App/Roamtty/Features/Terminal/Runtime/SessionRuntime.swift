@@ -73,6 +73,8 @@ import RoamttyTransport
     var onOpenLoopback: ((LoopbackUrl) -> Void)?
     var onFailure: ((Error) -> Void)?
     let terminalView: TerminalView
+    let voice = VoiceController()
+    private var voiceRelay: AnyCancellable?
 
     // MARK: Connection
 
@@ -168,6 +170,7 @@ import RoamttyTransport
         view.viewportChanged = { [weak self] in self?.queueCursorRefresh() }
         view.pasteStarted = { [weak self] bracketed in self?.clearModifiers(); self?.capturedPaste = TerminalPasteCapture(bracketed: bracketed) }
         view.pasteFinished = { [weak self] in self?.finishNativePaste() }
+        voiceRelay = voice.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         installGestures()
     }
     /// Fires before a change to what the screens outside this terminal show of it: the session list, the drawer
@@ -175,8 +178,11 @@ import RoamttyTransport
     /// terminal does not redraw the whole app on every chunk it receives.
     var summaryWillChange: AnyPublisher<Void, Never> {
         func changes<T>(_ publisher: Published<T>.Publisher) -> AnyPublisher<Void, Never> { publisher.dropFirst().map { _ in () }.eraseToAnyPublisher() }
-        return Publishers.MergeMany(changes($record), changes($phase), changes($end), changes($agentStatus), changes($agentPolled),
-                                    changes($agentUsage), changes($paneDirectory), changes($transportName), changes($launchedAgent)).eraseToAnyPublisher()
+        return Publishers.MergeMany(
+            changes($record), changes($phase), changes($end), changes($agentStatus), changes($agentPolled),
+            changes($agentUsage), changes($paneDirectory), changes($transportName), changes($launchedAgent),
+            changes(voice.$active), changes(voice.$isMuted), changes(voice.$recovering), changes(voice.$networkPoor)
+        ).eraseToAnyPublisher()
     }
     static func background(_ scheme: ColorScheme) -> UIColor { UIColor(hex: scheme == .dark ? 0x252728 : 0xFFFDF9) }
     /// Android's 16 ANSI colours (`TerminalColorScheme`), so a program's colours look the same on both. Black is the
@@ -212,6 +218,7 @@ import RoamttyTransport
 
     func fail(_ error: Error) {
         pendingPaste = nil
+        voice.shutdown()
         stopAgentStatusPolling()
         end = SessionEnd(failure: error, wasConnected: startupSent)
         if (error as? RoamError) == .authentication { loginSnapshot.invalidateAuthentication() }
@@ -221,6 +228,7 @@ import RoamttyTransport
     }
     func close() {
         pendingPaste = nil; capturedPaste = nil
+        voice.shutdown()
         swipeHold?.cancel(); swipeHold = nil; swipeGeneration = nil
         scrollGeneration = nil; scrollAccumulator.reset(); stopScrollInertia()
         generation = UUID(); worker?.cancel(); worker = nil; mosh?.close(); mosh = nil

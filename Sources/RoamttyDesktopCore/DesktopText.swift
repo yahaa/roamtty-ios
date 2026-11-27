@@ -4,8 +4,11 @@
 public enum DesktopText: Equatable, Sendable {
     // Connection failures and notices.
     case openedElsewhere, cannotConnect, lostOver30s, cannotProbe, noDesktop, unsupportedSystem
-    case pluginStartFailed, pluginStartFailedCode(Int), pluginError(String), cannotReachServer, cannotReadCredentials
+    case pluginStartFailed, pluginStartFailedCode(Int), pluginError(String), voiceUnsupportedByPlugin, cannotReachServer, cannotReadCredentials
     case downloadFailed, checksumFailed, encoderFailed, hostWriteFailed
+    case voiceOpenedElsewhere, voiceCannotConnect, voiceConnectionLost, voiceCannotProbe, voiceHelloTimeout
+    case voicePluginStartFailed, voicePluginStartFailedCode(Int), voicePluginError(String)
+    case voiceDownloadFailed, voiceChecksumFailed, voiceInstalling(version: String, target: String)
     case unlockOnComputer
     // Install and start log.
     case installing(version: String, target: String)
@@ -36,6 +39,18 @@ public enum DesktopText: Equatable, Sendable {
         case .pluginStartFailed: return ("桌面插件启动失败", "The desktop plugin didn't start")
         case .pluginStartFailedCode(let c): return ("桌面插件启动失败（退出码 \(c)）", "The desktop plugin didn't start (exit code \(c))")
         case .pluginError(let s): return ("桌面插件出错：\(s)", "Desktop plugin error: \(s)")
+        case .voiceUnsupportedByPlugin: return ("主机插件版本过旧，不支持语音模式，请更新插件", "Host plugin is outdated and does not support voice mode; please update the plugin")
+        case .voiceOpenedElsewhere: return ("语音通道已在另一台设备上打开", "Voice channel was opened on another device")
+        case .voiceCannotConnect: return ("无法连接语音通道", "Couldn't connect to the voice channel")
+        case .voiceConnectionLost: return ("语音连接中断，未能恢复", "Voice connection was lost and could not recover")
+        case .voiceCannotProbe: return ("无法检测这台主机环境", "Couldn't check this host's environment")
+        case .voiceHelloTimeout: return ("主机语音插件响应超时", "Timed out waiting for host voice plugin")
+        case .voicePluginStartFailed: return ("语音插件启动失败", "The voice plugin didn't start")
+        case .voicePluginStartFailedCode(let c): return ("语音插件启动失败（退出码 \(c)）", "The voice plugin didn't start (exit code \(c))")
+        case .voicePluginError(let s): return ("语音插件出错：\(s)", "Voice plugin error: \(s)")
+        case .voiceDownloadFailed: return ("下载语音插件失败", "Couldn't download the voice plugin")
+        case .voiceChecksumFailed: return ("语音插件校验失败", "The voice plugin failed its checksum")
+        case .voiceInstalling(let v, let t): return ("安装主机语音插件 \(v)（\(t)）", "Installing host voice plugin \(v) (\(t))")
         case .cannotReachServer: return ("无法连接服务器", "Could not connect to the server")
         case .cannotReadCredentials: return ("无法读取凭据，请重新导入密钥或保存密码。", "Could not read credentials. Import the key again or save the password.")
         case .downloadFailed: return ("下载桌面插件失败", "Couldn't download the desktop plugin")
@@ -90,6 +105,16 @@ public enum DesktopText: Equatable, Sendable {
         switch reason {
         case .download: return .downloadFailed
         case .checksum: return .checksumFailed
+        case .encoder: return .encoderFailed
+        case .host: return .hostWriteFailed
+        }
+    }
+
+    /// Voice-specific wording for headless plugin install failures.
+    public static func voiceInstallFailure(_ reason: DesktopPluginInstaller.Reason) -> DesktopText {
+        switch reason {
+        case .download: return .voiceDownloadFailed
+        case .checksum: return .voiceChecksumFailed
         case .encoder: return .encoderFailed
         case .host: return .hostWriteFailed
         }

@@ -52,16 +52,18 @@ public final class DesktopPluginInstaller {
 
     private func run(_ script: String, _ timeout: TimeInterval) -> Int? { remote.run(script, timeout: timeout, onLine: onLine) }
 
-    public func install(_ build: Build) -> Result {
-        if build.windows { return installWindows(build) }
+    public func install(_ build: Build, headless: Bool = false) -> Result {
+        if build.windows { return installWindows(build, headless: headless) }
         if run(#"mkdir -p "$HOME/.roamtty/bin" "$HOME/.roamtty/desktop""#, 15) != 0 { return .failed(.host, detail: "mkdir") }
         onStep(.hostDownload)
         let hostStatus = run(build.app ? Self.hostAppScript(build) : Self.hostDownloadScript(build), 60)
         if hostStatus != 0, let failed = build.app ? uploadApp(build) : uploadBinary(build) { return failed }
-        if let url = build.openh264Url, let failed = installEncoder(url) { return failed }
-        onStep(.register)
-        // macOS: (re)load the LaunchAgent; it runs in the GUI session, where TCC permissions apply.
-        if build.app && !registerAgent() { return .failed(.host, detail: "agent") }
+        if !headless {
+            if let url = build.openh264Url, let failed = installEncoder(url) { return failed }
+            onStep(.register)
+            // macOS: (re)load the LaunchAgent; it runs in the GUI session, where TCC permissions apply.
+            if build.app && !registerAgent() { return .failed(.host, detail: "agent") }
+        }
         onStep(.done)
         return .installed
     }
@@ -117,7 +119,7 @@ public final class DesktopPluginInstaller {
         remote.runCommand(PowerShell.command(script), timeout: timeout, onLine: onLine)
     }
 
-    private func installWindows(_ build: Build) -> Result {
+    private func installWindows(_ build: Build, headless: Bool = false) -> Result {
         if ps(WindowsDesktop.mkdirScript, 15) != 0 { return .failed(.host, detail: "mkdir") }
         onStep(.hostDownload)
         if ps(WindowsDesktop.hostDownloadScript(url: build.url, sha: build.sha256), 60) != 0 {
@@ -135,6 +137,10 @@ public final class DesktopPluginInstaller {
             if ps(WindowsDesktop.placeScript(#""$env:USERPROFILE\"# + windowsPart + "\"", sha: build.sha256), 30) != 0 {
                 return .failed(.checksum)
             }
+        }
+        if headless {
+            onStep(.done)
+            return .installed
         }
         onStep(.encoderHost)
         var status = ps(WindowsDesktop.installScript(), 60)

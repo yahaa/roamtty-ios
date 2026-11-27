@@ -13,6 +13,11 @@ struct GhostShortcuts: View {
     @Binding var toolbox: TerminalToolboxState
     let center: CGPoint
     let viewport: CGSize
+    var voiceState: GhostVoiceState = .idle
+    var voiceNetworkUnstable = false
+    var voiceStatusTag: String?
+    var voicePopoverOpen = false
+    var onHoldBegan: (() -> Void)?
     let onTap: () -> Void
     @State private var hovered: Int?
     @State private var app = ScreenApp.shell
@@ -28,6 +33,14 @@ struct GhostShortcuts: View {
                 maxRadius: max(100, 43 * Double(max(0, shortcuts.count - 1)) / (160 * .pi / 180)), minRadius: 72, spacing: 43)
     }
     private var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
+    private var statusTagColor: Color {
+        GhostVoiceTone.forCall(state: voiceState, networkUnstable: voiceNetworkUnstable) == .unstable ? Palette.warning : Palette.success
+    }
+    private var accessibilityTitle: String {
+        voiceState.isCall
+            ? model.text("语音通话中；单击控制通话，长按显示快捷键", "Voice call active; tap for call controls, hold for shortcuts")
+            : model.text("终端工具箱；长按显示快捷键", "Terminal tools; hold for shortcuts")
+    }
     var body: some View {
         ZStack(alignment: .topLeading) {
             if toolbox.ringOpen {
@@ -64,10 +77,29 @@ struct GhostShortcuts: View {
                     }
                 }
             }
-            ToolboxPetArt(animated: !reduceMotion && !toolbox.ringOpen).frame(width: 44, height: 44)
+            let artSize: CGFloat = voiceState.isCall ? 54 : 44
+            ToolboxPetArt(animated: !reduceMotion && !toolbox.ringOpen, voiceState: voiceState, networkUnstable: voiceNetworkUnstable)
+                .frame(width: artSize, height: artSize)
                 .scaleEffect(pressed ? 0.86 : 1).animation(.spring(response: 0.18, dampingFraction: 0.4), value: pressed)
                 .allowsHitTesting(false).position(anchor)
-            GhostControl(label: model.text("终端工具箱；长按显示快捷键", "Terminal tools; hold for shortcuts"),
+            if voiceState.isCall, let tag = voiceStatusTag, !voicePopoverOpen, !toolbox.ringOpen {
+                let rightEdge = max(48, min(anchor.x + 27, viewport.width - 8))
+                Text(tag)
+                    .font(.system(size: 10, weight: .semibold))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .fixedSize()
+                    .foregroundStyle(statusTagColor)
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background(Palette.background.opacity(0.9), in: Capsule())
+                    .overlay(Capsule().stroke(statusTagColor.opacity(0.42), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
+                    .accessibilityIdentifier("pet-voice-tag")
+                    .frame(width: rightEdge, alignment: .trailing)
+                    .allowsHitTesting(false)
+                    .position(x: rightEdge / 2, y: min(anchor.y + 36, viewport.height - 16))
+            }
+            GhostControl(label: accessibilityTitle,
                          onTouch: { toolbox.wake(at: now) },
                          onPress: { pressed = $0 },
                          onTap: { if toolbox.ringOpen { toolbox.dismissRing() } else { onTap() } },
@@ -87,6 +119,7 @@ struct GhostShortcuts: View {
     }
     private func beginHold() {
         guard !toolbox.ringOpen else { return }
+        onHoldBegan?()
         app = runtime.screenApp(); submenu = nil; hovered = nil; heldCenter = center
         toolbox.beginRing(at: now); UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }

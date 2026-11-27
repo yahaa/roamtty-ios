@@ -1,7 +1,7 @@
 import SwiftUI
 import RoamttyCore
 
-/// Android `HomeSessions.kt`: every session the app holds, grouped by what its agent is doing.
+/// Android `HomeSessions.kt`: every session the app holds in fixed newest-created-first order, with in-place status filter pills.
 struct HomeSessionsTab: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
@@ -9,8 +9,8 @@ struct HomeSessionsTab: View {
     /// Landscape: the header line and the filters live on `HomeCompactBar`.
     var compact = false
     var body: some View {
-        // Sorted and searched once per update; every line below reads these.
-        let sessions = model.sessionsByActivity, matching = model.searchedSessions(sessions, search)
+        // Ordered newest-created first and searched once per update; every line below reads these.
+        let sessions = model.sessionsNewestFirst, matching = model.searchedSessions(sessions, search)
         VStack(spacing: 0) {
             if !compact {
                 HomeListHeader(label: model.text("会话 · \(sessions.count)", "Sessions · \(sessions.count)"), addLabel: model.text("新建会话", "New session"), id: "add-session") {
@@ -50,41 +50,34 @@ struct HomeSessionsList: View {
     @EnvironmentObject var model: AppModel
     let sessions: [SessionRecord]
     let groups: [SessionGroupMembers]
-    /// Landscape: the filters live on `HomeCompactBar` and the group headers sit closer to their cards.
+    /// Landscape: the filters live on `HomeCompactBar`.
     var compact = false
     var body: some View {
         let only = model.filteredGroup(groups)
+        let visible = model.visibleSessions(sessions, filter: only)
         GeometryReader { geometry in
             let columns = max(1, Int((geometry.size.width - 32 + 12) / (320 + 12)))
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    if groups.count > 1 && !compact { SessionFilters(groups: groups, total: sessions.count) }
-                    ForEach(groups.filter { only == nil || $0.group == only }, id: \.group) { members in
-                        header(members.group, count: members.records.count, plainOnly: members.plainOnly)
-                        if columns == 1 {
-                            VStack(spacing: 12) {
-                                ForEach(members.records) { record in
-                                    SessionRow(record: record).background(Palette.panel).clipShape(RoundedRectangle(cornerRadius: 18))
-                                }
+                    if groups.count > 1 && !compact {
+                        SessionFilters(groups: groups, total: sessions.count).padding(.bottom, 10)
+                    }
+                    if columns == 1 {
+                        VStack(spacing: 12) {
+                            ForEach(visible) { record in
+                                SessionRow(record: record).background(Palette.panel).clipShape(RoundedRectangle(cornerRadius: 18))
                             }
-                        } else {
-                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: columns), spacing: 12) {
-                                ForEach(members.records) { record in SessionRow(record: record).background(Palette.panel).clipShape(RoundedRectangle(cornerRadius: 18)) }
+                        }
+                    } else {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: columns), spacing: 12) {
+                            ForEach(visible) { record in
+                                SessionRow(record: record).background(Palette.panel).clipShape(RoundedRectangle(cornerRadius: 18))
                             }
                         }
                     }
                 }.padding(.horizontal, 16).padding(.bottom, 16).reportsHomeScroll(.sessions)
             }.homeScrollSpace(.sessions).accessibilityIdentifier("home-sessions-list")
         }
-    }
-    /// A group's line: a ring in its colour (filled for the one waiting on the user), its name and how many it holds;
-    /// closer to its cards when compact.
-    private func header(_ value: SessionGroup, count: Int, plainOnly: Bool) -> some View {
-        HStack(spacing: 0) {
-            Circle().strokeBorder(value.color, lineWidth: 2).background(Circle().fill(value == .waiting ? value.color : Color.clear)).frame(width: 12, height: 12)
-            Text(value.label(model.language, plainOnly: plainOnly)).font(.system(size: 14, weight: .medium)).foregroundStyle(value.color).padding(.leading, 8)
-            Text("\(count)").font(.system(size: 14, weight: .medium)).foregroundStyle(value.color.opacity(0.8)).padding(.leading, 6)
-        }.padding(.leading, 6).padding(.top, compact ? 8 : 14).padding(.bottom, compact ? 6 : 8).accessibilityIdentifier("home-session-group-\(value.rawValue)")
     }
 }
 

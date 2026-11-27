@@ -155,8 +155,15 @@ extension AppModel {
         guard var current = self.host(host.id), current.hasSameLoginIdentity(as: host) else { return }
         current.desktop = probe.desktop
         current.desktopProbedAt = Int64(Date().timeIntervalSince1970 * 1000)
+        desktopPluginInstalled[current.id] = probe.version != nil
         do { try store?.saveHost(current); hosts = try store?.hosts() ?? hosts } catch { self.error = error.localizedDescription }
         objectWillChange.send()
+    }
+
+    func markDesktopPluginInstalled(for hostID: String) {
+        if desktopPluginInstalled[hostID] != true {
+            desktopPluginInstalled[hostID] = true
+        }
     }
 
     /// Read-only desktop probe over the host's shared connection (host page / session connect).
@@ -170,8 +177,39 @@ extension AppModel {
         } catch { /* probe is best-effort */ }
     }
 
-    /// Desktops follow the phone onto another network once the first one opened.
+    /// Blocking SSH login for a `VoiceSession` worker thread; always re-reads the latest host & credentials.
+    nonisolated func syncVoiceLogin(hostID: String, owner: String) -> DesktopLogin {
+        enum Lookup { case missingHost, noCredentials, ready(Host, Credentials) }
+        let lookup: Lookup = DispatchQueue.main.sync {
+            guard let host = self.host(hostID) else { return .missingHost }
+            guard let creds = self.logins.silentCredentials(for: host) else { return .noCredentials }
+            return .ready(host, creds)
+        }
+        guard case .ready(let host, let credentials) = lookup else {
+            if case .noCredentials = lookup { return .noCredentials }
+            return .failed(message: nil, connecting: false)
+        }
+        do {
+            let ssh = try DispatchQueue.main.sync { try self.logins.makeConnection(host, credentials: credentials, owner: owner) }
+            try ssh.connect()
+            return .host(SSHDesktopHost(connection: ssh))
+        } catch let error as RoamError {
+            if case .authentication = error {
+                DispatchQueue.main.sync { self.logins.rejectLogin(hostID) }
+                return .failed(message: DispatchQueue.main.sync { self.text("认证失败", "Authentication failed") }, connecting: false)
+            }
+            return .failed(message: error.localizedDescription, connecting: true)
+        } catch {
+            return .failed(message: error.localizedDescription, connecting: true)
+        }
+    }
+
+    /// Desktops and active voice sessions follow the phone onto another network.
     func watchDesktopNetwork() {
-        desktopNetwork.start { [weak self] change in self?.desktopStore?.networkChanged(change) }
+        desktopNetwork.start { [weak self] change in
+            guard let self else { return }
+            self.desktopStore?.networkChanged(change)
+            self.runtimes.values.forEach { $0.voice.networkChanged(change) }
+        }
     }
 }

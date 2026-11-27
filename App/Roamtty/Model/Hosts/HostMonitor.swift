@@ -98,7 +98,7 @@ import RoamttyTransport
     /// Loads machine-wide multi-agent AI usage for `range`; only runs `agy -p /quota` when `fetchAgyQuota` is true.
     func loadAiUsage(_ host: Host, range: HostUsageRange, force: Bool = false, fetchAgyQuota: Bool = false) {
         guard host.system.lowercased() != "windows" else { return }
-        if !force, let fetched = aiUsageFetchedAt[host.id]?[range], Date().timeIntervalSince(fetched) < 30 { return }
+        if !force, !fetchAgyQuota, let fetched = aiUsageFetchedAt[host.id]?[range], Date().timeIntervalSince(fetched) < 30 { return }
         aiUsageTasks[host.id]?.cancel()
         aiUsageLoading.insert(host.id)
         let cancellation = TransferCancellation()
@@ -107,7 +107,7 @@ import RoamttyTransport
             guard let self else { return }
             guard let ssh = try? await self.pool.connection(for: host.id), !Task.isCancelled else { return }
             let cmd = AgentUsage.hostCommand(range: range, fetchAgyQuota: fetchAgyQuota)
-            guard let result = try? await ssh.run(cmd, input: AgentUsage.scriptData, timeout: fetchAgyQuota ? 20 : 15, cancellation: cancellation),
+            guard let result = try? await ssh.run(cmd, input: AgentUsage.scriptData, timeout: fetchAgyQuota ? 25 : 15, cancellation: cancellation),
                   result.status == 0, !Task.isCancelled else { return }
             let parsed = AgentUsage.parseHost(result.text, requestedRange: range)
             var byRange = fetchAgyQuota ? [:] : (self.aiUsage[host.id] ?? [:])
