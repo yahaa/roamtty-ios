@@ -81,6 +81,139 @@ final class AgentUsageQuotaTests: XCTestCase {
         XCTAssertEqual(try readCachedAgy(home: home).quota7d?.remainingRounded, 75)
     }
 
+    func testBrandNewHookedAgySessionDoesNotBorrowOtherSessionContextInSameDirectory() throws {
+        let fm = FileManager.default
+        let home = fm.temporaryDirectory.appendingPathComponent("roamtty-agy-fresh-ctx-\(UUID().uuidString)")
+        try fm.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: home) }
+
+        let binDir = home.appendingPathComponent(".local/bin")
+        let store = home.appendingPathComponent("tmux-store")
+        try fm.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try fm.createDirectory(at: store, withIntermediateDirectories: true)
+        try writeFakeTmux(binDir: binDir, store: store)
+
+        let oldLogDir = home.appendingPathComponent(".gemini/antigravity-cli/brain/conv-old/.system_generated/logs")
+        try fm.createDirectory(at: oldLogDir, withIntermediateDirectories: true)
+        let oldTranscript = oldLogDir.appendingPathComponent("transcript.jsonl")
+        try #"{"type":"PLANNER_RESPONSE","created_at":"2099-01-01T00:00:01Z","model":"gemini-4-neon-xhigh","input_tokens":10000,"output_tokens":500,"cache_read_tokens":450000}"#
+            .appending("\n").write(to: oldTranscript, atomically: true, encoding: .utf8)
+
+        let cacheDir = home.appendingPathComponent(".gemini/antigravity-cli/cache")
+        try fm.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        try #"{"/work/roamtty":"conv-old"}"#.write(to: cacheDir.appendingPathComponent("last_conversations.json"), atomically: true, encoding: .utf8)
+        try #"{"model":"Gemini 4 Neon (XHigh)"}"#.write(
+            to: home.appendingPathComponent(".gemini/antigravity-cli/settings.json"), atomically: true, encoding: .utf8
+        )
+        let nowSec = Int(Date().timeIntervalSince1970)
+        let roamDir = home.appendingPathComponent(".roamtty")
+        try fm.createDirectory(at: roamDir, withIntermediateDirectories: true)
+        let qJson = #"{"_fetched_at":\#(nowSec),"quota":{"gemini-5h":{"remaining_fraction":0.90,"reset_time":"2099-01-01T05:00:00Z"},"#
+            + #""gemini-weekly":{"remaining_fraction":0.70,"reset_time":"2099-01-07T00:00:00Z"}}}"#
+        try qJson.write(to: roamDir.appendingPathComponent("quota-agy.json"), atomically: true, encoding: .utf8)
+
+        try "idle|\(nowSec)|agy||".write(to: store.appendingPathComponent("sess-new_@roamtty_agent"), atomically: true, encoding: .utf8)
+        try "idle|\(nowSec)|agy||".write(to: store.appendingPathComponent("sess-old_@roamtty_agent"), atomically: true, encoding: .utf8)
+        try "conv-old".write(to: store.appendingPathComponent("sess-old_@roamtty_session"), atomically: true, encoding: .utf8)
+
+        let oldUsage = try XCTUnwrap(AgentUsage.parseSession(
+            try runSessionCommand(home: home, pathPrefix: binDir.path, tmuxSession: "sess-old", directory: "/work/roamtty")
+        ))
+        XCTAssertEqual(oldUsage.contextPercent, 46)
+
+        // Brand-new hooked pane in same cwd must NOT borrow conv-old's 46% context, while keeping model & quotas.
+        let newUsage = try XCTUnwrap(AgentUsage.parseSession(
+            try runSessionCommand(home: home, pathPrefix: binDir.path, tmuxSession: "sess-new", directory: "/work/roamtty")
+        ))
+        XCTAssertNil(newUsage.contextPercent)
+        XCTAssertNil(newUsage.contextUsed)
+        XCTAssertEqual(newUsage.sessionTotalTokens, 0)
+        XCTAssertEqual(newUsage.formattedModel, "Gemini 4 Neon")
+        XCTAssertEqual(newUsage.reasoningEffort, .xhigh)
+        XCTAssertEqual(newUsage.quota5h?.remainingRounded, 90)
+        XCTAssertEqual(newUsage.quota7d?.remainingRounded, 70)
+
+        // statusLine binds /resume conversation_id and clears it on /clear (empty conversation_id).
+        let hookFile = home.appendingPathComponent("agent-hook.sh")
+        try AgentHooks.script.write(to: hookFile, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hookFile.path)
+
+        try runStatusLineInPane(hook: hookFile, home: home, pathPrefix: binDir.path, pane: "sess-new", convId: "conv-old", tpath: oldTranscript.path)
+        let resumed = try XCTUnwrap(AgentUsage.parseSession(
+            try runSessionCommand(home: home, pathPrefix: binDir.path, tmuxSession: "sess-new", directory: "/work/roamtty")
+        ))
+        XCTAssertEqual(resumed.contextPercent, 46)
+
+        try runStatusLineInPane(hook: hookFile, home: home, pathPrefix: binDir.path, pane: "sess-new", convId: "", tpath: "")
+        let cleared = try XCTUnwrap(AgentUsage.parseSession(
+            try runSessionCommand(home: home, pathPrefix: binDir.path, tmuxSession: "sess-new", directory: "/work/roamtty")
+        ))
+        XCTAssertNil(cleared.contextPercent)
+    }
+
+    private func writeFakeTmux(binDir: URL, store: URL) throws {
+        let fm = FileManager.default
+        let script = """
+        #!/bin/sh
+        while [ "$1" = "-u" ]; do shift; done
+        cmd="$1"; shift
+        case "$cmd" in
+          show-options)
+            while [ "$#" -gt 0 ]; do
+              case "$1" in -t) target="$2"; shift 2 ;; -*) shift ;; *) opt="$1"; shift ;; esac
+            done
+            cat "\(store.path)/${target}_${opt}" 2>/dev/null
+            ;;
+          set-option)
+            unset_flag=0
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                -u) unset_flag=1; shift ;;
+                -t) target="$2"; shift 2 ;;
+                -*) shift ;;
+                *) if [ -z "$opt" ]; then opt="$1"; else val="$1"; fi; shift ;;
+              esac
+            done
+            if [ "$unset_flag" = 1 ]; then rm -f "\(store.path)/${target}_${opt}"
+            else printf '%s' "$val" > "\(store.path)/${target}_${opt}"; fi
+            ;;
+          display-message)
+            while [ "$#" -gt 0 ]; do
+              case "$1" in -t) target="$2"; shift 2 ;; *) shift ;; esac
+            done
+            sess="${target#=}"; sess="${sess%:}"
+            a="$(cat "\(store.path)/${sess}_@roamtty_agent" 2>/dev/null)"
+            s="$(cat "\(store.path)/${sess}_@roamtty_session" 2>/dev/null)"
+            tp="$(cat "\(store.path)/${sess}_@roamtty_transcript" 2>/dev/null)"
+            printf '%s\\t%s\\t%s\\t/work/roamtty\\t12345\\n' "$a" "$s" "$tp"
+            ;;
+        esac
+        """
+        let url = binDir.appendingPathComponent("tmux")
+        try script.write(to: url, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    private func runStatusLineInPane(hook: URL, home: URL, pathPrefix: String, pane: String, convId: String, tpath: String) throws {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/sh")
+        proc.arguments = [hook.path, "agy", "statusline"]
+        var env = ProcessInfo.processInfo.environment
+        env["HOME"] = home.path
+        env["PATH"] = "\(pathPrefix):\(env["PATH"] ?? "/usr/bin:/bin")"
+        env["ROAMTTY_AGENT"] = "agy"
+        env["TMUX_PANE"] = pane
+        proc.environment = env
+        let pipe = Pipe()
+        proc.standardInput = pipe
+        try proc.run()
+        let payload = #"{"conversation_id":"\#(convId)","transcript_path":"\#(tpath)","quota":{"gemini-5h":{"remaining_fraction":0.90,"reset_time":"2099-01-01T05:00:00Z"}}}"#
+        pipe.fileHandleForWriting.write(Data(payload.utf8))
+        try pipe.fileHandleForWriting.close()
+        proc.waitUntilExit()
+        XCTAssertEqual(proc.terminationStatus, 0)
+    }
+
     private func writeGuardBinaries(binDir: URL, agyMarker: URL, tmuxMarker: URL) throws {
         let fm = FileManager.default
         let agyURL = binDir.appendingPathComponent("agy")
@@ -92,10 +225,12 @@ final class AgentUsageQuotaTests: XCTestCase {
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tmuxURL.path)
     }
 
-    private func runSessionCommand(home: URL, pathPrefix: String?) throws -> String {
+    private func runSessionCommand(
+        home: URL, pathPrefix: String?, tmuxSession: String? = nil, directory: String = "/work/app"
+    ) throws -> String {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/sh")
-        proc.arguments = ["-c", AgentUsage.sessionCommand(agent: .agy, tmuxSession: nil, directory: "/work/app")]
+        proc.arguments = ["-c", AgentUsage.sessionCommand(agent: .agy, tmuxSession: tmuxSession, directory: directory)]
         var env = ProcessInfo.processInfo.environment
         env["HOME"] = home.path
         if let pathPrefix { env["PATH"] = "\(pathPrefix):\(env["PATH"] ?? "/usr/bin:/bin")" }

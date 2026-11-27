@@ -61,11 +61,45 @@ fi
 if [ "$agent" = agy ] && [ "$event" = statusline ]; then
   if command -v python3 >/dev/null 2>&1; then
     user_cmd=$(printf '%s' "$input" | python3 -c '
-import json, os, sys, time
+import json, os, subprocess, sys, time
 try:
     data = json.loads(sys.stdin.read() or "{}")
 except Exception:
     data = {}
+# Keep Roamtty-managed tmux pane bound to the live conversation (handles fresh start, /clear, /new, /resume).
+pane = os.environ.get("TMUX_PANE") or ""
+if pane and os.environ.get("ROAMTTY_AGENT") == "agy" and isinstance(data, dict) and "conversation_id" in data:
+    cid = data.get("conversation_id") if isinstance(data.get("conversation_id"), str) else ""
+    tpath = data.get("transcript_path") if isinstance(data.get("transcript_path"), str) else ""
+    try:
+        cur_cid = subprocess.run(
+            ["tmux", "show-options", "-qv", "-t", pane, "@roamtty_session"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=1,
+        ).stdout.decode("utf-8", "replace").strip()
+        cur_tp = subprocess.run(
+            ["tmux", "show-options", "-qv", "-t", pane, "@roamtty_transcript"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=1,
+        ).stdout.decode("utf-8", "replace").strip()
+        if cid:
+            if cur_cid != cid:
+                subprocess.run(["tmux", "set-option", "-q", "-t", pane, "@roamtty_session", cid],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+            if tpath:
+                if cur_tp != tpath:
+                    subprocess.run(["tmux", "set-option", "-q", "-t", pane, "@roamtty_transcript", tpath],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+            elif cur_cid != cid and cur_tp:
+                subprocess.run(["tmux", "set-option", "-u", "-q", "-t", pane, "@roamtty_transcript"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+        else:
+            if cur_cid:
+                subprocess.run(["tmux", "set-option", "-u", "-q", "-t", pane, "@roamtty_session"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+            if cur_tp:
+                subprocess.run(["tmux", "set-option", "-u", "-q", "-t", pane, "@roamtty_transcript"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+    except Exception:
+        pass
 quota = data.get("quota") if isinstance(data, dict) else None
 if isinstance(quota, dict):
     cleaned = {}
@@ -296,11 +330,13 @@ if [ -z "$in_pane" ] && [ -n "$session" ]; then
   TMUX_PANE="=$session:"
 elif [ -n "$in_pane" ]; then
   # Kept past the session's end: a background session that resumed it still reports by it.
+  prev_sid=$(get @roamtty_session)
   sid=$(field 'session_id|sessionId|conversationId' 64)
   if [ "$agent" = claude ]; then put @roamtty_session "$sid"
   elif [ -n "$sid" ]; then put @roamtty_session "$sid"; fi
   tpath=$(field 'transcript_path|transcriptPath' 400)
-  [ -z "$tpath" ] || put @roamtty_transcript "$tpath"
+  if [ -n "$tpath" ]; then put @roamtty_transcript "$tpath"
+  elif [ -n "$sid" ] && [ "$sid" != "$prev_sid" ]; then tmux set-option -u -q -t "$TMUX_PANE" @roamtty_transcript 2>/dev/null; fi
 else
   # The session a background Claude Code resumed is in its command line ("--resume …/<id>.jsonl"); the hook may run
   # under a shell or two below it.
@@ -354,6 +390,9 @@ fi
 case "$event" in
   start)
     for option in @roamtty_worked @roamtty_reply; do tmux set-option -u -q -t "$TMUX_PANE" "$option" 2>/dev/null; done
+    if [ -z "$sid" ] && [ -z "$tpath" ]; then
+      for option in @roamtty_session @roamtty_transcript; do tmux set-option -u -q -t "$TMUX_PANE" "$option" 2>/dev/null; done
+    fi
     record idle "" "" ;;
   prompt)
     # Antigravity fires PreInvocation before every model call in a turn; invocationNum > 0 continues the current turn.

@@ -311,7 +311,7 @@ def parse_claude_file(path, cutoff=None):
     }
 
 
-def find_claude_transcript(transcript, sid, cwd):
+def find_claude_transcript(transcript, sid, cwd, allow_fallback=True):
     if transcript and os.path.isfile(transcript):
         return transcript
     base = os.path.join(HOME, ".claude", "projects")
@@ -321,6 +321,8 @@ def find_claude_transcript(transcript, sid, cwd):
         hits = glob.glob(os.path.join(base, "*", f"{sid}.jsonl"))
         if hits:
             return max(hits, key=os.path.getmtime)
+    if not allow_fallback or transcript or sid:
+        return None
     target = norm_path(cwd)
     if not target:
         return None
@@ -626,7 +628,7 @@ def latest_codex_account_quotas(exclude_path=None):
     return (q5h, q5h_ts, q5h_def), (q7d, q7d_ts, q7d_def)
 
 
-def find_codex_transcript(transcript, sid, cwd):
+def find_codex_transcript(transcript, sid, cwd, allow_fallback=True):
     if transcript and os.path.isfile(transcript):
         return transcript
     base = os.path.join(HOME, ".codex", "sessions")
@@ -636,6 +638,8 @@ def find_codex_transcript(transcript, sid, cwd):
         hits = glob.glob(os.path.join(base, "*", "*", "*", f"*{sid}*.jsonl"))
         if hits:
             return max(hits, key=os.path.getmtime)
+    if not allow_fallback or transcript or sid:
+        return None
     target = norm_path(cwd)
     if not target:
         return None
@@ -852,14 +856,17 @@ def parse_agy_file(path, cutoff=None):
     return res
 
 
-def find_agy_transcript(transcript, sid, cwd):
+def find_agy_transcript(transcript, sid, cwd, allow_fallback=True):
     if transcript and os.path.isfile(transcript):
         return transcript
     brain = os.path.join(HOME, ".gemini", "antigravity-cli", "brain")
     if sid:
-        p = os.path.join(brain, sid, ".system_generated", "logs", "transcript.jsonl")
-        if os.path.isfile(p):
-            return p
+        for fname in ("transcript.jsonl", "transcript_full.jsonl"):
+            p = os.path.join(brain, sid, ".system_generated", "logs", fname)
+            if os.path.isfile(p):
+                return p
+    if not allow_fallback or transcript or sid:
+        return None
     target = norm_path(cwd)
     last_conv = os.path.join(HOME, ".gemini", "antigravity-cli", "cache", "last_conversations.json")
     if target and os.path.isfile(last_conv):
@@ -1086,7 +1093,7 @@ def parse_grok_file(path, cutoff=None, model_cache=None):
     return res
 
 
-def find_grok_transcript(transcript, sid, cwd, pane_pid=0):
+def find_grok_transcript(transcript, sid, cwd, pane_pid=0, allow_fallback=True):
     if transcript:
         if os.path.isfile(transcript):
             return transcript
@@ -1104,6 +1111,8 @@ def find_grok_transcript(transcript, sid, cwd, pane_pid=0):
             hits = glob.glob(os.path.join(base, "*", resolved_sid, name))
             if hits:
                 return max(hits, key=os.path.getmtime)
+    if not allow_fallback or transcript or resolved_sid:
+        return None
     target = norm_path(cwd)
     if target:
         enc = urllib.parse.quote(target, safe="")
@@ -1123,10 +1132,14 @@ def run_session(agent_arg, tmux_session, cwd_arg):
     cwd = t_cwd or cwd_arg or ""
     if agent not in ("claude", "codex", "agy", "grok"):
         return
+    # When Roamtty hooks manage this tmux pane (t_agent is set), bind strictly to this pane's
+    # own session/transcript so a brand-new or /clear-ed session never borrows another session's
+    # conversation from the same working directory.
+    allow_fallback = not (tmux_session and t_agent)
 
     data = None
     if agent == "claude":
-        p = find_claude_transcript(t_transcript, t_sid, cwd)
+        p = find_claude_transcript(t_transcript, t_sid, cwd, allow_fallback=allow_fallback)
         if p:
             data = parse_claude_file(p)
         q5h, q7d = read_claude_quota(now)
@@ -1138,7 +1151,7 @@ def run_session(agent_arg, tmux_session, cwd_arg):
             if q7d:
                 data["q7d"] = q7d
     elif agent == "codex":
-        p = find_codex_transcript(t_transcript, t_sid, cwd)
+        p = find_codex_transcript(t_transcript, t_sid, cwd, allow_fallback=allow_fallback)
         if p:
             data = parse_codex_file(p, model_cache=codex_model_ctx_cache())
         (fb5, fb5_ts, fb5_def), (fb7, fb7_ts, fb7_def) = latest_codex_account_quotas(exclude_path=p)
@@ -1158,19 +1171,24 @@ def run_session(agent_arg, tmux_session, cwd_arg):
             if best7:
                 data["q7d"] = best7
     elif agent == "agy":
-        p = find_agy_transcript(t_transcript, t_sid, cwd)
+        p = find_agy_transcript(t_transcript, t_sid, cwd, allow_fallback=allow_fallback)
         if p:
             data = parse_agy_file(p)
-        q5h, q7d = read_agy_quota((data or {}).get("model", ""), now)
-        if data is None and (q5h or q7d):
+        cfg_model, cfg_effort = agy_settings_model_info() if data is None else ("", "")
+        q5h, q7d = read_agy_quota((data or {}).get("model", "") or cfg_model, now)
+        if data is None and (cfg_model or cfg_effort or q5h or q7d):
             data = {}
+            if cfg_model:
+                data["model"] = cfg_model
+            if cfg_effort:
+                data["effort"] = cfg_effort
         if data is not None:
             if q5h:
                 data["q5h"] = q5h
             if q7d:
                 data["q7d"] = q7d
     elif agent == "grok":
-        p = find_grok_transcript(t_transcript, t_sid, cwd, pane_pid=t_pid)
+        p = find_grok_transcript(t_transcript, t_sid, cwd, pane_pid=t_pid, allow_fallback=allow_fallback)
         if p:
             data = parse_grok_file(p, model_cache=grok_model_ctx_cache())
 
