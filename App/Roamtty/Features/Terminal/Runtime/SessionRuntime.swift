@@ -40,6 +40,11 @@ import RoamttyTransport
     /// Whether the host has answered a status poll since this connection came up; until then the list shows what the
     /// session reported last.
     @Published var agentPolled = false
+    /// Uptime deadline until which a freshly launched agent keeps agent-mode UI while waiting for its first hook report.
+    @Published var agentLaunchDeadline: TimeInterval?
+    /// Program currently detected from the visible terminal rows (without assuming `launchedAgent` is still running).
+    @Published var detectedScreen: ScreenApp = .shell
+    var lastScreenDetectAt: TimeInterval = 0
     /// Live context-window, remaining quota and cumulative session token telemetry for the active AI agent.
     @Published var agentUsage: AgentSessionUsage?
     @Published var agentUsageLoading = false

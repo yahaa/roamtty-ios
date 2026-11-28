@@ -43,7 +43,7 @@ struct TerminalScreen: View {
     @State var pipKeyboardPage: DesktopKeyboardPage = .ime
     @State var pipIMEFocused = false
     var connected: Bool { runtime.phase == .connected }
-    var isAgentSession: Bool { runtime.activeAgentKind != nil }
+    var isAgentSession: Bool { runtime.isAgentSession }
     var dockAvailable: Bool { connected && !editor && !commandSheet && !usageSheet }
     var voiceControlsAvailable: Bool { runtime.voice.active && !editor && !commandSheet && !usageSheet }
     /// A double tap or a line starting with `/` brings arrow keys around the pet, while its ring and voice popover are closed.
@@ -100,7 +100,7 @@ struct TerminalScreen: View {
                     floatingControls(in: page.size, safeArea: insets, twoColumns: twoColumns)
                 }
             }
-            if connected && !editor && isAgentSession {
+            if connected && !editor && runtime.activeAgentKind != nil {
                 let ringTrailing = reserved ? max(insets.trailing, twoColumns ? 96 : 48) + 4 : insets.trailing + 8
                 TerminalContextRing(percent: runtime.agentUsage?.contextPercent) {
                     _ = runtime.terminalView.resignFirstResponder()
@@ -223,6 +223,7 @@ struct TerminalScreen: View {
         }
         .onChange(of: model.settings.toolboxPinned) { pinned in if pinned != toolbox.pinned { toolbox.setPinned(pinned, at: now) } }
         .onChange(of: commandSheet) { _ in toolbox.closeRing() }
+        .onChange(of: toolbox.dockVisible) { visible in if visible { runtime.refreshDetectedScreen() } }
         .onChange(of: runtime.voice.active) { active in toolbox.setVoiceActive(active, at: now) }
         .onChange(of: runtime.petArrowTouches) { _ in withAnimation(.easeOut(duration: 0.12)) { petArrowsUntil = now + 4 }; toolbox.wake(at: now) }
         // A terminal whose connection dropped, or that came back from the journal, reconnects as soon as it is shown.

@@ -4,20 +4,30 @@ import RoamttyTransport
 
 /// The agent's status (Android `TerminalConnection.agentStatus`) and the actions on the tmux session and its agent.
 extension SessionRuntime {
-    func startAgentStatusPolling() {
+    func startAgentStatusPolling(awaitingLaunch: Bool = false) {
         agentPoll?.cancel()
         guard record.mode == .tmux else { return }
+        agentLaunchDeadline = awaitingLaunch ? ProcessInfo.processInfo.systemUptime + AgentSessionPresence.launchGraceSeconds : nil
         agentPoll = Task { [weak self] in
+            if awaitingLaunch {
+                do { try await Task.sleep(for: .seconds(AgentSessionPresence.launchInitialPollDelay)) } catch { return }
+            }
             while !Task.isCancelled {
                 guard let self, self.phase == .connected else { return }
                 let status = await self.pollAgentStatus()
-                // An agent shows up within seconds of starting; without one the poll can be lazy.
-                do { try await Task.sleep(for: .seconds(status != nil ? 3 : 10)) } catch { return }
+                // An agent shows up within seconds of starting; retry quickly during launch grace, lazily for plain shells.
+                let wait = AgentSessionPresence.nextPollInterval(
+                    status: status,
+                    launchDeadline: self.agentLaunchDeadline,
+                    now: ProcessInfo.processInfo.systemUptime
+                )
+                do { try await Task.sleep(for: .seconds(wait)) } catch { return }
             }
         }
     }
     func stopAgentStatusPolling() {
         agentPoll?.cancel(); agentPoll = nil; agentStatus = nil; agentPolled = false
+        agentLaunchDeadline = nil; detectedScreen = .shell; lastScreenDetectAt = 0
         agentUsageTask?.cancel(); agentUsageTask = nil; agentUsage = nil; agentUsageLoading = false
         compactRefreshTask?.cancel(); compactRefreshTask = nil
         lastAgentUsageAt = nil; lastAgentUsageState = nil
@@ -32,6 +42,11 @@ extension SessionRuntime {
         // Only an answer without an agent clears it.
         guard let answer = output else { return agentStatus }
         let status = AgentStatus.parse(answer), now = Date()
+        let uptime = ProcessInfo.processInfo.systemUptime
+        if status != nil || !AgentSessionPresence.inLaunchGrace(launchDeadline: agentLaunchDeadline, now: uptime) {
+            if agentLaunchDeadline != nil { agentLaunchDeadline = nil }
+        }
+        refreshDetectedScreen()
         // The host's clock moves `elapsedMillis` on with every poll, and the list's own clock already counts from
         // `agentStatusAt`: a status that only aged as expected keeps both, so it does not redraw the app every poll.
         if !AgentStatus.sameExceptAge(agentStatus, status, after: now.timeIntervalSince(agentStatusAt)) {
@@ -44,14 +59,32 @@ extension SessionRuntime {
         onAgentReport?(previous, status)
         let directory = AgentStatus.directory(answer)
         if !directory.isEmpty && directory != paneDirectory { paneDirectory = directory }
-        maybeRefreshAgentUsage(status: status)
+        if status != nil || agentLaunchDeadline == nil {
+            maybeRefreshAgentUsage(status: status)
+        }
         return status
     }
 
     var activeAgentKind: CodingAgent? {
-        if let reported = CodingAgent.fromCommand(agentStatus?.agent) { return reported }
-        if !agentPolled { return launchedAgent }
-        return nil
+        AgentSessionPresence.activeAgent(
+            status: agentStatus,
+            launchedAgent: launchedAgent,
+            agentPolled: agentPolled,
+            launchDeadline: agentLaunchDeadline,
+            now: ProcessInfo.processInfo.systemUptime,
+            detectedScreen: detectedScreen
+        )
+    }
+
+    var isAgentSession: Bool {
+        AgentSessionPresence.isAgentActive(
+            status: agentStatus,
+            launchedAgent: launchedAgent,
+            agentPolled: agentPolled,
+            launchDeadline: agentLaunchDeadline,
+            now: ProcessInfo.processInfo.systemUptime,
+            detectedScreen: detectedScreen
+        )
     }
 
     private func maybeRefreshAgentUsage(status: AgentStatus?) {
@@ -164,7 +197,9 @@ extension SessionRuntime {
         guard !program.isEmpty, !program.contains("\n") else { return true }
         // Let the fresh shell print its prompt before the command echoes.
         try? await Task.sleep(for: .milliseconds(500))
-        return send(program + "\r")
+        let sent = send(program + "\r")
+        if sent && launchedAgent != nil { startAgentStatusPolling(awaitingLaunch: true) }
+        return sent
     }
 
     /// Ends this session's tmux session on the server over the live connection; false when it could not.
