@@ -174,8 +174,15 @@ public enum WindowsDesktop {
         `$hasSettings = (`$args | Where-Object { `$_ -eq '--settings' -or `$_ -like '--settings=*' }).Count -gt 0
         `$launchArgs = if (`$hasSettings) { `$args } else { @('--settings', `$settingsFile) + `$args }
         `$cmd = Get-Command agy.exe, agy.cmd, agy -CommandType Application -ErrorAction SilentlyContinue | Where-Object { `$_.Source -ne `$PSCommandPath } | Select-Object -First 1
-        if (`$cmd) { & `$cmd.Source @launchArgs } else { & agy @launchArgs }
-        exit `$LASTEXITCODE
+        `$roamttyPane = `$env:TMUX_PANE
+        if (`$roamttyPane -match '^%[0-9]+$') { psmux set-option -p -t `$roamttyPane '@roamtty_agy_mic' `$env:ANTIGRAVITY_MIC 2>`$null }
+        try {
+          if (`$cmd) { & `$cmd.Source @launchArgs } else { & agy @launchArgs }
+        } finally {
+          `$roamttyExit = `$LASTEXITCODE
+          if (`$roamttyPane -match '^%[0-9]+$') { psmux set-option -p -u -t `$roamttyPane '@roamtty_agy_mic' 2>`$null }
+        }
+        exit `$roamttyExit
         "@
         $psTmp = "$d\\agy.$PID.tmp"
         Set-Content -Path $psTmp -Value $launcher -Encoding UTF8

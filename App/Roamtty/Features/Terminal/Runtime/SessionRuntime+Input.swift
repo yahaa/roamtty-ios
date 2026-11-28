@@ -16,6 +16,10 @@ extension SessionRuntime {
         guard phase == .connected else { return false }
         let sent = mosh?.write(data) ?? ssh?.write(data) ?? false
         if !sent && reportFailure { message = "输入未发送 / Input was not sent" }
+        if sent, voice.codexStatus != nil {
+            let enter = data.count == 1 && (data.first == 13 || data.first == 10)
+            voice.codexStatus?.sentInput(submittingStatus: enter && hasCodexStatusCommand)
+        }
         return sent
     }
     /// A delete from the keyboard: holding the key clears the line once (`TerminalDeleteHold`).
@@ -82,6 +86,11 @@ extension SessionRuntime {
         let lines = (0..<terminal.rows).map { terminal.getLine(row: $0)?.screenText ?? "" }
         return ScreenApp.detect(rows: lines, cursorRow: terminal.getCursorLocation().y)
     }
+    var hasCodexStatusCommand: Bool {
+        let terminal = terminalView.getTerminal()
+        return writableViewport && terminal.getLine(row: terminal.getCursorLocation().y)?.screenText.trimmingCharacters(in: .whitespaces) == "› /status"
+    }
+
     func refreshDetectedScreen() {
         let next = detectScreenApp()
         if detectedScreen != next { detectedScreen = next }

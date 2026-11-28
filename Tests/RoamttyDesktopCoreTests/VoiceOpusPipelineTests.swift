@@ -12,6 +12,23 @@ final class VoiceOpusPipelineTests: XCTestCase {
         }
     }
 
+    func testNumberedClearAcceptsLargeFirstJumpAndPreservesMediaWhichAlreadyAdvanced() throws {
+        let jitter = try XCTUnwrap(VoiceJitterBuffer(streamId: 1, sampleRate: 16000))
+        func push(_ gen: UInt8, _ seq: UInt32) {
+            let flags = VoiceProtocol.withTurnGen(VoiceProtocol.VOICE_FLAG_SPEECH, turnGen: gen)
+            jitter.push(.init(streamId: 1, seq: seq, tsSamples: seq * 320, flags: flags, red: [], primary: [0xF8]), nowMs: Int64(seq) * 20)
+        }
+        push(0, 0)
+        XCTAssertTrue(jitter.clearForTurn(9))
+        XCTAssertEqual(jitter.queuedFrames(), 0)
+        push(9, 1)
+        XCTAssertEqual(jitter.queuedFrames(), 1)
+        push(10, 2)
+        XCTAssertFalse(jitter.clearForTurn(10))
+        XCTAssertFalse(jitter.clearForTurn(9))
+        XCTAssertEqual(jitter.queuedFrames(), 1)
+    }
+
     func testVoiceOpusAndStatsWireRoundTrip() throws {
         let flags = VoiceProtocol.withTurnGen(
             VoiceProtocol.VOICE_FLAG_FEC | VoiceProtocol.VOICE_FLAG_SPEECH | VoiceProtocol.VOICE_FLAG_RESET,
@@ -263,12 +280,30 @@ final class VoiceOpusPipelineTests: XCTestCase {
         XCTAssertTrue(waitUntil(2) { audio.micStartedIds.contains(3) })
         let speech24 = VoiceOpusMath.int16ToBytes(sineFrame(rate: 24_000, freqHz: 440, frameIdx: 0))
         XCTAssertEqual(speech24.count, 960)
-        audio.emitMic(streamId: 3, pcm: speech24)
+        audio.emitMic(streamId: 3, pcm: Array(speech24.prefix(640)))
+        audio.emitMic(streamId: 3, pcm: Array(speech24.dropFirst(640)))
         XCTAssertTrue(waitUntil(2) {
             stream.received.contains { f in
                 f.type == VoiceProtocol.MIC_OPUS && VoiceProtocol.decodeVoiceOpus(f.payload)?.streamId == 3
             }
         })
+    }
+
+    func testDuplicateClearCannotSilenceTheRestOfTheCurrentTurn() throws {
+        let sender = try XCTUnwrap(VoiceRedSender(streamId: 1, sampleRate: 24_000, enableDtx: false))
+        let jb = try XCTUnwrap(VoiceJitterBuffer(streamId: 1, sampleRate: 24_000))
+        func push(_ i: Int, generation: UInt8) throws {
+            let packet = try XCTUnwrap(sender.encodeSamples20ms(sineFrame(rate: 24_000, freqHz: 440, frameIdx: i)))
+            jb.push(.init(streamId: 1, seq: UInt32(i), tsSamples: UInt32(i * 480),
+                          flags: VoiceProtocol.withTurnGen(packet.flags, turnGen: generation), red: [], primary: packet.primary),
+                    nowMs: Int64(i * 20))
+        }
+        try push(0, generation: 0)
+        _ = jb.clearForBargeIn(nowMs: 10)
+        try push(1, generation: 1)
+        _ = jb.clearForBargeIn(nowMs: 500)
+        for i in 26...50 { try push(i, generation: 1) }
+        XCTAssertNotNil(jb.popFrame(nowMs: 1_000))
     }
 
     func testLateSpkClearAfterNewTurnPacketDoesNotDoubleAdvanceTurnGen() throws {

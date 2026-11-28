@@ -33,6 +33,7 @@ extension DesktopSessionTests {
             stream.received.filter { $0.type == DesktopProtocol.CONFIG }
                 .compactMap { try? JSONSerialization.jsonObject(with: Data($0.payload)) as? [String: Any] }
         }
+        _ = try firstConfiguration(on: stream)
         let before = configs().count
         s.setMini(true); s.setMini(true)
         XCTAssertTrue(waitUntil(2) { configs().count == before + 1 })
@@ -70,7 +71,7 @@ extension DesktopSessionTests {
         s.start()
         wait(s, "connected", Self.connected)
         let stream = try XCTUnwrap(host.allStreams.first)
-        let first = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(stream.received.first!.payload)) as? [String: Any])
+        let first = try firstConfiguration(on: stream)
         XCTAssertEqual(first["audio"] as? Bool, true)
         XCTAssertTrue(waitUntil(2) { available.value == true })
         XCTAssertTrue(waitUntil(2) { sound.packets >= 5 })
@@ -110,9 +111,17 @@ extension DesktopSessionTests {
         s.onAudioAvailable = { available.value = $0 }
         s.start()
         wait(s, "connected", Self.connected)
-        let first = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try XCTUnwrap(host.allStreams.first).received.first!.payload)) as? [String: Any])
+        let first = try firstConfiguration(on: XCTUnwrap(host.allStreams.first))
         XCTAssertNil(first["audio"])
         XCTAssertTrue(waitUntil(2) { available.value == false })
+    }
+
+    /// The first CONFIG is written asynchronously after the session becomes connected.
+    private func firstConfiguration(on stream: FakeStream) throws -> [String: Any] {
+        XCTAssertTrue(waitUntil(2) { !stream.received.isEmpty })
+        let first = try XCTUnwrap(stream.received.first)
+        XCTAssertEqual(first.type, DesktopProtocol.CONFIG)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(first.payload)) as? [String: Any])
     }
 
     /// The first report is the network in use; the same interface again is only a path update.

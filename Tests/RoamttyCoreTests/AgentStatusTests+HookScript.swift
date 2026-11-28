@@ -14,7 +14,7 @@ extension AgentStatusTests {
             try AgentHooks.script.write(to: script, atomically: true, encoding: .utf8)
             // A stand-in tmux keeping each option in a file: `show-options -qv -t P NAME`, `set-option -q -t P NAME VALUE`,
             // `set-option -u -q -t P NAME`.
-            var tmux = "#!/bin/sh\ncase \"$1\" in\n  show-options) cat \"\(dir.path)/opt$5\" 2>/dev/null ;;\n" +
+            var tmux = "#!/bin/sh\ncase \"$1\" in\n  display-message) echo \"$4\" ;;\n  show-options) cat \"\(dir.path)/opt$5\" 2>/dev/null ;;\n" +
                 "  set-option) if [ \"$2\" = -u ]; then rm -f \"\(dir.path)/opt$6\"; else printf '%s' \"$6\" > \"\(dir.path)/opt$5\"; fi ;;\n"
             if listPanes { tmux += "  list-panes) printf '%%1 %s\\n' \"$(cat \"\(dir.path)/opt@roamtty_session\" 2>/dev/null)\" ;;\n" }
             // Every tmux session lives but one.
@@ -50,7 +50,7 @@ extension AgentStatusTests {
         }
         @discardableResult
         func hook(_ event: String, _ json: String = "{}", agent: String = "claude", grok: Bool = false) throws -> String {
-            try run([script.path, agent, event], json: json, pane: "%1", marker: grok ? "grok" : nil)
+            try run([script.path, agent, event], json: json, pane: "%1", marker: grok ? "grok" : (agent == "codex" ? "codex" : nil))
         }
         func agyHook(_ event: String, _ json: String = "{}", marker: String? = "agy") throws -> String {
             try run([script.path, "agy", event], json: json, pane: "%1", marker: marker)
@@ -225,6 +225,10 @@ extension AgentStatusTests {
     func testCodexKeepsReportingWhateverSessionIdsItSends() throws {
         let fixture = try HookFixture()
         try fixture.hook("prompt", #"{"session_id":"a","prompt":"go"}"#, agent: "codex")
+        try fixture.hook("tool", #"{"session_id":"a","tool_input":{"session_id":"b"},"tool_name":"test"}"#, agent: "codex")
+        XCTAssertEqual(fixture.option("@roamtty_codex_thread"), "a")
+        try fixture.hook("prompt", #"{"session_id":"child","agent_id":"subagent","prompt":"new"}"#, agent: "codex")
+        XCTAssertEqual(fixture.option("@roamtty_codex_thread"), "a")
         try fixture.hook("stop", #"{"session_id":"b"}"#, agent: "codex")
         XCTAssertEqual(fixture.reported(), "idle||")
         XCTAssertNil(fixture.option("@roamtty_owner"))
@@ -256,12 +260,10 @@ extension AgentStatusTests {
             fmt="$4"
             agent=$(cat "\(opts.path)/%7_@roamtty_agent" 2>/dev/null)
             sess=$(cat "\(opts.path)/%7_@roamtty_session" 2>/dev/null)
-            ccwd=$(cat "\(opts.path)/%7_@roamtty_codex_cwd" 2>/dev/null)
-            cstart=$(cat "\(opts.path)/%7_@roamtty_codex_start" 2>/dev/null)
+            proof=$(cat "\(opts.path)/%7_@roamtty_codex_thread" 2>/dev/null)
             case "$fmt" in
-              *'@roamtty_codex_start'*) printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' "%7" "$sess" "$agent" "$ccwd" "\(work.path)" "$cstart" ;;
-              *'@roamtty_codex_cwd'*) printf '%s\\t%s\\t%s\\t%s\\n' "%7" "$agent" "$ccwd" "\(work.path)" ;;
-              *) printf '%s\\t%s\\t%s\\n' "%7" "$sess" "$agent" ;;
+              *'@roamtty_codex_cwd'*) printf '%s\\t%s\\t%s\\t%s\\t%s\\n' "%7" "\(work.path)" "\(work.path)" "$proof" "$agent" ;;
+              *) printf '%s\\t%s\\t%s\\n' "%7" "$sess" "$proof" ;;
             esac ;;
         esac
         """
@@ -270,12 +272,11 @@ extension AgentStatusTests {
 
         try "idle|1000|codex||".write(to: opts.appendingPathComponent("%7_@roamtty_agent"), atomically: true, encoding: .utf8)
         try work.path.write(to: opts.appendingPathComponent("%7_@roamtty_codex_cwd"), atomically: true, encoding: .utf8)
-        try "1000".write(to: opts.appendingPathComponent("%7_@roamtty_codex_start"), atomically: true, encoding: .utf8)
 
-        func runHook(_ event: String, _ json: String, pane: String?) throws {
+        func runHook(_ event: String, _ json: String, pane: String?, arguments: [String] = []) throws {
             let p = Process()
             p.executableURL = URL(fileURLWithPath: "/bin/sh")
-            p.arguments = [script.path, "codex", event]
+            p.arguments = [script.path, "codex", event] + arguments
             var env = ProcessInfo.processInfo.environment
             env["PATH"] = dir.path + ":" + (env["PATH"] ?? "/usr/bin:/bin")
             env["TMUX_PANE"] = pane
@@ -291,17 +292,23 @@ extension AgentStatusTests {
         }
         func opt(_ name: String) -> String? { try? String(contentsOf: opts.appendingPathComponent("%7_\(name)"), encoding: .utf8) }
 
-        try runHook("start", #"{"session_id":"01a2-thread-1","cwd":"\#(work.path)"}"#, pane: "%0")
-        XCTAssertEqual(opt("@roamtty_session"), "01a2-thread-1")
+        try runHook("start", #"{"session_id":"external","source":"startup","cwd":"\#(work.path)"}"#, pane: "%0")
+        XCTAssertTrue((opt("@roamtty_session") ?? "").isEmpty)
+        let thread = "00000000-0000-4000-8000-000000000001"
+        try runHook("bind", "", pane: nil, arguments: ["%7", thread])
+        XCTAssertEqual(opt("@roamtty_session"), thread)
+        XCTAssertEqual(opt("@roamtty_codex_thread"), thread)
 
-        try runHook("prompt", #"{"session_id":"01a2-thread-1","cwd":"\#(work.path)","prompt":"<realtime_delegation>\n  <input>check wifi</input>\n  <transcript_delta>hi</transcript_delta>\n</realtime_delegation>"}"#, pane: "%0")
+        try runHook("prompt", #"{"session_id":"\#(thread)","cwd":"\#(work.path)","#
+            + #""prompt":"<realtime_delegation>\n  <input>check wifi</input>\n  <transcript_delta>hi</transcript_delta>\n</realtime_delegation>"}"#, pane: "%0")
         XCTAssertEqual(opt("@roamtty_task"), "check wifi")
-        try runHook("stop", #"{"session_id":"01a2-thread-1","cwd":"\#(work.path)","last_assistant_message":"Channel 149 ok."}"#, pane: "%0")
+        try runHook("stop", #"{"session_id":"\#(thread)","cwd":"\#(work.path)","last_assistant_message":"Channel 149 ok."}"#, pane: "%0")
         XCTAssertEqual(opt("@roamtty_reply"), "Channel 149 ok.")
         let worked = opt("@roamtty_worked")
 
-        try runHook("prompt", #"{"session_id":"01a2-thread-1","cwd":"\#(work.path)","prompt":"<realtime_delegation>\n  <source>transcript_tail_flush</source>\n  <input>The user just ended their realtime session.</input>\n</realtime_delegation>"}"#, pane: "%0")
-        try runHook("stop", #"{"session_id":"01a2-thread-1","cwd":"\#(work.path)"}"#, pane: "%0")
+        try runHook("prompt", #"{"session_id":"\#(thread)","cwd":"\#(work.path)","#
+            + #""prompt":"<realtime_delegation>\n  <source>transcript_tail_flush</source>\n  <input>The user just ended their realtime session.</input>\n</realtime_delegation>"}"#, pane: "%0")
+        try runHook("stop", #"{"session_id":"\#(thread)","cwd":"\#(work.path)"}"#, pane: "%0")
         XCTAssertEqual(opt("@roamtty_task"), "check wifi")
         XCTAssertEqual(opt("@roamtty_reply"), "Channel 149 ok.")
         XCTAssertEqual(opt("@roamtty_worked"), worked)

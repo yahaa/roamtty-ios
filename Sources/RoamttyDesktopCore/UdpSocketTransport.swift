@@ -120,9 +120,9 @@ public final class UdpSocketTransport: UdpTransport, @unchecked Sendable {
         #endif
         var tos: Int32 = 0xB8 // DSCP EF (46 << 2)
         if family == AF_INET6 {
-            _ = setsockopt(s, IPPROTO_IPV6, IPV6_TCLASS, &tos, socklen_t(MemoryLayout<Int32>.size))
+            _ = setsockopt(s, Int32(IPPROTO_IPV6), IPV6_TCLASS, &tos, socklen_t(MemoryLayout<Int32>.size))
         } else {
-            _ = setsockopt(s, IPPROTO_IP, IP_TOS, &tos, socklen_t(MemoryLayout<Int32>.size))
+            _ = setsockopt(s, Int32(IPPROTO_IP), IP_TOS, &tos, socklen_t(MemoryLayout<Int32>.size))
         }
     }
 }

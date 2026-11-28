@@ -44,24 +44,29 @@ extension VoiceController {
             streamTracker.beginRecovery()
             if active { ghostState = .connecting }
         case .ready(let port, let udp):
+            let resumed = recovering
             recovering = false; networkPoor = false; micPort = backend == .agy && port > 0 ? port : nil; onUdp = udp
             Diagnostics.shared.log("voice-ready", "backend=\(backend.rawValue) port=\(port) udp=\(udp)")
-            model.markDesktopPluginInstalled(for: runtime.host.id)
-            if !startKeySent {
-                startKeySent = true
-                if backend == .agy {
-                    sendFunctionKey(mode.startFunctionKey, to: runtime)
+            if let saved = model.host(runtime.host.id), runtime.host.hasSameLoginIdentity(as: saved) {
+                model.markDesktopPluginInstalled(for: saved.id)
+            }
+            let firstReady = !bridgeReady
+            bridgeReady = true
+            if backend == .agy {
+                if session?.agyKeysAllowed != true {
+                    startKeySent = false
+                } else if firstReady {
+                    startKeySent = sendFunctionKey(mode.startFunctionKey, to: runtime)
                 }
+                if !startKeySent, streamTracker.activeMicStreamId == nil, streamTracker.activeSpkStreamId == nil {
+                    if firstReady || resumed { showAgyPortHint(port: port, model: model) }
+                    return
+                }
+            }
+            if firstReady {
                 ghostState = isMuted ? .muted : .listening(level: 0)
                 startElapsedTimer()
-                if backend == .agy && port != VoiceProtocol.defaultPort {
-                    showToast(model.text(
-                        "语音端口 24713 被占用，已改用 \(port)；若当前 agy 无响应请重启会话",
-                        "Voice port 24713 is busy; using \(port). Restart agy if voice does not respond"
-                    ))
-                } else {
-                    showToast(model.text("已接通，可以直接说话", "Connected — speak naturally"))
-                }
+                showToast(model.text("已接通，可以直接说话", "Connected — speak naturally"))
                 scheduleNoStreamHint(generation: startGeneration, model: model)
             } else if ghostState == .connecting {
                 ghostState = isMuted ? .muted : .listening(level: 0)
@@ -71,6 +76,12 @@ extension VoiceController {
             errorMessage = message
             cleanupAfterEnd(reason: "failed")
         }
+    }
+
+    private func showAgyPortHint(port: Int, model: AppModel) {
+        let path = session?.hello?.os.lowercased().hasPrefix("win") == true ? "~/.roamtty/agy.ps1" : "~/.roamtty/agy"
+        showToast(model.text("在此终端用 \(path) 重新启动 AGY，再按 F6 连接端口 \(port)",
+                             "Restart AGY here with \(path), then press F6 to use port \(port)"), duration: .seconds(10))
     }
 
     func handleStreamEvent(_ event: VoiceStreamEvent, model: AppModel) {
@@ -88,6 +99,8 @@ extension VoiceController {
         case .none:
             break
         case .streamActive:
+            if elapsedTimer == nil { startElapsedTimer() }
+            if ghostState == .connecting { ghostState = isMuted ? .muted : .listening(level: 0) }
             cancelStreamTimers()
         case .endedImmediately(let reason):
             if !recovering { finishFromRemote(reason: reason, model: model) }
@@ -125,7 +138,7 @@ extension VoiceController {
             boundModel?.logins.dismissPrompts(owner: owner)
             loginOwner = nil
         }
-        let shouldSendF7 = sendHangup && startKeySent && backend == .agy
+        let shouldSendF7 = sendHangup && startKeySent && backend == .agy && !recovering && session?.agyKeysAllowed == true
         #if DEBUG
         if shouldSendF7, !fixtureMode, let target = runtime ?? boundRuntime { sendFunctionKey(7, to: target) }
         #else
@@ -148,6 +161,7 @@ extension VoiceController {
             audioEngine?.stopAll()
         }
         audioEngine = nil
+        codexStatus = nil
         session = nil
         streamTracker.reset(mode: mode)
         if let owner = loginOwner {
@@ -155,7 +169,7 @@ extension VoiceController {
             loginOwner = nil
         }
         active = false; recovering = false; networkPoor = false; popoverOpen = false; isMuted = false
-        ghostState = .idle; micPort = nil; onUdp = false; startKeySent = false
+        ghostState = .idle; micPort = nil; onUdp = false; bridgeReady = false; startKeySent = false
         boundModel?.setVoiceCallActive(false)
     }
 
@@ -225,10 +239,10 @@ extension VoiceController {
         }
     }
 
-    func sendFunctionKey(_ number: Int, to runtime: SessionRuntime) {
-        guard let seq = TerminalKeys.function(number, control: false, shift: false) else { return }
+    @discardableResult func sendFunctionKey(_ number: Int, to runtime: SessionRuntime) -> Bool {
+        guard runtime.voiceBackend == .agy, let seq = TerminalKeys.function(number, control: false, shift: false) else { return false }
         runtime.terminalView.scrollToLiveOutput()
-        runtime.send(seq)
+        return runtime.send(seq)
     }
 
     func showToast(_ message: String, duration: Duration = .seconds(2)) {

@@ -11,12 +11,16 @@ final class DesktopOutQueue {
     private var queuedMicFrames = 0
     private var closed = false
 
+    private func isMic(_ frame: [UInt8]) -> Bool {
+        frame.first == UInt8(VoiceProtocol.MIC_AUDIO) || frame.first == UInt8(VoiceProtocol.MIC_OPUS)
+    }
+
     func send(_ b: [UInt8]) {
         cond.lock()
         if !closed {
-            if b.first == UInt8(VoiceProtocol.MIC_AUDIO) {
+            if isMic(b) {
                 while queuedMicFrames >= Self.maxQueuedMicFrames,
-                      let oldest = items.firstIndex(where: { $0.first == UInt8(VoiceProtocol.MIC_AUDIO) }) {
+                      let oldest = items.firstIndex(where: isMic) {
                     items.remove(at: oldest)
                     queuedMicFrames -= 1
                 }

@@ -53,6 +53,8 @@ final class WindowsDesktopTests: XCTestCase {
         XCTAssertTrue(script.contains("Move-Item -Force"))
         XCTAssertTrue(script.contains("agy.exe, agy.cmd, agy"))
         XCTAssertTrue(script.contains("$PSCommandPath"))
+        XCTAssertTrue(script.contains("set-option -p -t `$roamttyPane '@roamtty_agy_mic' `$env:ANTIGRAVITY_MIC"))
+        XCTAssertTrue(script.contains("set-option -p -u -t `$roamttyPane '@roamtty_agy_mic'"))
         let clear = decode(WindowsDesktop.clearAgyLauncherCommand())
         XCTAssertTrue(clear.contains("Remove-Item"))
         XCTAssertTrue(clear.contains("voice-mic"))

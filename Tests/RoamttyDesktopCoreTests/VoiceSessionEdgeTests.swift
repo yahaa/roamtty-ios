@@ -286,6 +286,105 @@ final class VoiceSessionEdgeTests: XCTestCase {
         }, "unacked UDP SPK_ACK must fall back to SSH via onGiveUp")
     }
 
+}
+
+extension VoiceSessionEdgeTests {
+    func testAgySendsKeysOnlyToMatchingAnnouncedPortOrUnknownLegacyDefault() {
+        for (port, marker, permitted) in [(24713, "127.0.0.1:24714", false), (24714, "127.0.0.1:24714", true),
+                                          (24714, "", false), (24713, "", true)] {
+            let host = FakeHost(probe: FakeHost.probe("no", version: "0.9.7")) { s, _ in
+                s.hello(["proto": 1, "mic_port": port, "session": "s", "resume_token": "t"])
+            }
+            host.scriptLines = { $0.contains("@roamtty_agy_mic") ? ["%1|\(marker)"] : [] }
+            let session = VoiceSession(config: .init(hostName: "h", address: "localhost", tmuxSession: "work"),
+                                       manifest: manifest, timings: fastTimings, login: { .host(host) })
+            session.start()
+            XCTAssertTrue(waitUntil(2) { if case .ready = session.phase { return true }; return false })
+            XCTAssertEqual(session.agyKeysAllowed, permitted, "port=\(port) marker=\(marker)")
+            session.close()
+        }
+    }
+
+    func testAgySwitchingPanesDuringEnvironmentSetupDoesNotSendKeys() {
+        let port = VoiceProtocol.defaultPort
+        let pane = Box("%1")
+        let host = FakeHost(probe: FakeHost.probe("no", version: "0.9.14")) { stream, _ in
+            stream.hello(["proto": 1, "mic_port": port, "session": "s", "resume_token": "t"])
+        }
+        host.scriptLines = { command in
+            guard command.contains("@roamtty_agy_mic") else { return [] }
+            let endpoint = "127.0.0.1:\(port)"
+            return [command.contains("#{pane_id}") ? "\(pane.value)|\(endpoint)" : endpoint]
+        }
+        let session = VoiceSession(config: .init(hostName: "h", address: "localhost", tmuxSession: "work"),
+                                   manifest: manifest, timings: fastTimings, login: { .host(host) },
+                                   injectMicPort: { _, _, _ in pane.value = "%2" })
+        defer { session.close() }
+        session.start()
+        XCTAssertTrue(waitUntil(2) { if case .ready = session.phase { return true }; return false })
+        XCTAssertFalse(session.agyKeysAllowed)
+    }
+
+    func testNaturalStopWaitsForPlaybackAndCanStillBeInterruptedByClear() throws {
+        let events = DispatchQueue(label: "test.voice.stop")
+        let session = VoiceSession(config: .init(hostName: "h", address: "localhost"), manifest: manifest,
+                                   callbackQueue: events, login: { .noCredentials })
+        let audio = FakeVoiceAudioIO()
+        session.audioIO = audio
+        var finish: (() -> Void)?
+        audio.deferredSpeakerStop = { _, callback in finish = callback }
+        var stopped = 0
+        session.onEvent = { event in if case .speakerStopped = event { stopped += 1 } }
+        session.handle(.spkStart(streamId: 1, sampleRate: 24000, channels: 1))
+        session.handle(.spkStop(streamId: 1))
+        XCTAssertEqual(events.sync { stopped }, 0)
+        session.handle(.spkClearTurn(streamId: 1, turn: 1))
+        XCTAssertEqual(audio.spkCleared, [1])
+        try XCTUnwrap(finish)()
+        XCTAssertEqual(events.sync { stopped }, 1)
+        session.handle(.spkClearTurn(streamId: 1, turn: 2))
+        XCTAssertEqual(audio.spkCleared, [1])
+    }
+
+    func testNumberedSpeakerClearAcrossTransportsRunsOnceAndIgnoresOlderTurns() throws {
+        let session = VoiceSession(config: .init(hostName: "h", address: "localhost"), manifest: manifest, login: { .noCredentials })
+        let audio = FakeVoiceAudioIO()
+        session.audioIO = audio
+        session.handle(.spkStart(streamId: 5, sampleRate: 24_000, channels: 1))
+        for turn: UInt8 in [1, 1, 2, 1, 2] {
+            let frame = DesktopProtocol.frame(VoiceProtocol.SPK_CLEAR, [5, 0, 0, 0, turn, 0, 0, 0])
+            session.handle(try XCTUnwrap(VoiceProtocol.decode(try XCTUnwrap(DesktopProtocol.read(frame)))))
+        }
+        XCTAssertEqual(audio.spkCleared, [5, 5])
+    }
+
+    func testStoppedStreamCannotRestartFromLateOrDuplicateStart() {
+        let session = VoiceSession(config: .init(hostName: "h", address: "localhost"), manifest: manifest, login: { .noCredentials })
+        let audio = FakeVoiceAudioIO()
+        session.audioIO = audio
+        session.handle(.micStop(streamId: 11))
+        session.handle(.spkStop(streamId: 15))
+        for _ in 0..<2 {
+            session.handle(.micStart(streamId: 11, sampleRate: 16_000, channels: 1))
+            session.handle(.spkStart(streamId: 15, sampleRate: 24_000, channels: 1))
+            session.handle(.micStart(streamId: 12, sampleRate: 16_000, channels: 1))
+            session.handle(.spkStart(streamId: 16, sampleRate: 24_000, channels: 1))
+        }
+        XCTAssertEqual(audio.micStartedIds, [12])
+        XCTAssertEqual(audio.spkStarted.map(\.streamId), [16])
+    }
+
+    func testSshQueueEvictsOpusAndPcmTogetherWithoutDroppingControls() throws {
+        let queue = DesktopOutQueue()
+        queue.send([0x11])
+        for index: UInt8 in 0..<90 {
+            queue.send([index.isMultiple(of: 3) ? 0x10 : 0x12, index])
+        }
+        let batch = try XCTUnwrap(queue.take())
+        XCTAssertEqual(batch.first, [0x11])
+        XCTAssertEqual(batch.dropFirst().compactMap(\.last), Array(UInt8(70)..<90))
+    }
+
     func testDesktopOutQueueBoundsMicAudioWhilePreservingControlFrames() throws {
         let q = DesktopOutQueue()
         let ack = VoiceProtocol.spkAck(streamId: 1, ok: true)

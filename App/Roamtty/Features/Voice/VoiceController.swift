@@ -5,6 +5,16 @@ import RoamttyCore
 import RoamttyDesktopCore
 import RoamttyTransport
 
+extension SessionRuntime {
+    var voiceBackend: VoiceBackend? {
+        switch activeAgentKind ?? CodingAgent(screenApp: detectScreenApp()) {
+        case .agy: return .agy
+        case .codex: return .codex
+        default: return nil
+        }
+    }
+}
+
 /// Coordinates an active `agy /voice` call for one terminal session:
 /// owns `VoiceSession` + `VoiceAudioEngine`, sends interactive F5/F6/F7 keys,
 /// auto-mutes `DesktopAudioPlayer` to protect VPIO AEC, and drives the Ghost pet & popover UI.
@@ -24,6 +34,7 @@ import RoamttyTransport
     @Published var toastMessage: String?
     @Published var errorMessage: String?
 
+    var codexStatus: CodexStatusObservation?
     var session: VoiceSession?
     var audioEngine: VoiceAudioEngine?
     var startTask: Task<Void, Never>?
@@ -34,6 +45,7 @@ import RoamttyTransport
     var remoteEndTask: Task<Void, Never>?
     var noStreamHintTask: Task<Void, Never>?
     var toastTask: Task<Void, Never>?
+    var bridgeReady = false
     var startKeySent = false
     var streamTracker = VoiceRemoteStreamTracker()
     weak var boundRuntime: SessionRuntime?
@@ -119,9 +131,9 @@ import RoamttyTransport
             errorMessage = model.text("未获得麦克风权限，请在系统设置中允许访问。", "Microphone permission was denied. Enable it in Settings.")
             return
         }
-        let owner = "voice-\(runtime.record.id)"
+        let owner = "voice-\(runtime.record.id)-\(UUID())"
         let initialRoute = route ?? (VoiceAudioEngine.hasBluetoothRoute ? .bluetooth : .speaker)
-        let targetBackend = resolveBackend(for: runtime)
+        guard let targetBackend = runtime.voiceBackend else { return }
         boundRuntime = runtime; boundModel = model; loginOwner = owner
         self.mode = mode; self.backend = targetBackend; self.audioRoute = initialRoute; self.active = true; self.recovering = false; self.networkPoor = false
         self.isMuted = false; self.elapsedSeconds = 0; self.popoverOpen = false
@@ -141,14 +153,14 @@ import RoamttyTransport
                 // Allow CoreAudio / Bluetooth HFP to settle after tearing down the prior session's VPIO engine.
                 try await Task.sleep(for: .milliseconds(220))
             }
-            let latestHost = model.host(runtime.host.id) ?? runtime.host
-            _ = try await model.logins.credentials(for: latestHost, owner: owner)
+            let (login, credentials) = try await resolveVoiceLogin(runtime, model: model, owner: owner)
             guard !Task.isCancelled, startGeneration == generation else {
                 if startGeneration == generation { cleanupAfterEnd(reason: "cancelled") }
                 return
             }
+            runtime.loginSnapshot = SessionLoginSnapshot(host: login.host, credentials: credentials)
             let manifest = try model.desktopManifest()
-            let voiceSession = buildVoiceSession(runtime: runtime, host: latestHost, model: model, owner: owner, manifest: manifest, backend: targetBackend)
+            let voiceSession = buildVoiceSession(runtime: runtime, host: login.host, model: model, owner: owner, manifest: manifest, backend: targetBackend)
             let engine = makeAudioEngine(route: route)
             engine.prepareSession(route: route)
             voiceSession.audioIO = engine
@@ -166,18 +178,16 @@ import RoamttyTransport
         }
     }
 
-    private func resolveBackend(for runtime: SessionRuntime) -> VoiceBackend {
-        if runtime.activeAgentKind == .agy || (!runtime.agentPolled && runtime.launchedAgent == .agy) || runtime.screenApp() == .agy {
-            return .agy
-        }
-        if runtime.activeAgentKind == .codex || (!runtime.agentPolled && runtime.launchedAgent == .codex) || runtime.screenApp() == .codex {
-            return .codex
-        }
-        return .agy
+    private func resolveVoiceLogin(_ runtime: SessionRuntime, model: AppModel, owner: String) async throws -> (SessionReconnectLogin, Credentials) {
+        guard let saved = model.host(runtime.host.id) else { throw RoamError.cancelled }
+        let login = runtime.loginSnapshot.reconnect(using: saved)
+        let credentials = try await model.logins.credentials(for: login.host, owner: owner, retained: login.retainedCredentials,
+                                                             useSavedCredentials: login.usesSavedCredentials)
+        return (login, credentials)
     }
 
     private func buildVoiceSession(runtime: SessionRuntime, host: Host, model: AppModel, owner: String, manifest: PluginManifest, backend: VoiceBackend) -> VoiceSession {
-        let hostID = host.id
+        let sessionID = runtime.record.id
         let tmux = runtime.record.mode == .tmux ? runtime.record.remoteName : nil
         var config = VoiceSession.Config(hostName: host.name, address: host.hostname, tmuxSession: tmux, backend: backend)
         config.english = model.english
@@ -186,8 +196,10 @@ import RoamttyTransport
             manifest: manifest,
             login: { [weak model] in
                 guard let model else { return .failed(message: nil, connecting: false) }
-                return model.syncVoiceLogin(hostID: hostID, owner: owner)
+                return model.syncVoiceLogin(sessionID: sessionID, owner: owner)
             },
+            prepareCodexBind: Self.prepareCodexBind,
+            readCodexStatus: { [weak model] in model?.syncCodexStatus(sessionID: sessionID, owner: owner) },
             injectMicPort: { remote, port, windows in
                 if windows {
                     if let cmd = WindowsDesktop.writeAgyLauncherCommand(micPort: port) { _ = remote.runCommand(cmd, timeout: 10) { _ in } }
@@ -205,6 +217,21 @@ import RoamttyTransport
         )
     }
 
+    /// Manual Codex launches can be dialed before the terminal's periodic hook installation has run.
+    nonisolated private static func prepareCodexBind(_ host: DesktopHost) -> Bool {
+        guard let ssh = (host as? SSHDesktopHost)?.connection else { return false }
+        let script = """
+        set -e
+        dir="$HOME/.roamtty"
+        mkdir -p "$dir"
+        tmp=$(mktemp "$dir/.voice-hook.XXXXXX")
+        trap 'rm -f "$tmp"' EXIT
+        cat > "$tmp"
+        cmp -s "$tmp" "$dir/agent-hook.sh" || mv -f "$tmp" "$dir/agent-hook.sh"
+        """
+        return (try? ssh.exec(RemoteCommands.shell(script), input: Data(AgentHooks.script.utf8), timeout: 8).status) == 0
+    }
+
     private func makeAudioEngine(route: VoiceAudioRoute?) -> VoiceAudioEngine {
         let engine = VoiceAudioEngine()
         if let route { engine.setAudioRoute(route) }
@@ -220,8 +247,11 @@ import RoamttyTransport
                 self.updateSpeakerActivity(level: Double(level))
             }
         }
-        engine.onRouteChanged = { [weak self] detected in
-            Task { @MainActor in self?.audioRoute = detected }
+        engine.onRouteChanged = { [weak self, weak engine] detected in
+            Task { @MainActor in
+                guard let self, let engine, self.audioEngine === engine else { return }
+                self.audioRoute = detected
+            }
         }
         return engine
     }
@@ -230,7 +260,7 @@ import RoamttyTransport
         guard canToggleMute else { return }
         isMuted.toggle()
         session?.setMuted(isMuted)
-        if backend == .agy {
+        if backend == .agy && startKeySent && session?.agyKeysAllowed == true {
             #if DEBUG
             if !fixtureMode { sendFunctionKey(6, to: runtime) }
             #else
@@ -252,9 +282,11 @@ import RoamttyTransport
         routes = VoiceAudioEngine.hasBluetoothRoute ? [.speaker, .earpiece, .bluetooth] : [.speaker, .earpiece]
         #endif
         let idx = routes.firstIndex(of: audioRoute) ?? 0
-        audioRoute = routes[(idx + 1) % routes.count]
-        audioEngine?.setAudioRoute(audioRoute)
-        showToast(english ? "Switched to \(routeLabel(audioRoute, english: true))" : "已切换\(routeLabel(audioRoute, english: false))")
+        let next = routes[(idx + 1) % routes.count]
+        #if DEBUG
+        if fixtureMode { audioRoute = next; return }
+        #endif
+        audioEngine?.setAudioRoute(next)
     }
 
     func hangup(runtime: SessionRuntime, model: AppModel) {

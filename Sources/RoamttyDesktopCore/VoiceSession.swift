@@ -30,6 +30,7 @@ public final class VoiceSession: @unchecked Sendable {
         public var recoverRetryMs: Int64 = 1_000
         public var tickMs: Int64 = 250
         public var exitWaitMs: Int64 = 3_000
+        public var mediaStartTimeoutMs: Int64 = 18_000
         public var helloTimeoutMs: Int64 = 25_000
         public var shutdownGraceMs: Int64 = 120
         public init() {}
@@ -38,6 +39,8 @@ public final class VoiceSession: @unchecked Sendable {
     public let config: Config
     let manifest: PluginManifest
     let login: () -> DesktopLogin
+    let prepareCodexBind: (DesktopHost) -> Bool
+    let readCodexStatus: () -> String?
     let fetch: (String) throws -> Data
     let makeUdp: (String, Int) throws -> UdpTransport
     let injectMicPort: (DesktopHost, Int, Bool) -> Void
@@ -77,7 +80,18 @@ public final class VoiceSession: @unchecked Sendable {
     var link: UdpLink?
     var sessionId: String?
     var resumeToken: String?
+    // A new transport epoch re-announces all live IDs. Old UDP callbacks cannot affect it.
+    var transportEpoch: UUID?
+    var closedMicIds: Set<UInt32> = []
+    var closedSpeakerIds: Set<UInt32> = []
+    var hadMediaThisAttempt = false
+    var codexTarget: (thread: String, cwd: String?)?
+    var _agyKeysAllowed = false
+    public var agyKeysAllowed: Bool { sync { _agyKeysAllowed } }
+    var micPending: [UInt8] = []
     var activeMicStreamId: UInt32?
+    var lastSpeakerClearTurn: UInt32?
+    var drainingSpeakerId: UInt32?
     var activeSpkStreamId: UInt32?
     var ping = DesktopPingClock()
     var goodSinceMs: Int64 = 0
@@ -94,6 +108,8 @@ public final class VoiceSession: @unchecked Sendable {
         timings: Timings = Timings(),
         callbackQueue: DispatchQueue = DispatchQueue(label: "roamtty.voice.callbacks"),
         login: @escaping () -> DesktopLogin,
+        prepareCodexBind: @escaping (DesktopHost) -> Bool = { _ in true },
+        readCodexStatus: @escaping () -> String? = { nil },
         fetch: @escaping (String) throws -> Data = HTTPFetch.get,
         makeUdp: @escaping (String, Int) throws -> UdpTransport = { try UdpSocketTransport(host: $0, port: $1, voiceQoS: true) },
         injectMicPort: ((DesktopHost, Int, Bool) -> Void)? = nil,
@@ -104,6 +120,8 @@ public final class VoiceSession: @unchecked Sendable {
         self.timings = timings
         self.callbackQueue = callbackQueue
         self.login = login
+        self.prepareCodexBind = prepareCodexBind
+        self.readCodexStatus = readCodexStatus
         self.fetch = fetch
         self.makeUdp = makeUdp
         let tmux = config.tmuxSession
@@ -139,7 +157,9 @@ public final class VoiceSession: @unchecked Sendable {
     }
     var isClosing: Bool { sync { closing } }
 
-    public func setMuted(_ muted: Bool) { sync { _muted = muted } }
+    public func setMuted(_ muted: Bool) {
+        sync { _muted = muted; if muted { micPending.removeAll(keepingCapacity: true) } }
+    }
 
     public func start() {
         let go: Bool = sync {
@@ -188,7 +208,7 @@ public final class VoiceSession: @unchecked Sendable {
             let shutdownFrame = VoiceProtocol.config(["shutdown": true])
             if let l, l.alive { l.send(shutdownFrame, reliable: true, fecRatio: 1.0) }
             q?.send(shutdownFrame)
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + .milliseconds(Int(graceMs))) { [weak self] in
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + .milliseconds(Int(graceMs))) { [weak self, s, l] in
                 s?.close()
                 l?.close()
                 self?.wakeAll()
@@ -287,6 +307,9 @@ public final class VoiceSession: @unchecked Sendable {
 
     func wakeAll() { wake.lock(); wake.broadcast(); wake.unlock() }
 
+}
+
+extension VoiceSession {
     private static func runMicPortOp(host: DesktopHost, port: Int?, windows: Bool, tmuxSession: String?) {
         if let port, !(1...65535).contains(port) { return }
         if windows {

@@ -111,7 +111,7 @@ def cmd_env():
 def tmux_meta(tmux_session):
     if not tmux_session:
         return "", "", "", "", 0
-    fmt = "#{@roamtty_agent}\t#{@roamtty_session}\t#{@roamtty_transcript}\t#{pane_current_path}\t#{pane_pid}"
+    fmt = "#{@roamtty_agent}\t#{@roamtty_session}\t#{@roamtty_transcript}\t#{pane_current_path}\t#{pane_pid}\t#{@roamtty_codex_thread}"
     try:
         out = subprocess.check_output(
             ["tmux", "-u", "display-message", "-p", "-t", f"={tmux_session}:", fmt],
@@ -123,6 +123,8 @@ def tmux_meta(tmux_session):
         while len(parts) < 5:
             parts.append("")
         agent_field = parts[0].split("|")[2] if parts[0].count("|") >= 2 else ""
+        if agent_field == "codex" and (len(parts) < 6 or not parts[5] or parts[1] != parts[5]):
+            parts[1] = parts[2] = ""
         return agent_field.strip(), parts[1].strip(), parts[2].strip(), parts[3].strip(), safe_int(parts[4].strip())
     except Exception:
         return "", "", "", "", 0
@@ -628,43 +630,7 @@ def latest_codex_account_quotas(exclude_path=None):
     return (q5h, q5h_ts, q5h_def), (q7d, q7d_ts, q7d_def)
 
 
-def tmux_codex_meta(tmux_session):
-    if not tmux_session:
-        return "", 0, set()
-    codex_cwd = ""
-    codex_start = 0
-    try:
-        out = subprocess.check_output(
-            ["tmux", "-u", "display-message", "-p", "-t", f"={tmux_session}:", "#{@roamtty_codex_cwd}\t#{@roamtty_codex_start}"],
-            stderr=subprocess.DEVNULL,
-            timeout=2,
-            env=cmd_env(),
-        ).decode("utf-8", "replace").rstrip("\r\n")
-        parts = out.split("\t")
-        if parts:
-            codex_cwd = parts[0].strip()
-        if len(parts) > 1:
-            codex_start = safe_int(parts[1].strip())
-    except Exception:
-        pass
-    claimed = set()
-    try:
-        out = subprocess.check_output(
-            ["tmux", "-u", "list-panes", "-a", "-F", "#{session_name}\t#{@roamtty_session}"],
-            stderr=subprocess.DEVNULL,
-            timeout=2,
-            env=cmd_env(),
-        ).decode("utf-8", "replace")
-        for line in out.splitlines():
-            parts = line.split("\t", 1)
-            if len(parts) == 2 and parts[0].strip() != tmux_session and parts[1].strip():
-                claimed.add(parts[1].strip())
-    except Exception:
-        pass
-    return codex_cwd, codex_start, claimed
-
-
-def find_codex_transcript(transcript, sid, cwd, allow_fallback=True, min_created_ts=0, claimed_sids=None):
+def find_codex_transcript(transcript, sid, cwd, allow_fallback=True):
     if transcript and os.path.isfile(transcript):
         return transcript
     base = os.path.join(HOME, ".codex", "sessions")
@@ -674,12 +640,11 @@ def find_codex_transcript(transcript, sid, cwd, allow_fallback=True, min_created
         hits = glob.glob(os.path.join(base, "*", "*", "*", f"*{sid}*.jsonl"))
         if hits:
             return max(hits, key=os.path.getmtime)
-    if transcript or sid or (not allow_fallback and min_created_ts <= 0):
+    if transcript or sid or not allow_fallback:
         return None
     target = norm_path(cwd)
     if not target:
         return None
-    claimed = claimed_sids or set()
     candidates = glob.glob(os.path.join(base, "*", "*", "*", "*.jsonl"))
     candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
     for p in candidates[:30]:
@@ -695,13 +660,6 @@ def find_codex_transcript(transcript, sid, cwd, allow_fallback=True, min_created
                         c = pl.get("cwd")
                         if not c or norm_path(c) != target:
                             continue
-                        if not allow_fallback and min_created_ts > 0:
-                            meta_sid = pl.get("session_id") or pl.get("id") or ""
-                            if meta_sid and meta_sid in claimed:
-                                break
-                            created = parse_iso_ts(pl.get("timestamp")) or parse_iso_ts(o.get("timestamp")) or 0.0
-                            if created < min_created_ts - 5:
-                                break
                         return p
         except Exception:
             continue
@@ -1197,14 +1155,11 @@ def run_session(agent_arg, tmux_session, cwd_arg):
             if q7d:
                 data["q7d"] = q7d
     elif agent == "codex":
-        codex_cwd, codex_start, claimed = (
-            tmux_codex_meta(tmux_session) if (tmux_session and not t_transcript and not t_sid and not allow_fallback)
-            else ("", 0, set())
-        )
-        p = find_codex_transcript(
-            t_transcript, t_sid, codex_cwd or cwd,
-            allow_fallback=allow_fallback, min_created_ts=codex_start, claimed_sids=claimed,
-        )
+        # A missing hook during startup or a switch cannot identify which same-directory
+        # conversation a requested tmux pane belongs to.
+        p = None
+        if not tmux_session or t_agent == "codex":
+            p = find_codex_transcript(t_transcript, t_sid, cwd, allow_fallback=not tmux_session)
         if p:
             data = parse_codex_file(p, model_cache=codex_model_ctx_cache())
         (fb5, fb5_ts, fb5_def), (fb7, fb7_ts, fb7_def) = latest_codex_account_quotas(exclude_path=p)

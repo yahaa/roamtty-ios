@@ -4,20 +4,8 @@ import RoamttyDesktopCore
 
 /// Terminal voice dock button, floating call popover, and toast overlay.
 extension TerminalScreen {
-    var isAgySession: Bool {
-        runtime.activeAgentKind == .agy || (!runtime.agentPolled && runtime.launchedAgent == .agy) || runtime.screenApp() == .agy
-    }
-
-    var voiceAgent: CodingAgent? {
-        if isAgySession { return .agy }
-        if runtime.activeAgentKind == .codex || (!runtime.agentPolled && runtime.launchedAgent == .codex) || runtime.screenApp() == .codex {
-            return .codex
-        }
-        return nil
-    }
-
     /// Shown in `agy` and `codex` sessions (or while a voice call is active), right beside the Desktop button.
-    var showVoiceDock: Bool { voiceAgent != nil || runtime.voice.active }
+    var showVoiceDock: Bool { runtime.voiceBackend != nil || runtime.voice.active }
 
     var voiceDockButton: some View {
         let inCall = runtime.voice.active

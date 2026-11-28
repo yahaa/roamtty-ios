@@ -6,21 +6,484 @@ PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/home/linuxbrew/.lin
 agent=$1
 event=$2
 session=$3
+# Merge both files under the same advisory lock. A parse error must leave the user's configuration intact.
+if [ "$agent:$event" = codex:install ]; then
+  shift 2
+  codex_dir=${CODEX_HOME:-"$HOME/.codex"}
+  if ! command -v python3 >/dev/null 2>&1 && perl -MJSON::PP -MFcntl -MFile::Temp -e 1 2>/dev/null; then
+    # macOS and many minimal Linux installations provide Perl's core JSON and flock without Python.
+    perl - "$codex_dir" "$@" <<'__ROAMTTY_PERL__'
+use strict;
+use warnings;
+use Cwd qw(abs_path);
+use Fcntl qw(:flock);
+use File::Basename qw(dirname);
+use File::Path qw(make_path);
+use File::Temp qw(tempfile tempdir);
+use JSON::PP;
+
+sub read_file {
+    my ($name) = @_;
+    return '' unless -e $name;
+    open my $file, '<:raw', $name or die "$name: $!";
+    local $/;
+    return <$file> // '';
+}
+sub publish {
+    my ($path, $data) = @_;
+    $path = abs_path($path) // die "cannot resolve $path" if -l $path;
+    my ($file, $tmp) = tempfile('.roamtty-XXXXXX', DIR => dirname($path), UNLINK => 1);
+    binmode $file;
+    chmod((stat($path))[2] & 07777, $tmp) or die "chmod: $!" if -e $path;
+    print {$file} $data or die "write: $!";
+    close $file or die "close: $!";
+    rename $tmp, $path or die "$path: $!";
+}
+eval {
+    my $dir = shift;
+    make_path($dir);
+    $dir = abs_path($dir) // die "cannot resolve $dir";
+    open my $lock, '>>', "$dir/.roamtty-hooks.lock" or die "lock: $!";
+    flock($lock, LOCK_EX) or die "flock: $!";
+    my $file = "$dir/hooks.json";
+    my $config = "$dir/config.toml";
+    my $json = JSON::PP->new->utf8->canonical;
+    my $data = -e $file ? $json->decode(read_file($file)) : {};
+    die 'expected a hooks object' unless ref($data) eq 'HASH';
+    $data->{hooks} = {} unless exists $data->{hooks};
+    die 'expected a hooks object' unless ref($data->{hooks}) eq 'HASH';
+    my $before = read_file($config);
+    my $after = $before;
+    my $changed = 0;
+    for my $spec (@ARGV) {
+        my ($event, $key, $action, $hash) = split / /, $spec;
+        my $hook = {type => 'command', command => "sh ~/.roamtty/agent-hook.sh codex $action", timeout => 3};
+        $data->{hooks}{$event} = [] unless exists $data->{hooks}{$event};
+        my $groups = $data->{hooks}{$event};
+        die "expected hook groups for $event" unless ref($groups) eq 'ARRAY';
+        my $index;
+        for my $i (0 .. $#$groups) {
+            my $g = $groups->[$i];
+            die "expected hook groups for $event" unless ref($g) eq 'HASH' && ref($g->{hooks}) eq 'ARRAY';
+            my $v = $json->encode($g);
+            $index //= $i if $v eq $json->encode({hooks => [$hook]}) ||
+                $v eq $json->encode({hooks => [{%$hook, async => JSON::PP::false}]});
+        }
+        if (!defined $index) {
+            $index = @$groups;
+            push @$groups, {hooks => [$hook]};
+            $changed = 1;
+        }
+        my $header = '[hooks.state.' . JSON::PP->new->allow_nonref->encode("$file:$key:$index:0") . ']';
+        $after .= "\n$header\ntrusted_hash = \"$hash\"\n" unless $before =~ /^\s*\Q$header\E\s*(?:\#.*)?$/m;
+    }
+    # Let the installed Codex parse the complete candidate before publishing either file.
+    if ($before =~ /\S/) {
+        my $scratch = tempdir('.roamtty-config-XXXXXX', DIR => $dir, CLEANUP => 1);
+        publish("$scratch/config.toml", $after);
+        local $ENV{CODEX_HOME} = $scratch;
+        my $pid = fork();
+        die 'cannot run Codex to validate config.toml' unless defined $pid;
+        if (!$pid) {
+            open STDOUT, '>', '/dev/null' or exit 1;
+            open STDERR, '>', '/dev/null' or exit 1;
+            exec 'codex', 'features', 'list';
+            exit 1;
+        }
+        waitpid $pid, 0;
+        die 'Codex could not validate the updated config.toml' unless $? == 0;
+    }
+    publish($file, $json->pretty->encode($data)) if $changed;
+    publish($config, $after) if $before ne $after;
+    1;
+} or die "Roamtty: could not install Codex hooks: $@\n";
+__ROAMTTY_PERL__
+    exit $?
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    # Without a parser we can still install into a fresh home, without overwriting existing user files.
+    mkdir -p "$codex_dir" || exit 1
+    codex_dir=$(cd "$codex_dir" && pwd -P) || exit 1
+    scratch=$(mktemp -d "$codex_dir/.roamtty-hooks.XXXXXX") || exit 1
+    trap 'rm -f "$scratch/hooks" "$scratch/config"; rmdir "$scratch"' 0
+    clean_dir=$(printf '%s' "$codex_dir" | LC_ALL=C tr -d '[:cntrl:]')
+    [ "$clean_dir" = "$codex_dir" ] || { echo 'Roamtty: Python or Perl is required for this Codex path.' >&2; exit 1; }
+    trust_dir=$(printf '%s' "$codex_dir" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    (
+      umask 077
+      printf '{"hooks":{' > "$scratch/hooks"
+      separator=
+      for spec do
+        IFS=' ' read -r name key action hash <<EOF
+$spec
+EOF
+        printf '%s"%s":[{"hooks":[{"type":"command","command":"sh ~/.roamtty/agent-hook.sh codex %s","timeout":3}]}]' "$separator" "$name" "$action" >> "$scratch/hooks"
+        printf '\n[hooks.state."%s/hooks.json:%s:0:0"]\ntrusted_hash = "%s"\n' "$trust_dir" "$key" "$hash" >> "$scratch/config"
+        separator=,
+      done
+      printf '}}\n' >> "$scratch/hooks"
+    )
+    # link(2) publishes complete files exclusively, including on concurrent first launches.
+    if [ -e "$codex_dir/config.toml" ] && ! cmp -s "$scratch/config" "$codex_dir/config.toml"; then
+      echo 'Roamtty: Python 3 or Perl JSON::PP is needed to merge existing Codex settings.' >&2; exit 1
+    fi
+    ln "$scratch/hooks" "$codex_dir/hooks.json" 2>/dev/null || cmp -s "$scratch/hooks" "$codex_dir/hooks.json" || {
+      echo 'Roamtty: Python 3 or Perl JSON::PP is needed to merge existing Codex hooks.' >&2; exit 1
+    }
+    ln "$scratch/config" "$codex_dir/config.toml" 2>/dev/null || cmp -s "$scratch/config" "$codex_dir/config.toml"
+    exit $?
+  fi
+  python3 - "$codex_dir" "$@" <<'__ROAMTTY_INSTALL__'
+import fcntl, json, os, re, stat, subprocess, sys, tempfile
+from pathlib import Path
+
+def read(path):
+    try:
+        with path.open(encoding="utf-8", newline="") as f:
+            return f.read()
+    except FileNotFoundError:
+        return ""
+
+def replace(path, text):
+    fd, tmp = tempfile.mkstemp(prefix=".roamtty-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            if path.exists():
+                os.fchmod(f.fileno(), stat.S_IMODE(path.stat().st_mode))
+            f.write(text)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+def install(directory, specs):
+    directory.mkdir(parents=True, exist_ok=True)
+    # Keep a stable lock inode even when a previous launcher exits or is killed.
+    with (directory / ".roamtty-hooks.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        hook_file = directory / "hooks.json"
+        hook_target = hook_file.resolve()
+        config = (directory / "config.toml").resolve()
+        original = read(hook_target)
+        data = json.loads(original) if hook_target.exists() else {}
+        if not isinstance(data, dict) or not isinstance(data.setdefault("hooks", {}), dict):
+            raise ValueError("expected a hooks object in " + str(hook_file))
+        text = read(config)
+        try:
+            import tomllib
+        except ImportError:
+            try:
+                import tomli as tomllib
+            except ImportError:
+                try:
+                    from pip._vendor import tomli as tomllib
+                except ImportError:
+                    tomllib = None
+        parsed = tomllib.loads(text) if tomllib else {}
+        trust = parsed.get("hooks", {}).get("state", {})
+        if not isinstance(trust, dict):
+            raise ValueError("expected a hooks.state table in config.toml")
+        additions = []
+        changed = False
+        for spec in specs:
+            event, key, action, digest = spec.split()
+            hook = {"type": "command", "command": "sh ~/.roamtty/agent-hook.sh codex " + action, "timeout": 3}
+            groups = data["hooks"].setdefault(event, [])
+            if not isinstance(groups, list):
+                raise ValueError("expected a hook list for " + event)
+            if any(not isinstance(g, dict) or not isinstance(g.get("hooks"), list) for g in groups):
+                raise ValueError("expected hook groups for " + event)
+            for i, group in enumerate(groups):
+                if group == {"hooks": [hook]} or group == {"hooks": [{**hook, "async": False}]}:
+                    break
+            else:
+                i = len(groups)
+                groups.append({"hooks": [hook]})
+                changed = True
+            identity = f"{hook_file}:{key}:{i}:0"
+            # A user's existing trust decision takes precedence.
+            header = "[hooks.state." + json.dumps(identity, ensure_ascii=False) + "]"
+            present = identity in trust if tomllib else re.search(r"^\s*" + re.escape(header) + r"\s*(?:#.*)?$", text, re.M)
+            if not present:
+                additions.append(f'\n{header}\ntrusted_hash = "{digest}"\n')
+        result = text + "".join(additions)
+        if tomllib:
+            tomllib.loads(result)
+        elif text.strip():
+            # Older Python installations can use the actual Codex parser without changing the live files.
+            with tempfile.TemporaryDirectory(prefix=".roamtty-config-", dir=directory) as scratch:
+                (Path(scratch) / "config.toml").write_text(result, encoding="utf-8")
+                checked = subprocess.run(["codex", "features", "list"], env={**os.environ, "CODEX_HOME": scratch},
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if checked.returncode:
+                    raise ValueError("Codex could not validate the updated config.toml")
+        if changed:
+            replace(hook_target, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        if additions:
+            replace(config, result)
+
+try:
+    install(Path(sys.argv[1]).resolve(), sys.argv[2:])
+except (OSError, ValueError, TypeError, AttributeError) as e:
+    sys.exit("Roamtty: could not install Codex hooks: " + str(e))
+__ROAMTTY_INSTALL__
+  exit $?
+fi
+
+# Roamtty's standard TUI shares the local app server. Its native terminal-title fields
+# identify the active thread without inserting a command or changing the server's configuration.
+if [ "$agent:$event" = codex:launch ]; then
+  shift 2
+  # Keep explicit alternate backends, CLI configuration overrides and noninteractive commands native.
+  embedded=
+  case "$1" in ''|resume|fork|--no-daemon|-s|--sandbox|-m|--model|-a|--ask-for-approval|--dangerously-bypass-approvals-and-sandbox) ;; *) exec codex "$@";; esac
+  for arg do
+    case "$arg" in --no-daemon) embedded=1 ;; -c*|--config*|--remote*|--oss|--profile*|-p|--enable*|--disable*|--strict-config|--dangerously-bypass-hook-trust|--help|-h) exec codex "$@";; esac
+  done
+  if [ ! -t 0 ] || [ ! -t 1 ] || [ -z "$TMUX_PANE" ] || [ -n "$CODEX_EXEC_SERVER_URL" ] || ! command -v python3 >/dev/null 2>&1; then exec codex "$@"; fi
+  [ "$(tmux display-message -p -t "$TMUX_PANE" '#{pane_id}' 2>/dev/null)" = "$TMUX_PANE" ] || exec codex "$@"
+  surface=$(sh "$0" codex title-options) || exec codex "$@"
+  socket_dir=${CODEX_HOME:-"$HOME/.codex"}/app-server-control
+  if [ -z "$embedded" ] && [ ! -S "$socket_dir/app-server-control.sock" ]; then
+    # This feature is normally enabled. An explicit opt-out or an older CLI keeps its normal launch path.
+    codex features list </dev/null 2>/dev/null | grep -Eq '^daemon_auto_start[[:space:]]+[^[:space:]]+[[:space:]]+true[[:space:]]*$' || exec codex "$@"
+    codex app-server daemon start </dev/null >/dev/null 2>&1 || exec codex "$@"
+  fi
+  if [ -z "$embedded" ]; then
+    [ -S "$socket_dir/app-server-control.sock" ] || exec codex "$@"
+    set -- --remote unix:// "$@"
+  fi
+  directory=$(cd "${CODEX_HOME:-"$HOME/.codex"}" && pwd -P) || exec codex "$@"
+  version=
+  if [ "${surface%%=*}" = tui.status_line ]; then version=$(codex --version 2>/dev/null | awk '{print $NF}'); fi
+  tmux set-option -pq -t "$TMUX_PANE" @roamtty_codex_surface "${surface%%=*}" \; \
+    set-option -pq -t "$TMUX_PANE" @roamtty_codex_home "$directory" \; \
+    set-option -pq -t "$TMUX_PANE" @roamtty_codex_version "$version" \; \
+    set-option -pq -t "$TMUX_PANE" @roamtty_codex_tracker "$$" 2>/dev/null || exec codex "$@"
+  sh "$0" codex title-watch "$$" </dev/null >/dev/null 2>&1 &
+  watcher=$!
+  trap 'kill "$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null' 0
+  codex -c "$surface" "$@"
+  exit $?
+fi
+
+if [ "$agent:$event" = codex:title-options ]; then
+  python3 - <<'__ROAMTTY_CODEX_TITLE_OPTIONS__'
+import json, os, sys
+from pathlib import Path
+
+try:
+    import tomllib
+except ImportError:
+    try:
+        import tomli as tomllib
+    except ImportError:
+        try:
+            from pip._vendor import tomli as tomllib
+        except ImportError:
+            tomllib = None
+
+directory = Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex"))
+cwd = Path.cwd()
+titles = ["activity", "thread-title", "project-name"]
+status = ["model-with-reasoning", "current-dir", "thread-name"]
+provider = None
+try:
+    # Retain the display order selected in the user's home or project configuration.
+    paths = [Path("/etc/codex/config.toml"), directory / "config.toml"]
+    paths.extend(root / ".codex/config.toml" for root in [*reversed(cwd.parents), cwd] if root != Path.home())
+    for path in paths:
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        if tomllib is None:
+            if "terminal_title" in text:
+                sys.exit(1)
+            continue
+        config = tomllib.loads(text)
+        tui = config.get("tui", {})
+        titles = tui.get("terminal_title", titles)
+        status = tui.get("status_line", status)
+        provider = tui.get("status_line_provider", provider)
+    if not isinstance(titles, list) or not all(isinstance(t, str) for t in titles):
+        sys.exit(1)
+    if not titles:
+        # Honor disabled OSC titles. Only use a built-in status bar the user still displays.
+        if provider or not isinstance(status, list) or not status or not all(isinstance(t, str) for t in status):
+            sys.exit(1)
+        # The adjacent version cell authenticates the layout even when a picker occupies the footer.
+        status = ["thread-id", "codex-version"] + [t for t in status if t not in ("thread-id", "session-id", "codex-version")]
+        print("tui.status_line=" + json.dumps(status, ensure_ascii=True))
+        sys.exit(0)
+except (OSError, ValueError, AttributeError):
+    sys.exit(1)
+# Keep all explicitly configured items in their original order. Disable remains disable.
+if not any(t in ("thread", "thread-title") for t in titles):
+    titles = titles + ["thread-title"]
+if not any(t in ("thread-id", "session-id") for t in titles):
+    titles = titles + ["thread-id"]
+print("tui.terminal_title=" + json.dumps(titles, ensure_ascii=True))
+__ROAMTTY_CODEX_TITLE_OPTIONS__
+  exit $?
+fi
+
+if [ "$agent:$event" = codex:title-watch ] || [ "$agent:$event" = codex:current ]; then
+  exec python3 - "$event" "$3" <<'__ROAMTTY_CODEX_PANE__'
+import os, re, sqlite3, subprocess, sys, time
+from pathlib import Path
+from urllib.parse import quote
+
+mode, arg = sys.argv[1:]
+watching = mode == "title-watch"
+pane = os.environ.get("TMUX_PANE", "") if watching else arg
+if not re.fullmatch(r"%[0-9]+", pane):
+    sys.exit(1)
+
+uuid_pattern = re.compile(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
+prefix_pattern = re.compile(r"([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{5})\.\.\.$")
+fmt = "\t".join(("#{pane_id}", "#{@roamtty_codex_tracker}", "#{@roamtty_codex_surface}", "#{@roamtty_codex_home}",
+                 "#{@roamtty_codex_version}", "#{pane_title}", "#{pane_height}", "#{pane_pid}", "#{pane_tty}",
+                 "#{@roamtty_codex_thread}", "#{@roamtty_session}"))
+
+def tmux(*args):
+    return subprocess.check_output(["tmux", *args], stderr=subprocess.DEVNULL, timeout=2).decode("utf-8", "replace").rstrip("\r\n")
+
+def snapshot():
+    fields = tmux("display-message", "-p", "-t", pane, fmt).split("\t")
+    if len(fields) != 11 or fields[0] != pane or not fields[1].isdigit() or int(fields[1]) < 2:
+        raise ValueError("no live tracker")
+    if fields[2] not in ("tui.terminal_title", "tui.status_line") or not os.path.isabs(fields[3]):
+        raise ValueError("no Codex identity surface")
+    return fields
+
+def active_tui(fields):
+    # A stale user option or a recycled PID cannot stand in for the foreground TUI on this pane.
+    owner, pane_pid = int(fields[1]), int(fields[7])
+    if os.getsid(owner) != os.getsid(pane_pid):
+        return False
+    tty = fields[8][5:] if fields[8].startswith("/dev/") else fields[8]
+    rows = subprocess.check_output(["ps", "-t", tty, "-o", "pid=,ppid=,stat=,comm="], stderr=subprocess.DEVNULL, timeout=2).decode().splitlines()
+    parents = {}
+    codex = []
+    for row in rows:
+        parts = row.strip().split(None, 3)
+        if len(parts) == 4 and parts[0].isdigit() and parts[1].isdigit():
+            pid = int(parts[0])
+            parents[pid] = int(parts[1])
+            if "+" in parts[2] and re.fullmatch(r"codex(?:-.*)?", os.path.basename(parts[3])):
+                codex.append(pid)
+    for pid in codex:
+        while pid in parents and parents[pid] != pid:
+            if parents[pid] == owner:
+                return True
+            pid = parents[pid]
+    return False
+
+def lookup(directory, prefix):
+    # Include archived and historical threads. An abbreviated native ID must have at most one match.
+    dbs = sorted(Path(directory).glob("state_*.sqlite"), key=lambda p: int(p.stem[6:]) if p.stem[6:].isdigit() else -1)
+    if not dbs:
+        return []
+    db = sqlite3.connect("file:" + quote(str(dbs[-1])) + "?mode=ro", uri=True, timeout=0.2)
+    try:
+        return db.execute("SELECT id, rollout_path FROM threads WHERE id >= ? AND id < ? LIMIT 2", (prefix, prefix + "g")).fetchall()
+    finally:
+        db.close()
+
+def identity(fields):
+    _, _, surface, directory, version, title, height = fields[:7]
+    full = ""
+    if surface == "tui.status_line":
+        # Only the reserved status row immediately above Codex's shortcuts footer is consulted.
+        # An adjacent native version cell identifies the layout if a picker has replaced the footer.
+        if not version or int(height) < 5:
+            return "", ""
+        row = str(int(height) - 2)
+        cells = [c.strip() for c in tmux("capture-pane", "-p", "-S", row, "-E", row, "-t", pane).split(" · ", 2)]
+        if len(cells) < 2 or cells[1] != version or not uuid_pattern.fullmatch(cells[0]):
+            return "", ""
+        full = prefix = cells[0].lower()
+    else:
+        # Codex puts its animated activity cell and recording indicator before the following item.
+        parts = [re.sub(r"^(?:[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] +)+", "", p.strip()) for p in title.split(" | ")]
+        prefixes = {m[1].lower() for p in parts if (m := prefix_pattern.fullmatch(p))}
+        if len(prefixes) != 1:
+            return "", ""
+        prefix = prefixes.pop()
+        # An unnamed TUI shows its full thread-title before any rollout or state row exists.
+        labels = {p.lower() for p in parts if p.lower().startswith(prefix) and uuid_pattern.fullmatch(p)}
+        if len(labels) > 1:
+            return "", ""
+        full = next(iter(labels), "")
+    rows = lookup(directory, prefix)
+    if len(rows) > 1 or (rows and full and rows[0][0] != full):
+        return "", ""
+    return rows[0] if rows else (full, "")
+
+def update(proof, sid, path):
+    changes = [("@roamtty_codex_thread", "")]
+    if proof and proof != sid:
+        changes.extend((key, "") for key in ("@roamtty_task", "@roamtty_reply", "@roamtty_turn", "@roamtty_worked"))
+        changes.append(("@roamtty_agent", "idle|%d|codex||" % time.time()))
+    changes.extend((("@roamtty_session", sid), ("@roamtty_transcript", path or ""), ("@roamtty_codex_thread", sid)))
+    commands = []
+    for key, value in changes:
+        if commands:
+            commands.append(";")
+        commands.extend(("set-option", "-pq", "-t", pane, key, value))
+    tmux(*commands)
+
+while True:
+    try:
+        fields = snapshot()
+        owner = fields[1]
+        if watching and owner != arg:
+            break
+        os.kill(int(owner), 0)
+        if not watching and not active_tui(fields):
+            sys.exit(1)
+        sid, path = identity(fields)
+        proof, session = fields[-2:]
+        if not watching or proof != sid or session != sid:
+            checked = snapshot()
+            # The native title spinner changes every 100 ms while the thread remains the same.
+            if fields[:5] == checked[:5] and fields[6:9] == checked[6:9] and identity(checked)[0] == sid:
+                if not watching:
+                    if not sid or not active_tui(checked):
+                        sys.exit(1)
+                    print(sid)
+                    sys.exit(0)
+                if fields[-2:] == checked[-2:]:
+                    update(proof, sid, path)
+        if not watching:
+            sys.exit(1)
+        time.sleep(0.2 if not proof else 0.6)
+    except (ProcessLookupError, subprocess.CalledProcessError, ValueError):
+        break
+    except (OSError, sqlite3.Error, subprocess.TimeoutExpired):
+        if not watching:
+            break
+        time.sleep(0.5)
+sys.exit(0 if watching else 1)
+__ROAMTTY_CODEX_PANE__
+fi
+
 # Grok and Antigravity hooks are global: only an agent the app started (through ~/.roamtty/<agent>) reports,
 # except Antigravity's statusLine command which only runs when explicitly pointed at agent-hook.sh.
 # Codex hooks run either inside a pane (requires ROAMTTY_AGENT=codex) or inside the shared codex app-server daemon
-# (TMUX_PANE unset, matched back to a Roamtty-launched Codex pane by session_id or canonical cwd below).
+# (TMUX_PANE unset, matched back to a Roamtty-launched Codex pane by its confirmed session_id below).
 case "$agent:$event" in
   agy:statusline) ;;
   grok:*|agy:*) [ "$ROAMTTY_AGENT" = "$agent" ] || exit 0 ;;
 esac
 # A Claude Code session sent to the background (/bg, or the agents view) runs on outside tmux. Its hooks report to the
 # tmux session named in its settings; with older settings, to the pane whose recorded session it resumes.
-# Codex hooks fired by the shared app-server daemon also run outside tmux and match their pane by session_id / cwd.
+# Codex hooks fired by the shared app-server daemon also run outside tmux and match their pane by its confirmed session_id.
 # statusLine hooks also cache live quotas even if started outside tmux.
 [ -n "$TMUX_PANE" ] || [ "$agent" = claude ] || [ "$agent" = codex ] || [ "$event" = statusline ] || exit 0
 in_pane=${TMUX_PANE:+1}
-input=$(cat 2>/dev/null)
+input=
+if [ "$agent:$event" != codex:bind ]; then input=$(cat 2>/dev/null); fi
 # Claude Code statusLine hook receives official 5h/7d rate_limits JSON; cache for Roamtty and forward user statusLine if set.
 if [ "$agent" = claude ] && [ "$event" = statusline ]; then
   if command -v python3 >/dev/null 2>&1; then
@@ -69,40 +532,85 @@ try:
     data = json.loads(sys.stdin.read() or "{}")
 except Exception:
     data = {}
-# Keep Roamtty-managed tmux pane bound to the live conversation (handles fresh start, /clear, /new, /resume).
+# Keep Roamtty-managed tmux pane bound to the live conversation (handles fresh start, /clear, /new, /resume)
+# and reconcile stale working/waiting state when agy returns to idle/error (e.g. Esc cancel skipping Stop)
+# or toggles tool confirmation dialogs.
 pane = os.environ.get("TMUX_PANE") or ""
-if pane and os.environ.get("ROAMTTY_AGENT") == "agy" and isinstance(data, dict) and "conversation_id" in data:
-    cid = data.get("conversation_id") if isinstance(data.get("conversation_id"), str) else ""
-    tpath = data.get("transcript_path") if isinstance(data.get("transcript_path"), str) else ""
-    try:
-        cur_cid = subprocess.run(
-            ["tmux", "show-options", "-qv", "-t", pane, "@roamtty_session"],
+if pane and os.environ.get("ROAMTTY_AGENT") == "agy" and isinstance(data, dict):
+    def tmux_get(opt):
+        return subprocess.run(
+            ["tmux", "show-options", "-qv", "-t", pane, opt],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=1,
         ).stdout.decode("utf-8", "replace").strip()
-        cur_tp = subprocess.run(
-            ["tmux", "show-options", "-qv", "-t", pane, "@roamtty_transcript"],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=1,
-        ).stdout.decode("utf-8", "replace").strip()
-        if cid:
-            if cur_cid != cid:
-                subprocess.run(["tmux", "set-option", "-q", "-t", pane, "@roamtty_session", cid],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
-            if tpath:
-                if cur_tp != tpath:
-                    subprocess.run(["tmux", "set-option", "-q", "-t", pane, "@roamtty_transcript", tpath],
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
-            elif cur_cid != cid and cur_tp:
-                subprocess.run(["tmux", "set-option", "-u", "-q", "-t", pane, "@roamtty_transcript"],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
-        else:
-            if cur_cid:
-                subprocess.run(["tmux", "set-option", "-u", "-q", "-t", pane, "@roamtty_session"],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
-            if cur_tp:
-                subprocess.run(["tmux", "set-option", "-u", "-q", "-t", pane, "@roamtty_transcript"],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
-    except Exception:
-        pass
+
+    def tmux_set(opt, val):
+        subprocess.run(
+            ["tmux", "set-option", "-q", "-t", pane, opt, val],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1,
+        )
+
+    def tmux_unset(opt):
+        subprocess.run(
+            ["tmux", "set-option", "-u", "-q", "-t", pane, opt],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1,
+        )
+
+    if "conversation_id" in data:
+        cid = data.get("conversation_id") if isinstance(data.get("conversation_id"), str) else ""
+        tpath = data.get("transcript_path") if isinstance(data.get("transcript_path"), str) else ""
+        try:
+            cur_cid = tmux_get("@roamtty_session")
+            cur_tp = tmux_get("@roamtty_transcript")
+            if cid:
+                if cur_cid != cid:
+                    tmux_set("@roamtty_session", cid)
+                if tpath:
+                    if cur_tp != tpath:
+                        tmux_set("@roamtty_transcript", tpath)
+                elif cur_cid != cid and cur_tp:
+                    tmux_unset("@roamtty_transcript")
+            else:
+                if cur_cid:
+                    tmux_unset("@roamtty_session")
+                if cur_tp:
+                    tmux_unset("@roamtty_transcript")
+        except Exception:
+            pass
+
+    if "agent_state" in data or "tool_confirmation_pending" in data:
+        try:
+            cur_agent = tmux_get("@roamtty_agent")
+            parts = cur_agent.split("|", 4)
+            if len(parts) >= 3 and parts[2] == "agy":
+                cur_state = parts[0]
+                cur_tool = parts[3] if len(parts) > 3 else ""
+                cur_detail = parts[4] if len(parts) > 4 else ""
+                astate = data.get("agent_state") if isinstance(data.get("agent_state"), str) else ""
+                confirm_pending = data.get("tool_confirmation_pending") is True
+                task_count = data.get("task_count")
+                if isinstance(task_count, bool) or not isinstance(task_count, int):
+                    task_count = 0
+                pending_inputs = data.get("pending_input_count")
+                if isinstance(pending_inputs, bool) or not isinstance(pending_inputs, int):
+                    pending_inputs = 0
+                subagents = data.get("subagents") if isinstance(data.get("subagents"), list) else []
+                has_running_subagent = any(isinstance(s, dict) and s.get("status") == "running" for s in subagents)
+                has_bg = task_count > 0 or has_running_subagent
+                now_ts = int(time.time())
+                if confirm_pending:
+                    if cur_state == "working":
+                        tmux_set("@roamtty_agent", f"waiting|{now_ts}|agy|{cur_tool}|{cur_detail}")
+                elif astate in ("idle", "error") and not has_bg and pending_inputs <= 0:
+                    if cur_state in ("working", "waiting"):
+                        turn = tmux_get("@roamtty_turn")
+                        if turn.isdigit():
+                            tmux_set("@roamtty_worked", str(max(0, now_ts - int(turn))))
+                        tmux_set("@roamtty_agent", f"idle|{now_ts}|agy||")
+                elif astate in ("working", "thinking", "tool_use"):
+                    if cur_state == "waiting" and cur_tool != "ask_question":
+                        tmux_set("@roamtty_agent", f"working|{now_ts}|agy|{cur_tool}|{cur_detail}")
+        except Exception:
+            pass
 quota = data.get("quota") if isinstance(data, dict) else None
 if isinstance(quota, dict):
     cleaned = {}
@@ -325,75 +833,154 @@ agy_tool_name() {
   ' | head -n 1 | sed -E 's/\\[nrt]/ /g; s/\\u[0-9a-fA-F]{4}//g; s/\\(["\\/])/\1/g' | tr '|' '/' | tr -d '\000-\037' | cut -c1-40
 }
 
-get() { tmux show-options -qv -t "$TMUX_PANE" "$1" 2>/dev/null; }
-put() { tmux set-option -q -t "$TMUX_PANE" "$1" "$2" 2>/dev/null; }
-
-# Codex hooks fired by the shared `codex app-server` daemon inherit whatever TMUX_PANE started the daemon
-# (often dead or belonging to another pane). Ignore TMUX_PANE when running under app-server or when the pane is gone.
-if [ "$agent" = codex ] && [ -n "$in_pane" ] && [ -n "$input" ]; then
-  _codex_pid=$PPID
-  for _ in 1 2 3 4 5; do
-    [ -n "$_codex_pid" ] && [ "$_codex_pid" -gt 1 ] 2>/dev/null || break
-    case "$(ps -ww -o args= -p "$_codex_pid" 2>/dev/null)" in
-      *app-server*) in_pane=; break ;;
-    esac
-    _codex_pid=$(ps -o ppid= -p "$_codex_pid" 2>/dev/null | tr -d ' ')
+get() {
+  if [ "$agent" = codex ]; then tmux show-options -pqv -t "$TMUX_PANE" "$1" 2>/dev/null
+  else tmux show-options -qv -t "$TMUX_PANE" "$1" 2>/dev/null; fi
+}
+put() {
+  if [ "$agent" = codex ]; then tmux set-option -pq -t "$TMUX_PANE" "$1" "$2" 2>/dev/null
+  else tmux set-option -q -t "$TMUX_PANE" "$1" "$2" 2>/dev/null; fi
+}
+clear_codex_pane() {
+  for option in @roamtty_session @roamtty_transcript @roamtty_agent @roamtty_task @roamtty_turn @roamtty_worked @roamtty_reply @roamtty_codex_cwd @roamtty_codex_thread @roamtty_codex_tracker @roamtty_codex_surface @roamtty_codex_home @roamtty_codex_version; do
+    tmux set-option -u -pq -t "$TMUX_PANE" "$option" 2>/dev/null
   done
-  if [ -n "$in_pane" ] && ! tmux display-message -p -t "$TMUX_PANE" '#{pane_id}' >/dev/null 2>&1; then
+}
+codex_unbind() {
+  # Empty pane values mask session-level options left by older launchers.
+  for option in @roamtty_codex_thread @roamtty_session @roamtty_transcript; do put "$option" ""; done
+}
+
+# These two fields agree only after the owning TUI identified its thread. Pane-local options keep split panes independent.
+codex_bind() {
+  if [ "$(get @roamtty_codex_thread)" != "$sid" ] || [ "$(get @roamtty_session)" != "$sid" ]; then
+    put @roamtty_transcript ""
+  fi
+  put @roamtty_session "$sid"
+  put @roamtty_codex_thread "$sid"
+}
+
+if [ "$agent" = codex ] && [ "$event" = bind ]; then
+  TMUX_PANE=$session
+  sid=$4
+  case "$TMUX_PANE" in %*) ;; *) exit 1;; esac
+  printf '%s\n' "$sid" | grep -Eq '^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$' || exit 1
+  [ "$(tmux display-message -p -t "$TMUX_PANE" '#{pane_id}' 2>/dev/null)" = "$TMUX_PANE" ] || exit 1
+  codex_bind
+  exit $?
+fi
+
+# A global hook can inherit the pane that launched the daemon. Only a direct hook from a
+# Roamtty-launched CLI owns its pane. Stop at the first non-shell parent (e.g. a real Codex TUI).
+if [ "$agent" = codex ] && [ -n "$in_pane" ] && [ -n "$input" ]; then
+  if [ "$ROAMTTY_AGENT" != codex ]; then
     in_pane=
+  else
+    pid=$PPID
+    while [ "$pid" -gt 1 ] 2>/dev/null; do
+      program=$(ps -o comm= -p "$pid" 2>/dev/null)
+      case "${program##*/}" in
+        sh|bash|dash|zsh|ksh|env) ;;
+        codex|codex-*)
+          if [ -r "/proc/$pid/cmdline" ]; then
+            subcommand=$(tr '\000' '\n' < "/proc/$pid/cmdline" | sed -n '2p')
+          else
+            args=$(ps -ww -o args= -p "$pid" 2>/dev/null)
+            case "$args" in "$program "*) args=${args#"$program "} ;; *) args=${args#* } ;; esac
+            subcommand=${args%% *}
+          fi
+          [ "$subcommand" != app-server ] || in_pane=
+          break ;;
+        *) break ;;
+      esac
+      pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+    done
+    if [ -n "$in_pane" ] && [ "$(tmux display-message -p -t "$TMUX_PANE" '#{pane_id}' 2>/dev/null)" != "$TMUX_PANE" ]; then in_pane=; fi
   fi
 fi
 
-if [ -z "$in_pane" ] && [ -n "$session" ]; then
+# Codex tool arguments can themselves contain session_id or transcript_path. Its identity
+# belongs to the top-level envelope. Keep nested tool data available to the regular status parser.
+if [ "$agent" = codex ] && [ -n "$input" ]; then
+  envelope=$(printf '%s' "$input" | awk '{
+    for (i = 1; i <= length($0); i++) {
+      c = substr($0, i, 1)
+      if (!quoted && (c == "{" || c == "[")) depth++
+      if (depth == 1) printf "%s", c
+      if (quoted) {
+        if (escaped) escaped = 0
+        else if (c == "\\") escaped = 1
+        else if (c == "\"") quoted = 0
+      } else if (c == "\"") quoted = 1
+      else if (c == "}" || c == "]") depth--
+    }
+  }')
+  payload=$input
+  input=$envelope
+  [ -z "$(field agent_id 64)" ] || exit 0
+  sid=$(field 'session_id|sessionId' 64)
+  tpath=$(field 'transcript_path|transcriptPath' 400)
+  hook_cwd=$(field cwd 400)
+  hook_source=$(field source)
+  input=$payload
+fi
+
+if [ "$agent" = claude ] && [ -z "$in_pane" ] && [ -n "$session" ]; then
   tmux has-session -t "=$session" 2>/dev/null || exit 0
   TMUX_PANE="=$session:"
 elif [ -n "$in_pane" ]; then
-  # Kept past the session's end: a background session that resumed it still reports by it.
-  prev_sid=$(get @roamtty_session)
-  sid=$(field 'session_id|sessionId|conversationId' 64)
-  if [ "$agent" = claude ]; then put @roamtty_session "$sid"
-  elif [ -n "$sid" ]; then put @roamtty_session "$sid"; fi
-  tpath=$(field 'transcript_path|transcriptPath' 400)
-  if [ -n "$tpath" ]; then put @roamtty_transcript "$tpath"
-  elif [ -n "$sid" ] && [ "$sid" != "$prev_sid" ]; then tmux set-option -u -q -t "$TMUX_PANE" @roamtty_transcript 2>/dev/null; fi
-elif [ "$agent" = codex ]; then
-  # Codex hooks executed by the shared app-server daemon have no TMUX_PANE; match back to the owning Roamtty Codex pane
-  # by @roamtty_session first, else bind an unbound Codex pane in the same canonical directory. Ignore daemon SessionEnd
-  # (the in-pane launcher's end hook cleans up when Codex actually exits, so /new or thread GC cannot clear an active pane).
-  [ "$event" != end ] || exit 0
-  sid=$(field 'session_id|sessionId' 64)
-  [ -n "$sid" ] || exit 0
-  tpath=$(field 'transcript_path|transcriptPath' 400)
-  hook_cwd=$(field 'cwd' 400)
-  TMUX_PANE=$(tmux list-panes -a -F '#{pane_id}	#{@roamtty_session}	#{@roamtty_agent}' 2>/dev/null |
-    awk -F '\t' -v id="$sid" '$2 == id { split($3, a, "|"); if (a[3] == "codex") { print $1; exit } }')
-  if [ -z "$TMUX_PANE" ] && [ -n "$hook_cwd" ]; then
-    canon_cwd=$(cd "$hook_cwd" 2>/dev/null && pwd -P || printf '%s' "$hook_cwd")
-    TMUX_PANE=$(tmux list-panes -a -F '#{pane_id}	#{@roamtty_session}	#{@roamtty_agent}	#{@roamtty_codex_cwd}	#{pane_current_path}	#{@roamtty_codex_start}' 2>/dev/null |
-      awk -F '\t' -v cwd="$canon_cwd" -v raw="$hook_cwd" '
-        $2 == "" {
-          split($3, a, "|")
-          if (a[3] == "codex" && ($4 == cwd || $4 == raw || $5 == cwd || $5 == raw)) {
-            ts = $6 + 0
-            if (ts >= best_ts) { best_ts = ts; best = $1 }
-          }
-        }
-        END { if (best != "") print best }')
-    if [ -z "$TMUX_PANE" ] && [ "$event" = start ]; then
-      TMUX_PANE=$(tmux list-panes -a -F '#{pane_id}	#{@roamtty_agent}	#{@roamtty_codex_cwd}	#{pane_current_path}' 2>/dev/null |
-        awk -F '\t' -v cwd="$canon_cwd" -v raw="$hook_cwd" '
-          {
-            split($2, a, "|")
-            if (a[3] == "codex" && ($3 == cwd || $3 == raw || $4 == cwd || $4 == raw)) { count++; pane = $1 }
-          }
-          END { if (count == 1) print pane }')
-    fi
+  # A new foreground agent replaces even a Codex launcher that died before its end hook.
+  if [ "$event" = start ] && [ "$agent" != codex ] && [ -n "$(tmux show-options -pqv -t "$TMUX_PANE" @roamtty_codex_cwd 2>/dev/null)" ]; then
+    clear_codex_pane
   fi
-  [ -n "$TMUX_PANE" ] || exit 0
+  # A background Claude session may continue to report past the foreground session's end.
   prev_sid=$(get @roamtty_session)
-  put @roamtty_session "$sid"
+  if [ "$agent" != codex ]; then
+    sid=$(field 'session_id|sessionId|conversationId' 64)
+    tpath=$(field 'transcript_path|transcriptPath' 400)
+  fi
+  if [ "$agent" = codex ] && [ -n "$sid" ]; then
+    # Embedded Codex also reports SessionEnd when switching an otherwise live TUI to another thread.
+    if [ "$event" = end ]; then
+      if [ -z "$(get @roamtty_codex_tracker)" ] && [ "$prev_sid" = "$sid" ]; then codex_unbind; fi
+      exit 0
+    fi
+    if [ -n "$(get @roamtty_codex_tracker)" ]; then
+      [ "$(sh "$0" codex current "$TMUX_PANE" </dev/null 2>/dev/null)" = "$sid" ] || exit 0
+    fi
+    codex_bind
+  elif [ "$agent" = claude ]; then put @roamtty_session "$sid"
+  elif [ -n "$sid" ]; then put @roamtty_session "$sid"; fi
   if [ -n "$tpath" ]; then put @roamtty_transcript "$tpath"
-  elif [ "$sid" != "$prev_sid" ]; then tmux set-option -u -q -t "$TMUX_PANE" @roamtty_transcript 2>/dev/null; fi
+  elif [ "$agent" != codex ] && [ -n "$sid" ] && [ "$sid" != "$prev_sid" ]; then tmux set-option -u -q -t "$TMUX_PANE" @roamtty_transcript 2>/dev/null; fi
+elif [ "$agent" = codex ]; then
+  [ -n "$sid" ] || exit 0
+  # A directory can be shared with unmanaged sessions. Only the pane's confirmed
+  # identity permits a daemon event to change its state.
+  TMUX_PANE=$(tmux list-panes -a -F '#{pane_id}	#{@roamtty_session}	#{@roamtty_codex_thread}' 2>/dev/null |
+    awk -F '\t' -v id="$sid" '$2 == id && $3 == id { pane=$1; n++ } END { if (n == 1) print pane }')
+  if [ -z "$TMUX_PANE" ]; then
+    [ "$event" = start ] || exit 0
+    case "$hook_source" in compact) exit 0 ;; esac
+    # A live tracker observes its own TUI switches. An unrelated same-directory start
+    # cannot invalidate it, including when the user's OSC title is disabled.
+    [ -n "$hook_cwd" ] || exit 0
+    canon_cwd=$(cd "$hook_cwd" 2>/dev/null && pwd -P || printf '%s' "$hook_cwd")
+    tmux list-panes -a -F '#{pane_id}	#{@roamtty_codex_cwd}	#{pane_current_path}	#{@roamtty_codex_thread}	#{@roamtty_agent}	#{@roamtty_codex_tracker}' 2>/dev/null |
+      awk -F '\t' -v cwd="$canon_cwd" -v raw="$hook_cwd" '($2 == cwd || $2 == raw || $3 == cwd || $3 == raw) && ($4 != "" || $5 ~ /^[^|]*\|[^|]*\|codex\|/) { print $1, $6 }' |
+      while read -r TMUX_PANE tracker; do
+        case "$tracker" in ''|*[!0-9]*) ;; *) kill -0 "$tracker" 2>/dev/null && continue ;; esac
+        codex_unbind
+      done
+    exit 0
+  fi
+  # A delayed event can still match both cached markers just after /resume.
+  # Validate the currently displayed identity before changing a tracked pane.
+  if [ -n "$(get @roamtty_codex_tracker)" ]; then
+    [ "$(sh "$0" codex current "$TMUX_PANE" </dev/null 2>/dev/null)" = "$sid" ] || exit 0
+  fi
+  if [ "$event" = end ]; then codex_unbind; exit 0; fi
+  if [ -n "$tpath" ]; then put @roamtty_transcript "$tpath"; fi
 else
   # The session a background Claude Code resumed is in its command line ("--resume …/<id>.jsonl"); the hook may run
   # under a shell or two below it.
@@ -446,8 +1033,22 @@ fi
 
 case "$event" in
   start)
-    for option in @roamtty_worked @roamtty_reply; do tmux set-option -u -q -t "$TMUX_PANE" "$option" 2>/dev/null; done
-    if [ -z "$sid" ] && [ -z "$tpath" ]; then
+    if [ -n "$in_pane" ] && [ -z "$input" ]; then
+      if [ "$agent" = codex ]; then
+        tmux set-option -u -pq -t "$TMUX_PANE" @roamtty_agy_mic 2>/dev/null
+        tmux set-option -u -pq -t "$TMUX_PANE" @roamtty_codex_tracker 2>/dev/null
+        codex_unbind
+        put @roamtty_codex_cwd "$(pwd -P)"
+      elif [ "$agent" = agy ]; then
+        tmux set-option -pq -t "$TMUX_PANE" @roamtty_agy_mic "${ANTIGRAVITY_MIC:-}" 2>/dev/null
+      fi
+    fi
+    if [ "$agent" = codex ]; then
+      for option in @roamtty_worked @roamtty_reply; do put "$option" ""; done
+    else
+      for option in @roamtty_worked @roamtty_reply; do tmux set-option -u -q -t "$TMUX_PANE" "$option" 2>/dev/null; done
+    fi
+    if [ "$agent" != codex ] && [ -z "$sid" ] && [ -z "$tpath" ]; then
       for option in @roamtty_session @roamtty_transcript; do tmux set-option -u -q -t "$TMUX_PANE" "$option" 2>/dev/null; done
     fi
     record idle "" "" ;;
@@ -482,7 +1083,11 @@ case "$event" in
       agy:*:working\|*\|Background\|*) [ -z "$task" ] || [ "$task" = "$prev_task" ] || put @roamtty_turn "$(date +%s)" ;;
       *) put @roamtty_turn "$(date +%s)" ;;
     esac
-    for option in @roamtty_worked @roamtty_reply; do tmux set-option -u -q -t "$TMUX_PANE" "$option" 2>/dev/null; done
+    if [ "$agent" = codex ]; then
+      for option in @roamtty_worked @roamtty_reply; do put "$option" ""; done
+    else
+      for option in @roamtty_worked @roamtty_reply; do tmux set-option -u -q -t "$TMUX_PANE" "$option" 2>/dev/null; done
+    fi
     record working "" "" ;;
   tool)
     tool=$(field 'tool_name|toolName' 40)
@@ -545,6 +1150,8 @@ case "$event" in
         fi
       fi
     fi
+    [ -n "$reply" ] || reply=$(field error_details 200)
+    [ -n "$reply" ] || reply=$(field error 200)
     [ -z "$reply" ] || put @roamtty_reply "$reply"
     # Claude Code and Grok list the background work still running (shells, monitors, subagents), which wakes the
     # agent when it ends: the turn is not over yet. The first task says what it waits for.
@@ -570,6 +1177,11 @@ case "$event" in
     case "$turn" in ''|*[!0-9]*) ;; *) put @roamtty_worked "$(( $(date +%s) - turn ))" ;; esac
     record idle "" "" ;;
   end)
+    if [ "$agent" = codex ]; then
+      clear_codex_pane
+      exit 0
+    fi
+    if [ "$agent" = agy ]; then tmux set-option -u -pq -t "$TMUX_PANE" @roamtty_agy_mic 2>/dev/null; fi
     for option in @roamtty_agent @roamtty_task @roamtty_turn @roamtty_worked @roamtty_reply @roamtty_owner @roamtty_transcript @roamtty_codex_cwd @roamtty_codex_start; do
       tmux set-option -u -q -t "$TMUX_PANE" "$option" 2>/dev/null
     done ;;

@@ -90,7 +90,7 @@ extension SessionRuntime: UIGestureRecognizerDelegate {
     // MARK: Geometry
 
     /// Input typed now lands at the live cursor: connected, nothing selected, scrolled to the bottom.
-    private var writableViewport: Bool { phase == .connected && !terminalView.selectionActive && (!terminalView.canScroll || terminalView.scrollPosition >= 1) }
+    var writableViewport: Bool { phase == .connected && !terminalView.selectionActive && (!terminalView.canScroll || terminalView.scrollPosition >= 1) }
     private var scrollDisposition: TerminalScrollDisposition {
         let terminal = terminalView.getTerminal()
         return TerminalScrolling.disposition(connected: phase == .connected, selecting: terminalView.selectionActive,

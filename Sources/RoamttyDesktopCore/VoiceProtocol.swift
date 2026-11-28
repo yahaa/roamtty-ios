@@ -198,8 +198,7 @@ public enum VoiceProtocol {
             guard p.count >= 4, let id = readU32LE(p, at: 0) else { return nil }
             return .spkAudio(streamId: id, pcm: Array(p[4...]))
         case SPK_CLEAR:
-            guard p.count >= 4, let id = readU32LE(p, at: 0) else { return nil }
-            return .spkClear(streamId: id)
+            return decodeSpeakerClear(p)
         case SPK_STOP:
             guard p.count >= 4, let id = readU32LE(p, at: 0) else { return nil }
             return .spkStop(streamId: id)
@@ -225,7 +224,34 @@ public enum VoiceProtocol {
         }
     }
 
+    private static func decodeSpeakerClear(_ payload: [UInt8]) -> VoiceServerMessage? {
+        guard let id = readU32LE(payload, at: 0) else { return nil }
+        if payload.count == 4 { return .spkClear(streamId: id) }
+        guard let turn = readU32LE(payload, at: 4) else { return nil }
+        return .spkClearTurn(streamId: id, turn: turn)
+    }
+
     // MARK: CLI builder
+
+    static func validThread(_ id: String) -> Bool {
+        id.utf8.count == 36 && UUID(uuidString: id) != nil
+    }
+
+    /// Parse only the new bytes produced by /status on the calling terminal.
+    public static func codexThreadFromStatus(_ data: Data) -> String? {
+        let output = String(decoding: data, as: UTF8.self)
+            .replacingOccurrences(of: #"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\x1b\[[0-?]*[ -/]*[@-~]"#, with: "", options: .regularExpression)
+        guard output.localizedCaseInsensitiveContains("Model:"), output.localizedCaseInsensitiveContains("Directory:") else { return nil }
+        let label = #"(?i)(?:^|[│\r\n \t])[ \t]*(?:Session(?: ID)?|Thread ID):[\s│]*([a-f0-9-](?:(?:\r?\n[ \t│]*)?[a-f0-9-]){35})(?![a-z0-9_-])"#
+        guard let regex = try? NSRegularExpression(pattern: label) else { return nil }
+        let ids = Set(regex.matches(in: output, range: NSRange(output.startIndex..., in: output)).compactMap { match -> String? in
+            guard let range = Range(match.range(at: 1), in: output) else { return nil }
+            let id = output[range].filter { !$0.isWhitespace && $0 != "│" }
+            return validThread(id) ? id : nil
+        })
+        return ids.count == 1 ? ids.first : nil
+    }
 
     public static func voiceCommand(
         windows: Bool,
@@ -373,6 +399,7 @@ public enum VoiceServerMessage: Sendable {
     case spkStart(streamId: UInt32, sampleRate: UInt32, channels: UInt8)
     case spkAudio(streamId: UInt32, pcm: [UInt8])
     case spkClear(streamId: UInt32)
+    case spkClearTurn(streamId: UInt32, turn: UInt32)
     case spkStop(streamId: UInt32)
     case spkOpus(VoiceOpusPacket)
     case voiceStats(VoiceStats)

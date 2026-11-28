@@ -177,28 +177,65 @@ extension AppModel {
         } catch { /* probe is best-effort */ }
     }
 
-    /// Blocking SSH login for a `VoiceSession` worker thread; always re-reads the latest host & credentials.
-    nonisolated func syncVoiceLogin(hostID: String, owner: String) -> DesktopLogin {
-        enum Lookup { case missingHost, noCredentials, ready(Host, Credentials) }
-        let lookup: Lookup = DispatchQueue.main.sync {
-            guard let host = self.host(hostID) else { return .missingHost }
-            guard let creds = self.logins.silentCredentials(for: host) else { return .noCredentials }
-            return .ready(host, creds)
+    /// Bare terminals and older launchers identify the thread when the user runs `/status` here.
+    nonisolated func syncCodexStatus(sessionID: String, owner: String) -> String? {
+        let start: (UUID, UUID)? = DispatchQueue.main.sync {
+            guard let runtime = self.runtimes[sessionID], runtime.voice.loginOwner == owner,
+                  runtime.phase == .connected, runtime.voiceBackend == .codex else { return nil }
+            runtime.voice.codexStatus = CodexStatusObservation()
+            runtime.voice.showToast(self.text("请在此终端手动运行 /status 以接通电话", "Run /status in this terminal to connect the call"), duration: .seconds(20))
+            return (runtime.generation, runtime.startupAttempt)
         }
-        guard case .ready(let host, let credentials) = lookup else {
-            if case .noCredentials = lookup { return .noCredentials }
-            return .failed(message: nil, connecting: false)
+        guard let (generation, attempt) = start else { return nil }
+        defer {
+            DispatchQueue.main.sync {
+                guard let voice = self.runtimes[sessionID]?.voice, voice.loginOwner == owner else { return }
+                voice.codexStatus = nil
+            }
         }
+        let deadline = Date().addingTimeInterval(20)
+        while Date() < deadline {
+            let result: (done: Bool, id: String?) = DispatchQueue.main.sync {
+                guard let runtime = self.runtimes[sessionID], runtime.voice.loginOwner == owner,
+                      runtime.generation == generation, runtime.startupAttempt == attempt,
+                      runtime.phase == .connected, runtime.voiceBackend == .codex,
+                      let status = runtime.voice.codexStatus else { return (true, nil) }
+                if let id = status.thread { return (true, id) }
+                return (false, nil)
+            }
+            if result.done { return result.id }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        return nil
+    }
+
+    /// Voice follows the terminal's original login even when its saved host has been edited.
+    nonisolated func syncVoiceLogin(sessionID: String, owner: String) -> DesktopLogin {
         do {
-            let ssh = try DispatchQueue.main.sync { try self.logins.makeConnection(host, credentials: credentials, owner: owner) }
-            try ssh.connect()
-            return .host(SSHDesktopHost(connection: ssh))
+            let connection: SSHConnection? = try DispatchQueue.main.sync {
+                guard let runtime = self.runtimes[sessionID], runtime.voice.loginOwner == owner,
+                      let saved = self.host(runtime.host.id) else { throw RoamError.cancelled }
+                let login = runtime.loginSnapshot.reconnect(using: saved)
+                let credentials = login.usesSavedCredentials ? self.logins.silentCredentials(for: login.host) : login.retainedCredentials
+                guard let credentials else { return nil }
+                return try self.logins.makeConnection(login.host, credentials: credentials, owner: owner)
+            }
+            guard let connection else { return .noCredentials }
+            try connection.connect()
+            return .host(SSHDesktopHost(connection: connection))
         } catch let error as RoamError {
             if case .authentication = error {
-                DispatchQueue.main.sync { self.logins.rejectLogin(hostID) }
-                return .failed(message: DispatchQueue.main.sync { self.text("认证失败", "Authentication failed") }, connecting: false)
+                DispatchQueue.main.sync {
+                    guard let runtime = self.runtimes[sessionID], runtime.voice.loginOwner == owner,
+                          let saved = self.host(runtime.host.id) else { return }
+                    if runtime.host.hasSameLoginIdentity(as: saved) {
+                        self.logins.rejectLogin(saved.id)
+                    } else {
+                        runtime.loginSnapshot.invalidateAuthentication()
+                    }
+                }
             }
-            return .failed(message: error.localizedDescription, connecting: true)
+            return .failed(message: error.localizedDescription, connecting: error != .authentication && error != .cancelled)
         } catch {
             return .failed(message: error.localizedDescription, connecting: true)
         }

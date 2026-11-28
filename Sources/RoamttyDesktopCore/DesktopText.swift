@@ -8,7 +8,7 @@ public enum DesktopText: Equatable, Sendable {
     case downloadFailed, checksumFailed, encoderFailed, hostWriteFailed
     case voiceOpenedElsewhere, voiceCannotConnect, voiceConnectionLost, voiceCannotProbe, voiceHelloTimeout
     case voicePluginStartFailed, voicePluginStartFailedCode(Int), voicePluginError(String)
-    case codexVoiceUnsupportedOs, codexVoiceFailed(String), codexVoiceOutdatedPlugin
+    case codexThreadRequired, codexVoiceNoMedia, codexVoiceUnsupportedOs, codexVoiceFailed(String), codexVoiceOutdatedPlugin
     case voiceDownloadFailed, voiceChecksumFailed, voiceInstalling(version: String, target: String)
     case unlockOnComputer
     // Install and start log.
@@ -49,6 +49,8 @@ public enum DesktopText: Equatable, Sendable {
         case .voicePluginStartFailed: return ("语音插件启动失败", "The voice plugin didn't start")
         case .voicePluginStartFailedCode(let c): return ("语音插件启动失败（退出码 \(c)）", "The voice plugin didn't start (exit code \(c))")
         case .voicePluginError(let s): return ("语音插件出错：\(s)", "Voice plugin error: \(s)")
+        case .codexThreadRequired: return ("无法确认当前 Codex 对话。请处理当前输入，再拨号并在此终端运行 /status。", "Finish your current input, call again, and run /status in this Codex terminal.")
+        case .codexVoiceNoMedia: return ("Codex 语音通道未能建立音频连接，请检查主机网络后重试。", "Codex could not establish an audio connection. Check the host network and retry.")
         case .codexVoiceUnsupportedOs: return ("Codex 语音目前仅支持 macOS / Linux 主机", "Codex voice is currently supported on macOS and Linux hosts only")
         case .codexVoiceFailed(let s): return ("Codex 语音启动失败：\(s)", "Codex voice failed to start: \(s)")
         case .codexVoiceOutdatedPlugin: return ("主机插件版本过旧，不支持 Codex 语音，请更新插件", "Host plugin is outdated and does not support Codex voice; please update the plugin")

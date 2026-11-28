@@ -74,44 +74,21 @@ extension VoiceSession {
         if config.backend == .codex && isWindows {
             return .failed(.codexVoiceUnsupportedOs)
         }
+        if config.backend == .codex, codexTarget == nil {
+            guard let target = resolveCodexTarget(remote) else { return .failed(.codexThreadRequired) }
+            codexTarget = target
+        }
         if probe.version != manifest.version, let failed = installHeadless(remote, build: build, target: targetName) { return failed }
-        let (codexThread, codexCwd): (String?, String?) = (config.backend == .codex && sync { sessionId == nil })
-            ? resolveCodexTarget(remote)
-            : (nil, nil)
         if isClosing { return .closed }
         var tries = 0
         while !isClosing && tries < 3 {
             tries += 1
-            switch startPlugin(remote, build: build, target: targetName, codexThread: codexThread, codexCwd: codexCwd) {
+            switch startPlugin(remote, build: build, target: targetName, codexThread: codexTarget?.thread, codexCwd: codexTarget?.cwd) {
             case .finished(let outcome): return outcome
             case .retry: break
             }
         }
         return isClosing ? .closed : .failed(.voicePluginStartFailed)
-    }
-
-    private func resolveCodexTarget(_ remote: DesktopHost) -> (String?, String?) {
-        guard let raw = config.tmuxSession, !raw.isEmpty else { return (nil, nil) }
-        let safe = String(raw.unicodeScalars.filter {
-            CharacterSet.letters.contains($0) || CharacterSet.decimalDigits.contains($0) || $0 == "-" || $0 == "_"
-        }.prefix(64))
-        guard !safe.isEmpty else { return (nil, nil) }
-        let script = """
-        PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/home/linuxbrew/.linuxbrew/bin:/snap/bin"; export PATH
-        tmux -u display-message -p -t '=\(safe):' '#{@roamtty_session}|#{pane_current_path}' 2>/dev/null || true
-        """
-        var firstLine: String?
-        _ = remote.run(script + "\n", timeout: 4) { line in
-            if firstLine == nil && !line.isEmpty { firstLine = line }
-        }
-        guard let line = firstLine else { return (nil, nil) }
-        guard let sep = line.firstIndex(of: "|") else {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            return (trimmed.isEmpty ? nil : trimmed, nil)
-        }
-        let tid = line[..<sep].trimmingCharacters(in: .whitespacesAndNewlines)
-        let cwd = line[line.index(after: sep)...].trimmingCharacters(in: .whitespacesAndNewlines)
-        return (tid.isEmpty ? nil : tid, cwd.isEmpty ? nil : cwd)
     }
 
     private func startPlugin(
@@ -231,11 +208,16 @@ extension VoiceSession {
     }
 
     private func runStream(_ s: DesktopStream, remote: DesktopHost, hello: VoiceHello, parser: FrameParser) -> Outcome {
+        let epoch = UUID()
         let (windows, useOpus): (Bool, Bool) = sync {
+            transportEpoch = epoch
+            closedMicIds.removeAll()
+            closedSpeakerIds.removeAll()
+            hadMediaThisAttempt = false
             _hello = hello
             if !hello.session.isEmpty { sessionId = hello.session }
             if !hello.resumeToken.isEmpty { resumeToken = hello.resumeToken }
-            everConnected = true
+            if config.backend == .agy { everConnected = true }
             ping = DesktopPingClock()
             goodSinceMs = 0
             _networkPoor = false
@@ -251,8 +233,12 @@ extension VoiceSession {
         callbackQueue.async { self.onNetworkPoor?(false) }
         if config.backend == .agy {
             // Always (re-)inject ANTIGRAVITY_MIC on hello so even a fresh fallback port after resume takes effect.
+            sync { _agyKeysAllowed = false }
+            let target = agyKeyTarget(remote, hello.micPort, windows: windows)
             injectMicPort(remote, hello.micPort, windows)
             if isClosing { s.close(); sync { stream = nil }; return .closed }
+            let stillTargeted = target != nil && target == agyKeyTarget(remote, hello.micPort, windows: windows)
+            sync { _agyKeysAllowed = stillTargeted }
         }
         callbackQueue.async { self.onHello?(hello) }
 
@@ -269,26 +255,48 @@ extension VoiceSession {
         if useOpus {
             queue.send(VoiceProtocol.config(["voice_codec": "opus"]))
         }
-        startUdp(hello, queue)
-        if !isClosing { setPhase(.ready(micPort: hello.micPort, udp: sync { link?.alive ?? false })) }
+        startUdp(hello, queue, epoch: epoch)
+        if !isClosing, config.backend == .agy { setPhase(.ready(micPort: hello.micPort, udp: sync { link?.alive ?? false })) }
 
-        let ticker = DesktopTicker(intervalMs: timings.tickMs) { [weak self] in self?.tick() }
-        readFrames(s, parser: parser)
+        let ticker = startVoiceTicker(stream: s, epoch: epoch)
+        readFrames(s, parser: parser, epoch: epoch)
         lingerOnUdp()
         return endStream(s, queue, ticker)
     }
 
-    private func startUdp(_ hello: VoiceHello, _ queue: DesktopOutQueue) {
+    private func startVoiceTicker(stream: DesktopStream, epoch: UUID) -> DesktopTicker {
+        let deadline = Self.nowUs() / 1000 + timings.mediaStartTimeoutMs
+        return DesktopTicker(intervalMs: timings.tickMs) { [weak self] in
+            guard let self, self.sync({ self.transportEpoch == epoch }) else { return }
+            if self.config.backend == .codex, Self.nowUs() / 1000 >= deadline {
+                self.handleLock.lock()
+                let expired = self.sync {
+                    guard self.transportEpoch == epoch, !self.hadMediaThisAttempt, !self.closing else { return false }
+                    self.transportEpoch = nil
+                    return true
+                }
+                self.handleLock.unlock()
+                if expired {
+                    self.sync { self.link }?.close()
+                    stream.close()
+                    return
+                }
+            }
+            self.tick()
+        }
+    }
+
+    private func startUdp(_ hello: VoiceHello, _ queue: DesktopOutQueue, epoch: UUID) {
         guard let offer = hello.udp else { return }
         let address = config.udpHostOverride.isEmpty ? config.address : config.udpHostOverride
         guard let transport = try? makeUdp(address, offer.port) else { return }
         let l = UdpLink(
             key: offer.key, transport: transport,
-            onFrame: { [weak self] f in if let msg = VoiceProtocol.decode(f) { self?.handle(msg) } },
+            onFrame: { [weak self] f in if let msg = VoiceProtocol.decode(f) { self?.handle(msg, epoch: epoch) } },
             onVideoLost: {},
             onGiveUp: { [weak self] frame in
-                guard let self, !self.isClosing else { return }
-                self.sync({ self.outgoing })?.send(frame)
+                guard let self else { return }
+                self.sync { self.transportEpoch == epoch && !self.closing ? self.outgoing : nil }?.send(frame)
             },
             log: { [weak self] in self?.line($0) }
         )
@@ -301,12 +309,12 @@ extension VoiceSession {
         queue.send(VoiceProtocol.config(["udp_client_port": l.localPort]))
     }
 
-    private func readFrames(_ s: DesktopStream, parser initial: FrameParser) {
+    private func readFrames(_ s: DesktopStream, parser initial: FrameParser, epoch: UUID) {
         var parser = initial
         while !sync({ kicked }) {
             while let item = parser.next() {
                 guard case .frame(let f) = item else { return }
-                if !isClosing, let msg = VoiceProtocol.decode(f) { handle(msg) }
+                if !isClosing, let msg = VoiceProtocol.decode(f) { handle(msg, epoch: epoch) }
                 if sync({ kicked }) { return }
             }
             let bytes = s.read(maxBytes: 64 * 1024)
@@ -319,7 +327,7 @@ extension VoiceSession {
     }
 
     private func lingerOnUdp() {
-        guard !sync({ closing || kicked }) && sync({ link?.alive ?? false }) else { return }
+        guard sync({ !closing && !kicked && transportEpoch != nil && link?.alive == true }) else { return }
         sync { outgoing = nil }
         while !sync({ closing || kicked }) && sync({ link?.alive ?? false }) { pause(ms: 200) }
     }
@@ -332,9 +340,11 @@ extension VoiceSession {
         if let deadline = graceDeadline {
             waitUntilDate(deadline)
         }
+        handleLock.lock()
         let (l, wasPoor): (UdpLink?, Bool) = sync {
+            transportEpoch = nil
             outgoing = nil; stream = nil
-            activeMicStreamId = nil; activeSpkStreamId = nil
+            activeMicStreamId = nil; activeSpkStreamId = nil; drainingSpeakerId = nil
             shutdownGraceUntil = nil; sshEofDuringClose = false
             goodSinceMs = 0
             let prevPoor = _networkPoor; _networkPoor = false
@@ -342,13 +352,14 @@ extension VoiceSession {
         }
         if wasPoor { callbackQueue.async { self.onNetworkPoor?(false) } }
         audioIO?.stopAll()
+        handleLock.unlock()
         queue.close()
         ticker.stop()
         s.close()
         l?.close()
         if sync({ kicked }) { return .kicked }
         if isClosing { return .closed }
-        return .streamed
+        return config.backend == .codex && !sync({ hadMediaThisAttempt }) ? .dropped(.codexVoiceNoMedia) : .streamed
     }
 
     private func tick() {
