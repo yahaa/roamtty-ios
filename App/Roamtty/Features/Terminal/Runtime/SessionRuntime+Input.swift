@@ -76,13 +76,20 @@ extension SessionRuntime {
         guard let text = capture.text else { return }
         _ = pasteText(text)
     }
-    /// The agent the session was started for, else the one its hooks report, else what the screen shows (an agent
-    /// started by hand in a plain session).
-    func screenApp() -> ScreenApp {
-        if let agent = launchedAgent ?? CodingAgent.fromCommand(agentStatus?.agent) { return ScreenApp(agent) }
+    /// What the visible terminal screen currently shows, without assuming `launchedAgent` is still running.
+    func detectScreenApp() -> ScreenApp {
         let terminal = terminalView.getTerminal()
         let lines = (0..<terminal.rows).map { terminal.getLine(row: $0)?.screenText ?? "" }
         return ScreenApp.detect(rows: lines, cursorRow: terminal.getCursorLocation().y)
+    }
+    func refreshDetectedScreen() {
+        let next = detectScreenApp()
+        if detectedScreen != next { detectedScreen = next }
+    }
+    /// The agent currently active in this session (reported by hooks, launching, or visible on screen).
+    func screenApp() -> ScreenApp {
+        if let agent = activeAgentKind { return ScreenApp(agent) }
+        return detectScreenApp()
     }
 
     // MARK: Keyboard
@@ -140,6 +147,11 @@ extension SessionRuntime {
             if let row = terminal.getLine(row: terminal.getCursorLocation().y) { cursorControls.observe(row: row.screenText) }
             if slashCommandLine != cursorControls.onSlashLine { slashCommandLine = cursorControls.onSlashLine }
             updateCursorKey()
+        }
+        let uptime = ProcessInfo.processInfo.systemUptime
+        if uptime - lastScreenDetectAt >= 0.5 {
+            lastScreenDetectAt = uptime
+            refreshDetectedScreen()
         }
     }
 }

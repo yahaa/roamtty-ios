@@ -83,3 +83,89 @@ public struct AgentStatus: Codable, Equatable, Sendable {
         return result
     }
 }
+
+public extension CodingAgent {
+    init?(screenApp: ScreenApp) {
+        switch screenApp {
+        case .claude: self = .claude
+        case .codex: self = .codex
+        case .grok: self = .grok
+        case .agy: self = .agy
+        case .gemini, .shell: return nil
+        }
+    }
+}
+
+/// Resolves whether a terminal session is currently running an AI agent, and how soon to poll again.
+public enum AgentSessionPresence {
+    /// How long a freshly launched agent gets to boot and emit its first hook before an empty status poll
+    /// is treated as "not running" (covers login shell init, launcher setup, and CLI boot).
+    public static let launchGraceSeconds: TimeInterval = 10
+
+    /// Short pause before the first status poll after sending a fresh agent startup command, so the remote
+    /// login shell and launcher have a moment to execute before the first round-trip.
+    public static let launchInitialPollDelay: TimeInterval = 0.8
+
+    /// Poll interval while waiting for a freshly launched agent's first hook report.
+    public static let launchRetryPollInterval: TimeInterval = 1.0
+
+    /// Regular poll interval once an agent is reporting, vs lazy interval for plain shells.
+    public static let activePollInterval: TimeInterval = 3.0
+    public static let idlePollInterval: TimeInterval = 10.0
+
+    /// Whether a freshly launched agent is still inside its startup grace window (has not reported yet).
+    public static func inLaunchGrace(launchDeadline: TimeInterval?, now: TimeInterval) -> Bool {
+        guard let launchDeadline else { return false }
+        return now < launchDeadline
+    }
+
+    /// Delay until the next status poll after receiving `status` at `now`.
+    public static func nextPollInterval(status: AgentStatus?, launchDeadline: TimeInterval?, now: TimeInterval) -> TimeInterval {
+        if status != nil { return activePollInterval }
+        if inLaunchGrace(launchDeadline: launchDeadline, now: now) { return launchRetryPollInterval }
+        return idlePollInterval
+    }
+
+    /// The coding agent active in a terminal session (for context usage ring, voice, and hiding shell-only controls):
+    /// 1. What the agent's hooks currently report (`status`).
+    /// 2. `launchedAgent` before the first poll answers OR while a fresh launch is still inside its startup grace window.
+    /// 3. What is visibly drawn on the terminal screen (`detectedScreen`), so an agent without hooks (or before its
+    ///    first hook fires) is still recognized, while exiting back to a plain shell returns `nil`.
+    public static func activeAgent(
+        status: AgentStatus?,
+        launchedAgent: CodingAgent?,
+        agentPolled: Bool,
+        launchDeadline: TimeInterval?,
+        now: TimeInterval,
+        detectedScreen: ScreenApp
+    ) -> CodingAgent? {
+        if let reported = CodingAgent.fromCommand(status?.agent) { return reported }
+        if !agentPolled || inLaunchGrace(launchDeadline: launchDeadline, now: now) {
+            if let launchedAgent { return launchedAgent }
+        }
+        return CodingAgent(screenApp: detectedScreen)
+    }
+
+    /// Whether shell-only UI (such as shell history / common commands) should be hidden because an AI agent is active.
+    /// Includes Gemini CLI visible on screen in addition to the four `CodingAgent`s.
+    public static func isAgentActive(
+        status: AgentStatus?,
+        launchedAgent: CodingAgent?,
+        agentPolled: Bool,
+        launchDeadline: TimeInterval?,
+        now: TimeInterval,
+        detectedScreen: ScreenApp
+    ) -> Bool {
+        if activeAgent(
+            status: status,
+            launchedAgent: launchedAgent,
+            agentPolled: agentPolled,
+            launchDeadline: launchDeadline,
+            now: now,
+            detectedScreen: detectedScreen
+        ) != nil {
+            return true
+        }
+        return detectedScreen != .shell
+    }
+}

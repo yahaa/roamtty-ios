@@ -244,5 +244,69 @@ final class AgentStatusTests: XCTestCase {
                        "/bin/sh -c 'mkdir -p \"$HOME/.roamtty\" && cat > \"$HOME/.roamtty/codex\" && chmod +x \"$HOME/.roamtty/codex\"'")
     }
 
+    func testAgentSessionPresenceKeepsNewlyLaunchedAgentActiveDuringStartupGrace() {
+        let deadline: TimeInterval = 100
+        // Before the first poll, a launched agent is active.
+        XCTAssertEqual(
+            AgentSessionPresence.activeAgent(status: nil, launchedAgent: .codex, agentPolled: false, launchDeadline: deadline, now: 90, detectedScreen: .shell),
+            .codex
+        )
+        // Early empty poll while shell/launcher is still booting must NOT drop agent mode or hide shell-history suppression.
+        XCTAssertEqual(
+            AgentSessionPresence.activeAgent(status: nil, launchedAgent: .codex, agentPolled: true, launchDeadline: deadline, now: 91, detectedScreen: .shell),
+            .codex
+        )
+        XCTAssertTrue(
+            AgentSessionPresence.isAgentActive(status: nil, launchedAgent: .codex, agentPolled: true, launchDeadline: deadline, now: 91, detectedScreen: .shell)
+        )
+        // Poll retries quickly during startup grace instead of sleeping 10 seconds.
+        XCTAssertEqual(
+            AgentSessionPresence.nextPollInterval(status: nil, launchDeadline: deadline, now: 91),
+            AgentSessionPresence.launchRetryPollInterval
+        )
+        // Once hooks report, polling switches to active cadence.
+        let reported = AgentStatus(state: .idle, agent: "codex")
+        XCTAssertEqual(
+            AgentSessionPresence.nextPollInterval(status: reported, launchDeadline: nil, now: 92),
+            AgentSessionPresence.activePollInterval
+        )
+        // Once the agent exits (grace cleared, status nil, screen back to shell), shell history returns.
+        XCTAssertNil(
+            AgentSessionPresence.activeAgent(status: nil, launchedAgent: .codex, agentPolled: true, launchDeadline: nil, now: 120, detectedScreen: .shell)
+        )
+        XCTAssertFalse(
+            AgentSessionPresence.isAgentActive(status: nil, launchedAgent: .codex, agentPolled: true, launchDeadline: nil, now: 120, detectedScreen: .shell)
+        )
+        XCTAssertEqual(
+            AgentSessionPresence.nextPollInterval(status: nil, launchDeadline: nil, now: 120),
+            AgentSessionPresence.idlePollInterval
+        )
+    }
+
+    func testAgentSessionPresenceFallsBackToDetectedScreenWhenHooksAreAbsent() {
+        // After startup grace expires (or in an attached/plain session without hooks), visible agent UI stays recognized.
+        XCTAssertEqual(
+            AgentSessionPresence.activeAgent(status: nil, launchedAgent: .claude, agentPolled: true, launchDeadline: 100, now: 105, detectedScreen: .claude),
+            .claude
+        )
+        XCTAssertTrue(
+            AgentSessionPresence.isAgentActive(status: nil, launchedAgent: nil, agentPolled: true, launchDeadline: nil, now: 105, detectedScreen: .codex)
+        )
+        // Gemini CLI on screen hides shell history commands even though it has no CodingAgent usage provider.
+        XCTAssertNil(
+            AgentSessionPresence.activeAgent(status: nil, launchedAgent: nil, agentPolled: true, launchDeadline: nil, now: 105, detectedScreen: .gemini)
+        )
+        XCTAssertTrue(
+            AgentSessionPresence.isAgentActive(status: nil, launchedAgent: nil, agentPolled: true, launchDeadline: nil, now: 105, detectedScreen: .gemini)
+        )
+        // Plain terminal is never treated as an agent session even before the first poll completes.
+        XCTAssertNil(
+            AgentSessionPresence.activeAgent(status: nil, launchedAgent: nil, agentPolled: false, launchDeadline: nil, now: 10, detectedScreen: .shell)
+        )
+        XCTAssertFalse(
+            AgentSessionPresence.isAgentActive(status: nil, launchedAgent: nil, agentPolled: false, launchDeadline: nil, now: 10, detectedScreen: .shell)
+        )
+    }
+
     // MARK: The hook script against a stand-in tmux
 }

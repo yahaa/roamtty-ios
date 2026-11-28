@@ -14,6 +14,7 @@ extension SessionRuntime {
 
     func finishStartup(token: UUID, attempt: UUID) {
         guard generation == token, startupAttempt == attempt, !startupSent, startupGate?.ready == true else { return }
+        let launchingAgent = startupCommand != nil && launchedAgent != nil
         if let startupCommand {
             let input = Data((startupCommand + "\r").utf8)
             guard mosh?.write(input) ?? ssh?.write(input) ?? false else {
@@ -24,7 +25,7 @@ extension SessionRuntime {
         startupSent = true; phase = .connected; end = nil
         // Messages from earlier attempts go; the fallback notice of this one stays to be read.
         message = fallbackNotice; fallbackNotice = nil
-        startAgentStatusPolling()
+        startAgentStatusPolling(awaitingLaunch: launchingAgent)
         startupTask?.cancel(); startupTask = nil; startupCancellation?.cancel(); startupCancellation = nil
         startupTimeoutTask?.cancel(); startupTimeoutTask = nil
     }
