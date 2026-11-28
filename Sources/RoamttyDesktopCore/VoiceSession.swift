@@ -80,6 +80,11 @@ public final class VoiceSession: @unchecked Sendable {
     var ping = DesktopPingClock()
     var goodSinceMs: Int64 = 0
     var _networkPoor = false
+    var voiceOpusEnabled = false
+    var micSender: VoiceRedSender?
+    var lastSpkStats: VoiceStats?
+    var lastUplinkStats: VoiceStats?
+    var lastStallRebindMs: Int64 = 0
 
     public init(
         config: Config,
@@ -88,7 +93,7 @@ public final class VoiceSession: @unchecked Sendable {
         callbackQueue: DispatchQueue = DispatchQueue(label: "roamtty.voice.callbacks"),
         login: @escaping () -> DesktopLogin,
         fetch: @escaping (String) throws -> Data = HTTPFetch.get,
-        makeUdp: @escaping (String, Int) throws -> UdpTransport = { try UdpSocketTransport(host: $0, port: $1) },
+        makeUdp: @escaping (String, Int) throws -> UdpTransport = { try UdpSocketTransport(host: $0, port: $1, voiceQoS: true) },
         injectMicPort: ((DesktopHost, Int, Bool) -> Void)? = nil,
         clearMicPort: ((DesktopHost, Bool) -> Void)? = nil
     ) {

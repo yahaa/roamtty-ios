@@ -3,45 +3,49 @@ import AVFoundation
 import Foundation
 import RoamttyDesktopCore
 
-/// Microphone permission state for contextual confirmation sheet notices.
-enum VoiceMicPermission: Equatable, Sendable {
-    case undetermined, granted, denied
-}
-
 /// Full-duplex iOS voice audio engine for `agy /voice`:
-/// - `AVAudioSession` in `.playAndRecord` + `.voiceChat` configured once per call (avoiding Bluetooth HFP renegotiation storms)
-/// - Single reused `AVAudioEngine` + `AVAudioPlayerNode` with hardware VPIO AEC (`setVoiceProcessingEnabled(true)`) and non-VPIO fallback
-/// - In-place restarts on `.AVAudioEngineConfigurationChange` (never deallocating `AVAudioEngine` while Apple's internal IO queues are active)
-/// - Synchronous tap-buffer copy on CoreAudio's tap thread + deferred engine retirement on call end
-/// - Pure Objective-C `@try/@catch` wrappers (zero Swift stack unwinding) around all `AVAudioEngine` / `AVAudioConverter` calls
+/// - `AVAudioSession` in `.playAndRecord` + `.voiceChat` with 10 ms preferred IO buffer duration
+/// - Single reused `AVAudioEngine` with hardware VPIO AEC + pull-mode `AVAudioSourceNode` backed by a
+///   real-time-safe `VoicePcmRingBuffer` (zero `scheduleBuffer` jitter, zero block-boundary clicks, instant barge-in)
+/// - Adaptive `VoiceJitterBuffer` (Opus VOIP + RED + LBRR + PLC + WSOLA + `turnGen`) for `SPK_OPUS`
+/// - Dynamic capture tap size (fixing Bluetooth HFP 16 kHz 64 ms bloat) + 80 Hz HPF & soft-knee limiter
+/// - Pure Objective-C `@try/@catch` wrappers around all `AVAudioEngine` / `AVAudioConverter` calls
 final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
     let queue = DispatchQueue(label: "roamtty.voice.audio", qos: .userInteractive)
     let sessionToken = UUID()
     let playbackFormat = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
     var captureFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: true)!
+    let pcmRing = VoicePcmRingBuffer(capacity: 14_400, maxQueued: 9_600)
 
-    static let maxPendingPlaybackBuffers = 20
     static let levelThrottleNs: UInt64 = 66_000_000
     static let speakerKeepaliveNs: UInt64 = 200_000_000
+    static let speakerSilenceDecayNs: UInt64 = 350_000_000
     static let routeSettleSuppressNs: UInt64 = 800_000_000
     static let retiredEngineGraceMs = 1500
     static let levelMinDelta: Float = 0.03
+    /// Keep at most 60 ms (2880 samples @ 48 kHz) ahead in the hardware pull ring so JitterBuffer stays in control.
+    static let pumpTargetRingSamples = 2_880
+    /// Only invoke PLC when the hardware pull ring drops below ~18.75 ms (below a single 20 ms VPIO quantum).
+    static let plcLowWaterRingSamples = 900
 
     var engine: AVAudioEngine?
-    var playerNode: AVAudioPlayerNode?
+    var sourceNode: AVAudioSourceNode?
     var engineUsesVPIO = false
     var engineGraphAttached = false
     var captureConverter: AVAudioConverter?
+    var capturePreprocessor = VoiceAudioPreprocessor(sampleRate: 16_000)
+    let echoGate = VoiceSpeakerEchoGate()
     var captureTapInstalled = false
     var captureBuffer: [UInt8] = []
     var micStreamId: UInt32?
     var micCallback: (@Sendable (UInt32, [UInt8]) -> Void)?
 
     var spkStreamId: UInt32?
-    var spkInputFormat: AVAudioFormat?
-    var spkConverter: AVAudioConverter?
-    var pendingPlaybackBuffers = 0
-    var playbackGeneration: UInt64 = 0
+    var spkSampleRate: UInt32 = 24_000
+    var spkResampler: VoiceLinearResampler?
+    var spkJitter: VoiceJitterBuffer?
+    var spkPumpTimer: DispatchSourceTimer?
+    var lastSpeakerAudioNs: UInt64 = 0
     var route: VoiceAudioRoute = .speaker
     /// True once the user explicitly picks a route; false lets iOS honor the active default (Bluetooth / headset / speaker).
     var routeExplicitlyChosen = false
@@ -126,7 +130,6 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
 
     /// Pre-warms `AVAudioSession` (`.playAndRecord` + `.voiceChat`) and `AVAudioEngine`
     /// when the call starts so `SPK_START` replies with `SPK_ACK` without cold-start timeout risk.
-    /// When `route` is nil, keeps the system's active default output (Bluetooth if connected, else speaker).
     func prepareSession(route next: VoiceAudioRoute? = nil) {
         queue.async { [self] in
             if let next {
@@ -152,6 +155,7 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
                 captureConverter = nil
                 captureFormat = requested
             }
+            capturePreprocessor = VoiceAudioPreprocessor(sampleRate: rate)
             micStreamId = streamId
             micCallback = onPcm
             captureBuffer.removeAll(keepingCapacity: true)
@@ -177,68 +181,65 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
             guard VoiceProtocol.speakerRateRange.contains(sampleRate), channels == 1 else {
                 return .failure(VoiceAudioError("unsupported format \(sampleRate)Hz \(channels)ch"))
             }
-            guard let inFmt = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(sampleRate), channels: 1, interleaved: true),
-                  let converter = makeConverter(from: inFmt, to: playbackFormat, label: "startSpeaker.converter") else {
-                return .failure(VoiceAudioError("audio converter unavailable"))
-            }
             guard !interrupted, ensureEngineRunning() else {
                 return .failure(VoiceAudioError("audio engine unavailable"))
             }
+            stopSpeakerPumpLocked()
+            pcmRing.clear()
             spkStreamId = streamId
-            spkInputFormat = inFmt
-            spkConverter = converter
-            playbackGeneration &+= 1
-            pendingPlaybackBuffers = 0
-            if let engine, engine.isRunning, let playerNode {
-                restartPlayer(playerNode, label: "startSpeaker")
-            }
+            spkSampleRate = sampleRate
+            spkResampler = VoiceLinearResampler(inputRate: Double(sampleRate), outputRate: playbackFormat.sampleRate)
+            spkJitter = nil
+            lastSpeakerAudioNs = 0
             return .success(())
         }
     }
 
+    /// Legacy PCM16 fallback: resamples continuously into the real-time pull ring (dropping oldest on overflow).
     func playSpeaker(streamId: UInt32, pcm: [UInt8]) {
         queue.async { [self] in
-            autoreleasepool {
-                guard !interrupted, spkStreamId == streamId, !pcm.isEmpty,
-                      let engine, engine.isRunning, let playerNode,
-                      let inFmt = spkInputFormat, let converter = spkConverter else { return }
-                guard pendingPlaybackBuffers < Self.maxPendingPlaybackBuffers else { return }
-                let samples = pcm.count / 2
-                guard samples > 0, let inBuf = AVAudioPCMBuffer(pcmFormat: inFmt, frameCapacity: AVAudioFrameCount(samples)),
-                      let dst = inBuf.int16ChannelData?[0] else { return }
-                inBuf.frameLength = AVAudioFrameCount(samples)
-                pcm.withUnsafeBytes { raw in
-                    guard let base = raw.baseAddress else { return }
-                    memcpy(dst, base, samples * 2)
-                }
-                updateSpeakerLevel(pcm: pcm, sampleCount: samples)
-                guard let outBuf = convert(inBuf, with: converter, to: playbackFormat), engine.isRunning else { return }
-                let generation = playbackGeneration
-                var err: NSError?
-                let scheduled = RoamttyAudioPlayerScheduleBuffer(playerNode, outBuf, { [weak self] in
-                    self?.queue.async {
-                        guard let self, self.playbackGeneration == generation else { return }
-                        self.pendingPlaybackBuffers = max(0, self.pendingPlaybackBuffers - 1)
-                    }
-                }, &err)
-                if scheduled {
-                    pendingPlaybackBuffers += 1
-                } else {
-                    logAudioError("playSpeaker.schedule", err)
-                }
+            guard !interrupted, spkStreamId == streamId, pcm.count >= 2,
+                  let engine, engine.isRunning, let resampler = spkResampler else { return }
+            let samples = VoiceOpusMath.bytesToInt16(pcm)
+            let nowNs = DispatchTime.now().uptimeNanoseconds
+            echoGate.observeSpeaker(rms: VoiceOpusMath.pcmRms(samples), nowMs: Int64(nowNs / 1_000_000))
+            updateSpeakerLevel(samples: samples)
+            pcmRing.write(resampler.resample(samples))
+            lastSpeakerAudioNs = nowNs
+        }
+    }
+
+    /// Sequenced Opus speaker packet (`SPK_OPUS`): feeds the adaptive speech jitter buffer (RED + LBRR + PLC + WSOLA).
+    func playSpeakerOpus(streamId: UInt32, packet: VoiceOpusPacket) {
+        queue.async { [self] in
+            guard !interrupted, spkStreamId == streamId else { return }
+            let nowMs = Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000)
+            if spkJitter == nil || spkJitter?.streamId != streamId {
+                guard VoiceOpusMath.isOpusSampleRate(spkSampleRate),
+                      let jb = VoiceJitterBuffer(streamId: streamId, sampleRate: spkSampleRate) else { return }
+                spkJitter = jb
+                startSpeakerPumpLocked()
             }
+            spkJitter?.push(packet, nowMs: nowMs)
+            pumpOpusSpeakerLocked()
+        }
+    }
+
+    func speakerStats(streamId: UInt32, nowMs: Int64) -> VoiceStats? {
+        queue.sync { [self] in
+            guard let jb = spkJitter, jb.streamId == streamId else { return nil }
+            return jb.statsSnapshot(nowMs: nowMs)
         }
     }
 
     func clearSpeaker(streamId: UInt32) {
         queue.async { [self] in
             guard spkStreamId == streamId else { return }
-            spkConverter?.reset()
-            playbackGeneration &+= 1
-            pendingPlaybackBuffers = 0
-            if let engine, engine.isRunning, let playerNode {
-                restartPlayer(playerNode, label: "clearSpeaker")
-            }
+            let nowMs = Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000)
+            if let jb = spkJitter, !jb.clearForBargeIn(nowMs: nowMs) { return }
+            spkResampler?.reset()
+            pcmRing.clear()
+            echoGate.onSpeakerCleared(nowMs: nowMs)
             resetSpeakerLevel()
         }
     }
@@ -247,15 +248,11 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
         queue.async { [self] in
             guard spkStreamId == streamId else { return }
             Diagnostics.shared.log("voice-spk-stop", "stream=\(streamId)")
+            stopSpeakerPumpLocked()
             spkStreamId = nil
-            spkInputFormat = nil
-            spkConverter = nil
-            playbackGeneration &+= 1
-            pendingPlaybackBuffers = 0
-            if let engine, engine.isRunning, let playerNode {
-                var err: NSError?
-                if !RoamttyAudioPlayerStop(playerNode, &err) { logAudioError("stopSpeaker", err) }
-            }
+            spkJitter = nil
+            spkResampler = nil
+            pcmRing.clear()
             resetSpeakerLevel()
         }
     }
@@ -267,80 +264,6 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
     /// Synchronously stops the active engine and releases the `AVAudioSession` lease before another session takes over.
     func stopAllSync() {
         queue.sync { [self] in teardownSync() }
-    }
-
-    // MARK: DSP & Level Metering (on `queue`)
-
-    func convert(_ input: AVAudioPCMBuffer, with converter: AVAudioConverter, to format: AVAudioFormat) -> AVAudioPCMBuffer? {
-        guard input.format == converter.inputFormat else { return nil }
-        let ratio = format.sampleRate / max(1, input.format.sampleRate)
-        let capacity = max(1, AVAudioFrameCount((Double(input.frameLength) * ratio).rounded(.up)) + 32)
-        guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else { return nil }
-        var status: AVAudioConverterOutputStatus = .error
-        var err: NSError?
-        let ok = RoamttyAudioConverterConvert(converter, input, output, &status, &err)
-        guard ok, status != .error, output.frameLength > 0 else {
-            if let err { logAudioError("converter.convert", err) }
-            return nil
-        }
-        return output
-    }
-
-    func updateMicLevel(samples: UnsafePointer<Int16>, count: Int) {
-        var sumSq = 0.0
-        for i in 0..<count {
-            let s = Double(samples[i]) / 32768.0
-            sumSq += s * s
-        }
-        let rms = Float(min(1.0, (sumSq / Double(max(1, count))).squareRoot() * 3.2))
-        smoothedMicLevel = smoothedMicLevel * 0.65 + rms * 0.35
-        let now = DispatchTime.now().uptimeNanoseconds
-        guard now - lastEmittedMicNs >= Self.levelThrottleNs,
-              abs(smoothedMicLevel - lastEmittedMicLevel) > Self.levelMinDelta else { return }
-        lastEmittedMicNs = now
-        lastEmittedMicLevel = smoothedMicLevel
-        onMicLevel?(smoothedMicLevel)
-    }
-
-    func updateSpeakerLevel(pcm: [UInt8], sampleCount: Int) {
-        let count = min(sampleCount, pcm.count / 2)
-        guard count > 0 else { return }
-        var sumSq = 0.0
-        for i in 0..<count {
-            let lo = UInt16(pcm[i * 2])
-            let hi = UInt16(pcm[i * 2 + 1]) << 8
-            let s = Double(Int16(bitPattern: lo | hi)) / 32768.0
-            sumSq += s * s
-        }
-        let rms = Float(min(1.0, (sumSq / Double(count)).squareRoot() * 2.8))
-        smoothedSpkLevel = smoothedSpkLevel * 0.55 + rms * 0.45
-        let now = DispatchTime.now().uptimeNanoseconds
-        let elapsed = now - lastEmittedSpkNs
-        let activeFlip = (smoothedSpkLevel > 0.01) != (lastEmittedSpkLevel > 0.01)
-        let deltaChanged = elapsed >= Self.levelThrottleNs && abs(smoothedSpkLevel - lastEmittedSpkLevel) > Self.levelMinDelta
-        let keepalive = smoothedSpkLevel > 0.01 && elapsed >= Self.speakerKeepaliveNs
-        guard activeFlip || deltaChanged || keepalive else { return }
-        lastEmittedSpkNs = now
-        lastEmittedSpkLevel = smoothedSpkLevel
-        onSpeakerLevel?(smoothedSpkLevel)
-    }
-
-    func resetMicLevel() {
-        smoothedMicLevel = 0
-        lastEmittedMicNs = 0
-        if lastEmittedMicLevel != 0 {
-            lastEmittedMicLevel = 0
-            onMicLevel?(0)
-        }
-    }
-
-    func resetSpeakerLevel() {
-        smoothedSpkLevel = 0
-        lastEmittedSpkNs = 0
-        if lastEmittedSpkLevel != 0 {
-            lastEmittedSpkLevel = 0
-            onSpeakerLevel?(0)
-        }
     }
 }
 #endif

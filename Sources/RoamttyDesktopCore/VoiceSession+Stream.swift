@@ -182,7 +182,7 @@ extension VoiceSession {
     }
 
     private func runStream(_ s: DesktopStream, remote: DesktopHost, hello: VoiceHello, parser: FrameParser) -> Outcome {
-        let windows = sync {
+        let (windows, useOpus): (Bool, Bool) = sync {
             _hello = hello
             if !hello.session.isEmpty { sessionId = hello.session }
             if !hello.resumeToken.isEmpty { resumeToken = hello.resumeToken }
@@ -191,7 +191,13 @@ extension VoiceSession {
             goodSinceMs = 0
             _networkPoor = false
             sshEofDuringClose = false
-            return _windowsHost
+            lastSpkStats = nil
+            lastUplinkStats = nil
+            lastStallRebindMs = 0
+            micSender = nil
+            let opus = hello.codecs.contains { $0.caseInsensitiveCompare("opus") == .orderedSame }
+            voiceOpusEnabled = opus
+            return (_windowsHost, opus)
         }
         callbackQueue.async { self.onNetworkPoor?(false) }
         // Always (re-)inject ANTIGRAVITY_MIC on hello so even a fresh fallback port after resume takes effect.
@@ -209,6 +215,9 @@ extension VoiceSession {
         writer.start()
 
         sync { outgoing = queue }
+        if useOpus {
+            queue.send(VoiceProtocol.config(["voice_codec": "opus"]))
+        }
         startUdp(hello, queue)
         if !isClosing { setPhase(.ready(micPort: hello.micPort, udp: sync { link?.alive ?? false })) }
 
@@ -294,9 +303,20 @@ extension VoiceSession {
     private func tick() {
         guard !isClosing else { return }
         let nowUs = Self.nowUs()
+        let nowMs = nowUs / 1000
         if let p = sync({ ping.due(nowUs: nowUs) }) { sendFrame(VoiceProtocol.ping(p), reliable: false) }
         if let p = sync({ ping.resendIfLate(nowUs: nowUs, lateMs: DesktopSession.POOR_MS) }) {
             sendFrame(VoiceProtocol.ping(p), reliable: false)
+        }
+        let (useOpus, spkId, udpLink, lastRebind) = sync { (voiceOpusEnabled, activeSpkStreamId, link, lastStallRebindMs) }
+        if useOpus, let spkId, let st = audioIO?.speakerStats(streamId: spkId, nowMs: nowMs) {
+            sync { lastSpkStats = st }
+            sendFrame(VoiceProtocol.voiceStats(st), reliable: false, fecRatio: 0.0)
+        }
+        // Fast UDP stall probe: trigger rebind after 700 ms silence instead of waiting full 3 s ALIVE_US.
+        if let l = udpLink, l.alive, l.silentUs > 700_000, nowMs - lastRebind >= 2_000 {
+            sync { lastStallRebindMs = nowMs }
+            DispatchQueue.global(qos: .userInitiated).async { l.rebind() }
         }
         updateLinkQuality(now: Self.nowMs())
         let (port, udpAlive) = sync { (_hello?.micPort, link?.alive ?? false) }
@@ -306,12 +326,13 @@ extension VoiceSession {
     }
 
     private func updateLinkQuality(now: Int64) {
-        let (l, rtt, missed) = sync { (link, ping.rttMs, ping.missed) }
+        let (l, rtt, missed, spkSt, upSt) = sync { (link, ping.rttMs, ping.missed, lastSpkStats, lastUplinkStats) }
+        let voiceLoss = max(Double(spkSt?.lossPermille ?? 0) / 1000.0, Double(upSt?.lossPermille ?? 0) / 1000.0)
         let bad: Bool
         if let l, l.alive {
-            bad = l.silentUs > 700_000 || l.loss > 0.25 || Int64(rtt) > DesktopSession.POOR_MS
+            bad = l.silentUs > 700_000 || max(l.loss, voiceLoss) > 0.20 || Int64(rtt) > DesktopSession.POOR_MS
         } else {
-            bad = missed >= 2 || Int64(rtt) > DesktopSession.POOR_MS
+            bad = missed >= 2 || voiceLoss > 0.20 || Int64(rtt) > DesktopSession.POOR_MS
         }
         let next: Bool? = sync {
             if bad { goodSinceMs = 0 } else if goodSinceMs == 0 { goodSinceMs = now }
@@ -321,91 +342,5 @@ extension VoiceSession {
             return poor
         }
         if let next { callbackQueue.async { self.onNetworkPoor?(next) } }
-    }
-
-    func handle(_ message: VoiceServerMessage) {
-        handleLock.lock()
-        defer { handleLock.unlock() }
-        guard !isClosing else { return }
-        switch message {
-        case .micStart(let id, let rate, let ch):
-            let accepted = sync { () -> Bool in
-                guard !closing else { return false }
-                activeMicStreamId = id; return true
-            }
-            guard accepted else { return }
-            audioIO?.startMic(streamId: id, sampleRate: rate, channels: ch) { [weak self] streamId, pcm in
-                self?.sendMicPcm(streamId: streamId, pcm: pcm)
-            }
-            if isClosing { audioIO?.stopAll(); return }
-            emit(.micStarted(streamId: id, sampleRate: rate))
-        case .micStop(let id):
-            let matched = sync { () -> Bool in
-                guard activeMicStreamId == id else { return false }
-                activeMicStreamId = nil; return true
-            }
-            if matched { audioIO?.stopMic(streamId: id); emit(.micStopped(streamId: id)) }
-        case .spkStart(let id, let rate, let ch):
-            handleSpeakerStart(streamId: id, sampleRate: rate, channels: ch)
-        case .spkAudio(let id, let pcm):
-            guard sync({ !closing && activeSpkStreamId == id }) else { return }
-            audioIO?.playSpeaker(streamId: id, pcm: pcm)
-            emit(.speakerAudio(streamId: id, bytes: pcm.count))
-        case .spkClear(let id):
-            guard sync({ !closing && activeSpkStreamId == id }) else { return }
-            audioIO?.clearSpeaker(streamId: id)
-            emit(.speakerCleared(streamId: id))
-        case .spkStop(let id):
-            let matched = sync { () -> Bool in
-                guard activeSpkStreamId == id else { return false }
-                activeSpkStreamId = nil; return true
-            }
-            if matched { audioIO?.stopSpeaker(streamId: id); emit(.speakerStopped(streamId: id)) }
-        case .state(let st):
-            if st.kicked { let s = sync { kicked = true; return stream }; s?.close(); wakeAll() }
-            if let e = st.error { line(e) }
-        case .ping(let t1):
-            let now = Self.nowUs()
-            sendFrame(VoiceProtocol.pong(t1, now, now), reliable: false)
-        case .pong(let t1, _, _):
-            _ = sync { ping.answer(t1: t1, nowUs: Self.nowUs()) }
-        }
-    }
-
-    private func handleSpeakerStart(streamId: UInt32, sampleRate: UInt32, channels: UInt8) {
-        guard !isClosing else { return }
-        guard VoiceProtocol.speakerRateRange.contains(sampleRate), channels == 1 else {
-            let err = "unsupported format \(sampleRate)Hz \(channels)ch"
-            sendFrame(VoiceProtocol.spkAck(streamId: streamId, ok: false, error: err), reliable: true, fecRatio: 1.0)
-            return
-        }
-        let result = audioIO?.startSpeaker(streamId: streamId, sampleRate: sampleRate, channels: channels) ?? .success(())
-        switch result {
-        case .success:
-            let accepted = sync { () -> Bool in
-                guard !closing else { return false }
-                activeSpkStreamId = streamId; return true
-            }
-            guard accepted else { audioIO?.stopAll(); return }
-            sendFrame(VoiceProtocol.spkAck(streamId: streamId, ok: true), reliable: true, fecRatio: 1.0)
-            emit(.speakerStarted(streamId: streamId, sampleRate: sampleRate))
-        case .failure(let error):
-            guard !isClosing else { return }
-            sendFrame(VoiceProtocol.spkAck(streamId: streamId, ok: false, error: error.description), reliable: true, fecRatio: 1.0)
-        }
-    }
-
-    /// Sends captured 16 kHz mono s16le PCM in single-shard chunks (<= 640 B, even byte boundary).
-    public func sendMicPcm(streamId: UInt32, pcm: [UInt8]) {
-        let alignedCount = pcm.count & ~1
-        guard alignedCount > 0, sync({ !closing && !_muted && activeMicStreamId == streamId }) else { return }
-        let chunk = VoiceProtocol.micChunkBytes
-        var offset = 0
-        while offset < alignedCount {
-            let end = min(offset + chunk, alignedCount)
-            let slice = Array(pcm[offset..<end])
-            sendFrame(VoiceProtocol.micAudio(streamId: streamId, pcm: slice), reliable: false, fecRatio: 1.0)
-            offset = end
-        }
     }
 }

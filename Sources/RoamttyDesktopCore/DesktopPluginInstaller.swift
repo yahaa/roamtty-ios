@@ -63,6 +63,10 @@ public final class DesktopPluginInstaller {
             onStep(.register)
             // macOS: (re)load the LaunchAgent; it runs in the GUI session, where TCC permissions apply.
             if build.app && !registerAgent() { return .failed(.host, detail: "agent") }
+        } else if build.app {
+            // Headless upgrade on macOS replaced Roamtty Desktop.app on disk: if a LaunchAgent was
+            // previously installed, reload it best-effort so macOS TCC does not reject the stale PID (-67049).
+            reloadInstalledMacAgentBestEffort()
         }
         onStep(.done)
         return .installed
@@ -114,6 +118,13 @@ public final class DesktopPluginInstaller {
 
     /// macOS: reloads the installed plugin's LaunchAgent in the GUI session; false when it did not come up.
     public func registerAgent() -> Bool { run(#"exec 2>&1; "$HOME/.roamtty/bin/roamtty-desktop" install"#, 30) == 0 }
+
+    private func reloadInstalledMacAgentBestEffort() {
+        _ = run(
+            #"if [ -f "$HOME/Library/LaunchAgents/com.roamtty.desktop.plist" ]; then "$HOME/.roamtty/bin/roamtty-desktop" install >/dev/null 2>&1 || true; fi"#,
+            30
+        )
+    }
 
     private func ps(_ script: String, _ timeout: TimeInterval) -> Int? {
         remote.runCommand(PowerShell.command(script), timeout: timeout, onLine: onLine)

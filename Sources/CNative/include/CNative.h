@@ -1,4 +1,5 @@
 #pragma once
+#include <stdint.h>
 #include <sqlite3.h>
 #include <libssh2.h>
 #include <libssh2_sftp.h>
@@ -44,3 +45,16 @@ size_t roam_ssh_heap_live(roam_ssh_heap *heap, size_t *bytes);
 size_t roam_ssh_heap_destroy(roam_ssh_heap *heap, size_t *bytes);
 // Atomic, same-volume move that refuses to replace any existing destination. Returns errno or zero.
 int roam_move_exclusive(const char *source, const char *destination);
+
+// Real-time VOIP Opus encoder/decoder wrappers (libopus C variadic ctls kept safely inside C).
+typedef struct roam_opus_encoder roam_opus_encoder;
+typedef struct roam_opus_decoder roam_opus_decoder;
+roam_opus_encoder *roam_opus_encoder_create(int sample_rate, int bitrate, int enable_dtx);
+void roam_opus_encoder_set_params(roam_opus_encoder *enc, int bitrate, int loss_perc);
+void roam_opus_encoder_reset(roam_opus_encoder *enc);
+int roam_opus_encoder_encode(roam_opus_encoder *enc, const int16_t *pcm, int frame_samples, unsigned char *out, int out_cap);
+void roam_opus_encoder_destroy(roam_opus_encoder *enc);
+roam_opus_decoder *roam_opus_decoder_create(int sample_rate);
+void roam_opus_decoder_reset(roam_opus_decoder *dec);
+int roam_opus_decoder_decode(roam_opus_decoder *dec, const unsigned char *data, int len, int16_t *out, int frame_samples, int decode_fec);
+void roam_opus_decoder_destroy(roam_opus_decoder *dec);

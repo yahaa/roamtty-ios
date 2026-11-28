@@ -11,3 +11,11 @@ cmake -S "$ROOT/NativeBuild/libssh2" -B "$ROOT/NativeBuild/libssh2-build" \
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_INSTALL_PREFIX="$ROOT/Vendor/linux"
 cmake --build "$ROOT/NativeBuild/libssh2-build" --parallel 6
 cmake --install "$ROOT/NativeBuild/libssh2-build"
+if [ ! -d "$ROOT/NativeBuild/opus/.git" ]; then
+  git clone --depth 1 --branch v1.5.2 https://github.com/xiph/opus.git "$ROOT/NativeBuild/opus"
+fi
+cmake -S "$ROOT/NativeBuild/opus" -B "$ROOT/NativeBuild/opus-build" \
+  -DBUILD_SHARED_LIBS=OFF -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF \
+  -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_INSTALL_PREFIX="$ROOT/Vendor/linux"
+cmake --build "$ROOT/NativeBuild/opus-build" --parallel 6
+cmake --install "$ROOT/NativeBuild/opus-build"

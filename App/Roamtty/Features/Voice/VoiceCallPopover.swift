@@ -43,6 +43,7 @@ struct VoiceCallPopover: View {
             Color.clear
                 .contentShape(Rectangle())
                 .onTapGesture(perform: onDismiss)
+                .simultaneousGesture(DragGesture(minimumDistance: 6).onChanged { _ in onDismiss() })
                 .accessibilityIdentifier("voice-popover-backdrop")
 
             VStack(spacing: 10) {

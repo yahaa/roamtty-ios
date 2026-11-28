@@ -88,7 +88,8 @@ struct NativeTerminal: UIViewRepresentable {
     func feedKeepingPlace(_ bytes: ArraySlice<UInt8>) {
         let terminal = getTerminal(), screen = CGFloat(max(1, terminal.rows))
         let rowHeight = getOptimalFrameSize().height / screen
-        let reading = rowHeight > 0 && !terminal.isCurrentBufferAlternate
+        let remoteScroll = terminal.isCurrentBufferAlternate || terminal.mouseMode != .off
+        let reading = rowHeight > 0 && !remoteScroll
             && (isTracking || isDecelerating || contentOffset.y < contentSize.height - (screen + 0.5) * rowHeight)
         let place = contentOffset.y
         feed(byteArray: bytes); spokenTextStale = true
@@ -100,7 +101,15 @@ struct NativeTerminal: UIViewRepresentable {
             let dropped = terminal.droppedScrollbackLines(since: droppedLines, fed: bytes.count)
             undrawnDrops += max(0, dropped - droppedLines); droppedLines = dropped
         }
-        guard reading, !terminal.isCurrentBufferAlternate else { undrawnDrops = 0; return }
+        let remoteNow = terminal.isCurrentBufferAlternate || terminal.mouseMode != .off
+        if remoteNow {
+            undrawnDrops = 0
+            if !selectionActive && contentOffset.y < max(0, contentSize.height - bounds.height) - 1 {
+                scrollToLiveOutput()
+            }
+            return
+        }
+        guard reading else { undrawnDrops = 0; return }
         // Move up with the text being read, once it is on screen: mid frame, SwiftTerm still shows the old copy.
         var shift = 0
         if frameBegan.map({ now - $0 >= TerminalSynchronizedOutput.timeout }) ?? true { shift = undrawnDrops; undrawnDrops = 0 }
@@ -114,6 +123,13 @@ struct NativeTerminal: UIViewRepresentable {
     /// When the host's synchronized frame began, while one is open.
     private var frameBegan: TimeInterval?
     override func selectionChanged(source: Terminal) { super.selectionChanged(source: source); viewportChanged?() }
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if gestureRecognizer === panGestureRecognizer, !selectionActive,
+           getTerminal().mouseMode != .off || getTerminal().isCurrentBufferAlternate {
+            return false
+        }
+        return super.gestureRecognizerShouldBegin(gestureRecognizer)
+    }
     /// The scroll view's own pan moves local history and cannot be subclassed. It answers as its own delegate, so the
     /// recognizer `TerminalTapRecognizer` describes is let run beside it here.
     @objc(gestureRecognizer:shouldRecognizeSimultaneouslyWithGestureRecognizer:)
@@ -128,6 +144,7 @@ struct NativeTerminal: UIViewRepresentable {
         // SwiftTerm's implementation adds a button-drag recognizer even with
         // allowMouseReporting=false. Only our vertical wheel recognizer reports
         // mouse input; native long-press selection must remain local.
+        if source.mouseMode != .off && !selectionActive { scrollToLiveOutput() }
         viewportChanged?()
     }
     deinit { TerminalCensus.change(-1) }

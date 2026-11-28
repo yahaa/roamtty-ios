@@ -31,11 +31,11 @@ let package = Package(
     dependencies: desktopDependencies,
     targets: [
         .target(name: "CNative", publicHeadersPath: "include", cSettings: nativeC, linkerSettings: nativeLink + [
-            .linkedLibrary("ssh2"), .linkedLibrary("crypto"), .linkedLibrary("z"), .linkedLibrary("sqlite3")
+            .linkedLibrary("ssh2"), .linkedLibrary("crypto"), .linkedLibrary("opus"), .linkedLibrary("z"), .linkedLibrary("sqlite3")
         ]),
         .target(name: "RoamttyCore", dependencies: ["CNative"], resources: [.process("Resources")], swiftSettings: nativeSwift),
         .target(name: "RoamttyTransport", dependencies: ["RoamttyCore", "CNative", "RoamttyDesktopCore"], swiftSettings: nativeSwift),
-        .target(name: "RoamttyDesktopCore", dependencies: desktopCrypto, resources: [.copy("Resources/desktop-plugin.json")]),
+        .target(name: "RoamttyDesktopCore", dependencies: ["CNative"] + desktopCrypto, resources: [.copy("Resources/desktop-plugin.json")], swiftSettings: nativeSwift),
         .testTarget(name: "RoamttyCoreTests", dependencies: ["RoamttyCore"], swiftSettings: nativeSwift),
         .testTarget(name: "RoamttyTransportTests", dependencies: ["RoamttyTransport", "RoamttyDesktopCore"], swiftSettings: nativeSwift),
         .testTarget(name: "RoamttyDesktopCoreTests", dependencies: ["RoamttyDesktopCore"], resources: [.copy("Resources/desktop-proto")])

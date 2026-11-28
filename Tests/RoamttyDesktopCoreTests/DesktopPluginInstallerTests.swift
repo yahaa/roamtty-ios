@@ -111,7 +111,7 @@ final class DesktopPluginInstallerTests: XCTestCase {
     func testPinnedBuildsCarryTheirEncoder() throws {
         let manifest = try PluginManifest.bundled()
         let linux = try XCTUnwrap(DesktopPluginInstaller.Build.pinned(manifest, target: "linux-x86_64"))
-        XCTAssertEqual(linux.version, "0.9.10")
+        XCTAssertEqual(linux.version, "0.9.12")
         XCTAssertTrue(linux.url.hasSuffix("linux-x86_64.gz"))
         XCTAssertTrue(linux.openh264Url?.hasPrefix(PluginManifest.OPENH264_BASE + "/") == true)
         let mac = try XCTUnwrap(DesktopPluginInstaller.Build.pinned(manifest, target: "macos-universal"))
@@ -136,6 +136,24 @@ final class DesktopPluginInstallerTests: XCTestCase {
         XCTAssertFalse(DesktopPluginInstaller.Build(version: "1", url: "https://x/linux-x86_64.gz", sha256: "a", openh264Url: nil).app)
         let script = DesktopPluginInstaller.placeAppScript("/tmp/x.zip", sha: "ab")
         XCTAssertTrue(script.contains("ditto -x -k") && script.contains("ln -sf") && script.contains("Roamtty Desktop.app"))
+    }
+
+    func testHeadlessMacAppUpgradeReloadsExistingLaunchAgentBestEffort() throws {
+        // Fake host that succeeds every shell script and records them.
+        final class ScriptRecordingHost: DesktopHost {
+            var scripts: [String] = []
+            func probe(timeout: TimeInterval) -> String? { nil }
+            func run(_ script: String, timeout: TimeInterval, onLine: (String) -> Void) -> Int? { scripts.append(script); return 0 }
+            func runCommand(_ command: String, timeout: TimeInterval, onLine: (String) -> Void) -> Int? { nil }
+            func upload(_ data: Data, to remotePath: String) throws {}
+            func openStream(_ command: String) -> DesktopStream? { nil }
+            func disconnect() {}
+        }
+        let host = ScriptRecordingHost()
+        let inst = DesktopPluginInstaller(remote: host, fetch: { _ in Data() })
+        let res = inst.install(.init(version: "0.9.12", url: "https://x/macos-universal.zip", sha256: String(repeating: "00", count: 32), openh264Url: nil), headless: true)
+        XCTAssertEqual(res, .installed)
+        XCTAssertTrue(host.scripts.contains { $0.contains("com.roamtty.desktop.plist") && $0.contains("roamtty-desktop\" install") })
     }
 }
 

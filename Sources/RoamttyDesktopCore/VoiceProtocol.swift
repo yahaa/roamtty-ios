@@ -16,6 +16,8 @@ public enum VoiceProtocol {
     // Client -> Server
     public static let MIC_AUDIO = 0x10
     public static let SPK_ACK = 0x11
+    public static let MIC_OPUS = 0x12
+    public static let VOICE_STATS_C2S = 0x13
 
     // Server -> Client
     public static let MIC_START = 0x90
@@ -24,6 +26,28 @@ public enum VoiceProtocol {
     public static let SPK_AUDIO = 0x93
     public static let SPK_CLEAR = 0x94
     public static let SPK_STOP = 0x95
+    public static let SPK_OPUS = 0x96
+    public static let VOICE_STATS_S2C = 0x97
+
+    // Bitflags carried in MIC_OPUS (0x12) and SPK_OPUS (0x96).
+    public static let VOICE_FLAG_DTX: UInt8 = 1 << 0
+    public static let VOICE_FLAG_FEC: UInt8 = 1 << 1
+    public static let VOICE_FLAG_SPEECH: UInt8 = 1 << 2
+    public static let VOICE_FLAG_RESET: UInt8 = 1 << 3
+    public static let VOICE_GEN_SHIFT: UInt8 = 4
+    public static let VOICE_GEN_MASK: UInt8 = 0xF0
+
+    public static let voiceMaxRedEntries = 3
+    public static let voiceMaxRedDelta: UInt8 = 6
+    public static let voiceMaxOpusBytes = 1000
+
+    public static func withTurnGen(_ flags: UInt8, turnGen: UInt8) -> UInt8 {
+        (flags & ~VOICE_GEN_MASK) | ((turnGen & 0x0F) << VOICE_GEN_SHIFT)
+    }
+
+    public static func turnGenOf(_ flags: UInt8) -> UInt8 {
+        (flags >> VOICE_GEN_SHIFT) & 0x0F
+    }
 
     public static func parseStart(_ line: String) -> VoiceStart {
         guard let json = JSONValue.object(line) else {
@@ -69,6 +93,91 @@ public enum VoiceProtocol {
     public static func ping(_ t1: Int64) -> [UInt8] { DesktopProtocol.ping(t1) }
     public static func pong(_ t1: Int64, _ t2: Int64, _ t3: Int64) -> [UInt8] { DesktopProtocol.pong(t1, t2, t3) }
 
+    public static func micOpus(_ packet: VoiceOpusPacket) -> [UInt8] {
+        DesktopProtocol.frame(MIC_OPUS, encodeVoiceOpus(packet))
+    }
+
+    public static func voiceStats(_ stats: VoiceStats) -> [UInt8] {
+        DesktopProtocol.frame(VOICE_STATS_C2S, encodeVoiceStats(stats))
+    }
+
+    public static func encodeVoiceOpus(_ packet: VoiceOpusPacket) -> [UInt8] {
+        let redCount = min(packet.red.count, voiceMaxRedEntries)
+        var redBytes = 0
+        for i in 0..<redCount { redBytes += 3 + packet.red[i].data.count }
+        var out: [UInt8] = []
+        out.reserveCapacity(14 + redBytes + packet.primary.count)
+        appendU32LE(packet.streamId, to: &out)
+        appendU32LE(packet.seq, to: &out)
+        appendU32LE(packet.tsSamples, to: &out)
+        out.append(packet.flags)
+        out.append(UInt8(redCount))
+        for i in 0..<redCount {
+            let entry = packet.red[i]
+            out.append(entry.deltaSeq)
+            appendU16LE(UInt16(truncatingIfNeeded: entry.data.count), to: &out)
+            out.append(contentsOf: entry.data)
+        }
+        out.append(contentsOf: packet.primary)
+        return out
+    }
+
+    public static func decodeVoiceOpus(_ payload: [UInt8]) -> VoiceOpusPacket? {
+        guard payload.count >= 14,
+              let streamId = readU32LE(payload, at: 0),
+              let seq = readU32LE(payload, at: 4),
+              let tsSamples = readU32LE(payload, at: 8) else { return nil }
+        let flags = payload[12]
+        let redCount = Int(payload[13])
+        guard redCount <= voiceMaxRedEntries else { return nil }
+        var cursor = 14
+        var red: [VoiceRedEntry] = []
+        red.reserveCapacity(redCount)
+        for _ in 0..<redCount {
+            guard payload.count - cursor >= 3 else { return nil }
+            let delta = payload[cursor]
+            let len = Int(UInt16(payload[cursor + 1]) | (UInt16(payload[cursor + 2]) << 8))
+            cursor += 3
+            guard delta > 0, delta <= voiceMaxRedDelta, len > 0, len <= voiceMaxOpusBytes,
+                  payload.count - cursor >= len else { return nil }
+            red.append(VoiceRedEntry(deltaSeq: delta, data: Array(payload[cursor..<(cursor + len)])))
+            cursor += len
+        }
+        let rem = payload.count - cursor
+        guard rem <= voiceMaxOpusBytes else { return nil }
+        if rem == 0 && (flags & VOICE_FLAG_DTX) == 0 { return nil }
+        let primary = rem > 0 ? Array(payload[cursor...]) : []
+        return VoiceOpusPacket(streamId: streamId, seq: seq, tsSamples: tsSamples, flags: flags, red: red, primary: primary)
+    }
+
+    public static func encodeVoiceStats(_ stats: VoiceStats) -> [UInt8] {
+        var out: [UInt8] = []
+        out.reserveCapacity(12)
+        appendU32LE(stats.streamId, to: &out)
+        appendU16LE(min(stats.lossPermille, 1000), to: &out)
+        appendU16LE(stats.jitterMs, to: &out)
+        appendU16LE(stats.bufferMs, to: &out)
+        out.append(stats.maxBurstLoss)
+        out.append(stats.flags)
+        return out
+    }
+
+    public static func decodeVoiceStats(_ payload: [UInt8]) -> VoiceStats? {
+        guard payload.count >= 12,
+              let streamId = readU32LE(payload, at: 0),
+              let loss = readU16LE(payload, at: 4),
+              let jitter = readU16LE(payload, at: 6),
+              let buffer = readU16LE(payload, at: 8) else { return nil }
+        return VoiceStats(
+            streamId: streamId,
+            lossPermille: min(loss, 1000),
+            jitterMs: jitter,
+            bufferMs: buffer,
+            maxBurstLoss: payload[10],
+            flags: payload[11]
+        )
+    }
+
     // MARK: Server -> Client decoding
 
     public static func decode(_ frame: Frame) -> VoiceServerMessage? {
@@ -94,6 +203,12 @@ public enum VoiceProtocol {
         case SPK_STOP:
             guard p.count >= 4, let id = readU32LE(p, at: 0) else { return nil }
             return .spkStop(streamId: id)
+        case SPK_OPUS:
+            guard let pkt = decodeVoiceOpus(p) else { return nil }
+            return .spkOpus(pkt)
+        case VOICE_STATS_S2C:
+            guard let st = decodeVoiceStats(p) else { return nil }
+            return .voiceStats(st)
         case DesktopProtocol.STATE:
             guard let json = JSONValue.object(String(decoding: p, as: UTF8.self)) else { return nil }
             return .state(StateMessage(json: json))
@@ -138,6 +253,16 @@ public enum VoiceProtocol {
     }
 
     // MARK: Helpers
+
+    static func appendU16LE(_ value: UInt16, to bytes: inout [UInt8]) {
+        bytes.append(UInt8(truncatingIfNeeded: value))
+        bytes.append(UInt8(truncatingIfNeeded: value >> 8))
+    }
+
+    static func readU16LE(_ bytes: [UInt8], at offset: Int) -> UInt16? {
+        guard offset >= 0, bytes.count - offset >= 2 else { return nil }
+        return UInt16(bytes[offset]) | (UInt16(bytes[offset + 1]) << 8)
+    }
 
     static func appendU32LE(_ value: UInt32, to bytes: inout [UInt8]) {
         bytes.append(UInt8(truncatingIfNeeded: value))
@@ -221,7 +346,54 @@ public enum VoiceServerMessage: Sendable {
     case spkAudio(streamId: UInt32, pcm: [UInt8])
     case spkClear(streamId: UInt32)
     case spkStop(streamId: UInt32)
+    case spkOpus(VoiceOpusPacket)
+    case voiceStats(VoiceStats)
     case state(StateMessage)
     case ping(t1: Int64)
     case pong(t1: Int64, t2: Int64, t3: Int64)
+}
+
+public struct VoiceRedEntry: Equatable, Sendable {
+    public let deltaSeq: UInt8
+    public let data: [UInt8]
+    public init(deltaSeq: UInt8, data: [UInt8]) {
+        self.deltaSeq = deltaSeq
+        self.data = data
+    }
+}
+
+public struct VoiceOpusPacket: Equatable, Sendable {
+    public let streamId: UInt32
+    public let seq: UInt32
+    public let tsSamples: UInt32
+    public let flags: UInt8
+    public let red: [VoiceRedEntry]
+    public let primary: [UInt8]
+
+    public init(streamId: UInt32, seq: UInt32, tsSamples: UInt32, flags: UInt8, red: [VoiceRedEntry], primary: [UInt8]) {
+        self.streamId = streamId
+        self.seq = seq
+        self.tsSamples = tsSamples
+        self.flags = flags
+        self.red = red
+        self.primary = primary
+    }
+}
+
+public struct VoiceStats: Equatable, Sendable {
+    public let streamId: UInt32
+    public let lossPermille: UInt16
+    public let jitterMs: UInt16
+    public let bufferMs: UInt16
+    public let maxBurstLoss: UInt8
+    public let flags: UInt8
+
+    public init(streamId: UInt32, lossPermille: UInt16, jitterMs: UInt16, bufferMs: UInt16, maxBurstLoss: UInt8, flags: UInt8 = 0) {
+        self.streamId = streamId
+        self.lossPermille = lossPermille
+        self.jitterMs = jitterMs
+        self.bufferMs = bufferMs
+        self.maxBurstLoss = maxBurstLoss
+        self.flags = flags
+    }
 }
