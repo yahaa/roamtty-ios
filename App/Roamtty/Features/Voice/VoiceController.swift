@@ -34,9 +34,7 @@ extension SessionRuntime {
     @Published var toastMessage: String?
     @Published var errorMessage: String?
 
-    var pendingCodexStatus: Data?
-    var codexInputRevision: UInt64 = 0
-    var awaitingManualStatus = false
+    var codexStatus: CodexStatusObservation?
     var session: VoiceSession?
     var audioEngine: VoiceAudioEngine?
     var startTask: Task<Void, Never>?

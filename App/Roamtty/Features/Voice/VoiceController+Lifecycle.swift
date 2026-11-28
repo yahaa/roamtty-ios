@@ -161,8 +161,7 @@ extension VoiceController {
             audioEngine?.stopAll()
         }
         audioEngine = nil
-        pendingCodexStatus = nil
-        awaitingManualStatus = false
+        codexStatus = nil
         session = nil
         streamTracker.reset(mode: mode)
         if let owner = loginOwner {

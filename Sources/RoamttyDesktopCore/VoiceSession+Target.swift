@@ -10,20 +10,35 @@ extension VoiceSession {
 
     func resolveCodexTarget(_ remote: DesktopHost) -> (thread: String, cwd: String?)? {
         guard let name = config.tmuxSession, !name.isEmpty else {
-            guard let id = readCodexStatus(), VoiceProtocol.validThread(id) else { return nil }
+            guard !isClosing, let id = readCodexStatus(), VoiceProtocol.validThread(id), !isClosing else { return nil }
             return (id, nil)
         }
-        guard let pane = codexPane(remote, name: name) else { return nil }
-        guard let thread = readCodexStatus(), VoiceProtocol.validThread(thread), !isClosing,
-              let current = codexPane(remote, name: name), current.id == pane.id else { return nil }
+        guard let pane = codexPane(remote, name: name), !isClosing else { return nil }
+        let prepared = prepareCodexBind(remote)
+        guard !isClosing else { return nil }
+        if prepared, let thread = currentCodexThread(remote, pane: pane.id) {
+            guard !isClosing, let active = codexPane(remote, name: name), active.id == pane.id else { return nil }
+            return (thread, active.cwd)
+        }
+        guard !isClosing, let thread = readCodexStatus(), VoiceProtocol.validThread(thread), !isClosing else { return nil }
+        let live = prepared ? currentCodexThread(remote, pane: pane.id) : nil
+        guard !isClosing, let current = codexPane(remote, name: name), current.id == pane.id else { return nil }
+        if let live { return live == thread ? (live, current.cwd) : nil }
         if current.boundThread == thread { return (thread, current.cwd) }
-        // A TUI switch can leave even two matching pane fields stale. A concurrent hook update
-        // for a third thread means the user switched again while /status was being read.
-        guard current.boundThread == pane.boundThread, prepareCodexBind(remote), !isClosing else { return nil }
+        // A hook update for a third thread means that the pane changed while the user ran /status.
+        guard current.boundThread == pane.boundThread, prepared, !isClosing else { return nil }
         let bind = "sh \"$HOME/.roamtty/agent-hook.sh\" codex bind '\(pane.id)' '\(thread)'\n"
-        guard remote.run(bind, timeout: 4, onLine: { _ in }) == 0,
+        guard remote.run(bind, timeout: 4, onLine: { _ in }) == 0, !isClosing,
               let verified = codexPane(remote, name: name), verified.id == pane.id, verified.boundThread == thread else { return nil }
         return (thread, verified.cwd)
+    }
+
+    private func currentCodexThread(_ remote: DesktopHost, pane: String) -> String? {
+        let script = "sh \"$HOME/.roamtty/agent-hook.sh\" codex current '\(pane)' </dev/null\n"
+        var lines: [String] = []
+        guard remote.run(script, timeout: 4, onLine: { lines.append($0) }) == 0,
+              lines.count == 1, let id = lines.first, VoiceProtocol.validThread(id) else { return nil }
+        return id
     }
 
     private func codexPane(_ remote: DesktopHost, name: String) -> CodexPane? {
@@ -70,4 +85,23 @@ extension VoiceSession {
               fields[1].isEmpty ? legacyDefault : fields[1] == "127.0.0.1:\(port)" else { return nil }
         return .pane(String(fields[0]))
     }
+}
+
+/// Collects only this call's terminal output after the user submits an exact `/status` command.
+public struct CodexStatusObservation {
+    private var response: Data?
+
+    public init() {}
+
+    public mutating func sentInput(submittingStatus: Bool) {
+        response = submittingStatus ? Data() : nil
+    }
+
+    public mutating func receive(_ data: Data) {
+        guard response != nil else { return }
+        response?.append(data)
+        if let size = response?.count, size > 65536 { response?.removeFirst(size - 65536) }
+    }
+
+    public var thread: String? { response.flatMap(VoiceProtocol.codexThreadFromStatus) }
 }

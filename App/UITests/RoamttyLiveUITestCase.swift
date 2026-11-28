@@ -122,7 +122,8 @@ class RoamttyLiveUITestCase: XCTestCase {
 
     /// Shows the dock: wakes the toolbox ghost with a reading tap, then taps it.
     func openTools() {
-        if app.buttons["common-commands"].exists && app.buttons["common-commands"].isHittable { return }
+        let switcher = app.buttons["session-switcher"]
+        if switcher.exists && switcher.isHittable { return }
         // The toolbox steps aside while the prompt editor is open, as on Android.
         if app.textViews["prompt-editor"].exists { app.buttons.matching(NSPredicate(format: "label == '收起' OR label == 'Hide'")).firstMatch.tap() }
         let surface = app.descendants(matching: .any)["terminal-surface"].firstMatch
@@ -136,7 +137,7 @@ class RoamttyLiveUITestCase: XCTestCase {
         }
         if !ghost.exists { saveFailureScreenshot("openTools") }
         XCTAssertTrue(ghost.exists); ghost.tap()
-        XCTAssertTrue(app.buttons["common-commands"].waitForExistence(timeout: 3))
+        XCTAssertTrue(switcher.waitForExistence(timeout: 3))
     }
 
     /// "tmux SSH", "SSH mosh" …: the session mode and the transport carrying it.

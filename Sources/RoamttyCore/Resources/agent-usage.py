@@ -1155,7 +1155,11 @@ def run_session(agent_arg, tmux_session, cwd_arg):
             if q7d:
                 data["q7d"] = q7d
     elif agent == "codex":
-        p = find_codex_transcript(t_transcript, t_sid, cwd, allow_fallback=allow_fallback)
+        # A missing hook during startup or a switch cannot identify which same-directory
+        # conversation a requested tmux pane belongs to.
+        p = None
+        if not tmux_session or t_agent == "codex":
+            p = find_codex_transcript(t_transcript, t_sid, cwd, allow_fallback=not tmux_session)
         if p:
             data = parse_codex_file(p, model_cache=codex_model_ctx_cache())
         (fb5, fb5_ts, fb5_def), (fb7, fb7_ts, fb7_def) = latest_codex_account_quotas(exclude_path=p)

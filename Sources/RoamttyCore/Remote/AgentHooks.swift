@@ -101,8 +101,8 @@ public enum AgentHooks {
     private static func launcherEnd(_ agent: CodingAgent) -> [String] { ["status=$?", hookCommand(agent, "end") + " </dev/null", "exit $status"] }
 
     /// `~/.roamtty/codex`: merges Roamtty's hooks into `${CODEX_HOME:-$HOME/.codex}/hooks.json` (preserving any user
-    /// hooks), records their canonical-path trust hash in `config.toml`, then launches `codex` with zero `-c` overrides
-    /// so Codex stays attached to its shared `app-server` daemon (required for full-duplex voice).
+    /// hooks), records their canonical-path trust hash in `config.toml`, then launches the TUI through the shared hook
+    /// which preserves its connection to the shared app-server daemon for full-duplex voice.
     public static var codexLauncher: String {
         let specs = codexEvents.map { event, key, action in
             let hash = codexHookHash(eventKey: key, command: hookCommand(.codex, action))
@@ -114,7 +114,7 @@ public enum AgentHooks {
             "\(hookCommand(.codex, "install")) \(specs) </dev/null",
             "export ROAMTTY_AGENT=codex",
             "\(hookCommand(.codex, "start")) </dev/null",
-            "codex \"$@\""
+            "sh ~/.roamtty/agent-hook.sh codex launch \"$@\""
         ]
         return (lines + launcherEnd(.codex)).joined(separator: "\n") + "\n"
     }

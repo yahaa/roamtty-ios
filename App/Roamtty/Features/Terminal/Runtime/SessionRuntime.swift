@@ -125,7 +125,6 @@ import RoamttyTransport
     /// A native paste being gathered from the delegate's output.
     var capturedPaste: TerminalPasteCapture?
     var keyboardDeleteHold = TerminalDeleteHold()
-    var lastTerminalWriteAt: TimeInterval = 0
 
     // MARK: Gestures (SessionRuntime+Gestures)
 

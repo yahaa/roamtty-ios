@@ -177,42 +177,30 @@ extension AppModel {
         } catch { /* probe is best-effort */ }
     }
 
-    /// Called by the voice SSH worker. Only output received after this terminal submitted /status is eligible.
+    /// Bare terminals and older launchers identify the thread when the user runs `/status` here.
     nonisolated func syncCodexStatus(sessionID: String, owner: String) -> String? {
-        let start: (UUID, UUID, UInt64?)? = DispatchQueue.main.sync {
+        let start: (UUID, UUID)? = DispatchQueue.main.sync {
             guard let runtime = self.runtimes[sessionID], runtime.voice.loginOwner == owner,
                   runtime.phase == .connected, runtime.voiceBackend == .codex else { return nil }
-            runtime.voice.pendingCodexStatus = nil
-            runtime.voice.awaitingManualStatus = true
-            var revision: UInt64?
-            if runtime.hasEmptyCodexComposer, runtime.send("/status") { revision = runtime.voice.codexInputRevision }
-            if revision == nil {
-                runtime.voice.showToast(self.text("请完成当前输入并在此终端运行 /status", "Finish your current input and run /status here"), duration: .seconds(20))
-            }
-            return (runtime.generation, runtime.startupAttempt, revision)
+            runtime.voice.codexStatus = CodexStatusObservation()
+            runtime.voice.showToast(self.text("请在此终端手动运行 /status 以接通电话", "Run /status in this terminal to connect the call"), duration: .seconds(20))
+            return (runtime.generation, runtime.startupAttempt)
         }
-        guard let (generation, attempt, initialRevision) = start else { return nil }
+        guard let (generation, attempt) = start else { return nil }
         defer {
             DispatchQueue.main.sync {
                 guard let voice = self.runtimes[sessionID]?.voice, voice.loginOwner == owner else { return }
-                voice.pendingCodexStatus = nil
-                voice.awaitingManualStatus = false
+                voice.codexStatus = nil
             }
         }
-        let began = Date(), deadline = began.addingTimeInterval(20)
-        var revision = initialRevision
+        let deadline = Date().addingTimeInterval(20)
         while Date() < deadline {
             let result: (done: Bool, id: String?) = DispatchQueue.main.sync {
                 guard let runtime = self.runtimes[sessionID], runtime.voice.loginOwner == owner,
                       runtime.generation == generation, runtime.startupAttempt == attempt,
-                      runtime.phase == .connected, runtime.voiceBackend == .codex else { return (true, nil) }
-                // Let Codex finish its paste/command preview, then check the live composer before submitting.
-                if let expected = revision, runtime.voice.codexInputRevision == expected,
-                   runtime.hasCodexStatusCommand, Date().timeIntervalSince(began) >= 0.35 {
-                    revision = nil
-                    guard runtime.send("\r") else { return (true, nil) }
-                }
-                if let data = runtime.voice.pendingCodexStatus, let id = VoiceProtocol.codexThreadFromStatus(data) { return (true, id) }
+                      runtime.phase == .connected, runtime.voiceBackend == .codex,
+                      let status = runtime.voice.codexStatus else { return (true, nil) }
+                if let id = status.thread { return (true, id) }
                 return (false, nil)
             }
             if result.done { return result.id }

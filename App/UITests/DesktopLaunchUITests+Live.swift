@@ -186,10 +186,14 @@ extension DesktopLaunchUITests {
         let ops = app.buttons.matching(NSPredicate(format: "label == '操作' OR label == 'Ops'")).firstMatch
         XCTAssertTrue(ops.waitForExistence(timeout: 15))
         ops.tap()
-        let stats = app.switches.matching(NSPredicate(format: "label BEGINSWITH '显示网络状态' OR label BEGINSWITH 'Show network stats'")).firstMatch
+        let row = app.switches.matching(NSPredicate(format: "label BEGINSWITH '显示网络状态' OR label BEGINSWITH 'Show network stats'")).firstMatch
+        let stats = row.switches.firstMatch
         XCTAssertTrue(stats.waitForExistence(timeout: 5))
         let wasOff = (stats.value as? String) == "0"
-        if wasOff { stats.tap() }
+        if wasOff {
+            stats.tap()
+            XCTAssertEqual(stats.value as? String, "1")
+        }
         app.buttons["desktop-op-close"].tap()
         let frames = app.staticTexts.matching(NSPredicate(format: "label MATCHES '.*[1-9][0-9]* fps.*'")).firstMatch
         XCTAssertTrue(frames.waitForExistence(timeout: 30), "Must receive live desktop frames")
@@ -202,7 +206,12 @@ extension DesktopLaunchUITests {
         attachment.name = "Live desktop after 30 seconds"
         attachment.lifetime = .keepAlways
         add(attachment)
-        if wasOff { ops.tap(); stats.tap(); app.buttons["desktop-op-close"].tap() }
+        if wasOff {
+            ops.tap()
+            stats.tap()
+            XCTAssertEqual(stats.value as? String, "0")
+            app.buttons["desktop-op-close"].tap()
+        }
         app.terminate()
         app.launch()
         XCTAssertTrue(app.buttons["home-tab-hosts"].waitForExistence(timeout: 15))

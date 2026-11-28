@@ -41,6 +41,7 @@ extension AgentUsageTests {
             target="$4"; fmt="$5"
             case "$target:$fmt" in
               *=sess-active:*) printf 'idle|1795870073|codex||\\tsid-new\\t\(newURL.path)\\t/work/app\\t100\\tsid-new\\n' ;;
+              *=sess-gone:*) printf '\\tsid-new\\t\(newURL.path)\\t/work/app\\t101\\tsid-new\\n' ;;
               *=sess-fresh:*) printf 'idle|1795870073|codex||\\tsid-new\\t\(newURL.path)\\t/work/app\\t101\\t\\n' ;;
             esac ;;
           list-panes)
@@ -80,5 +81,7 @@ extension AgentUsageTests {
         let fresh = try query("sess-fresh")
         XCTAssertNil(fresh?.contextUsed)
         XCTAssertNil(fresh?.contextPercent)
+        XCTAssertNil(try query("sess-missing")?.contextUsed)
+        XCTAssertNil(try query("sess-gone")?.contextUsed)
     }
 }

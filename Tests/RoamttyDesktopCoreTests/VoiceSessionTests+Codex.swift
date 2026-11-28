@@ -65,6 +65,84 @@ extension VoiceSessionTests {
         XCTAssertTrue(host.allStreams.isEmpty)
     }
 
+    func testLivePaneIdentityResolvesWithoutWaitingForOrTypingStatus() {
+        let active = "019a1234-6789-7abc-8def-0123456789ab"
+        let stale = "019e1234-6789-7abc-8def-0123456789ab"
+        let host = FakeHost(probe: FakeHost.probe()) { _, _ in }
+        host.scriptLines = { script in
+            script.contains("codex current '%3' </dev/null") ? [active] : ["%3|\(stale)|\(stale)|/project"]
+        }
+        let session = VoiceSession(config: .init(hostName: "h", address: "host", tmuxSession: "work", backend: .codex),
+                                   manifest: manifest, login: { .host(host) }, readCodexStatus: {
+                                       XCTFail("A verified current TUI thread does not need manual input"); return nil
+                                   })
+        defer { session.close() }
+        XCTAssertEqual(session.resolveCodexTarget(host)?.thread, active)
+    }
+
+    func testMissingOrAmbiguousLiveIdentityAndManualTimeoutCannotUseStaleMarkers() {
+        let id = "019a1234-6789-7abc-8def-0123456789ab"
+        for (code, output) in [(1, [id]), (0, [id, id]), (0, ["invalid"])] {
+            let host = FakeHost(probe: FakeHost.probe()) { _, _ in }
+            host.scriptLines = { $0.contains("codex current") ? output : ["%3|\(id)|\(id)|/project"] }
+            host.scriptStatus = { $0.contains("codex current") ? code : 0 }
+            let session = VoiceSession(config: .init(hostName: "h", address: "host", tmuxSession: "work", backend: .codex),
+                                       manifest: manifest, login: { .host(host) }, readCodexStatus: { nil })
+            XCTAssertNil(session.resolveCodexTarget(host))
+            XCTAssertFalse(host.scripts.contains { $0.contains("codex bind") })
+            session.close()
+        }
+    }
+
+    func testCancelledDirectStatusCannotReturnAThread() {
+        let id = "019a1234-6789-7abc-8def-0123456789ab"
+        let host = FakeHost(probe: FakeHost.probe()) { _, _ in }
+        var session: VoiceSession!
+        session = VoiceSession(config: .init(hostName: "h", address: "host", backend: .codex),
+                               manifest: manifest, login: { .host(host) }, readCodexStatus: { session.close(); return id })
+        XCTAssertNil(session.resolveCodexTarget(host))
+        XCTAssertTrue(host.scripts.isEmpty)
+    }
+
+    func testPaneSwitchDuringReadOnlyProofCannotStartTheWrongCall() {
+        let id = "019a1234-6789-7abc-8def-0123456789ab"
+        let host = FakeHost(probe: FakeHost.probe()) { _, _ in }
+        var active = "%3"
+        host.scriptLines = { script in
+            if script.contains("codex current") { active = "%4"; return [id] }
+            return ["\(active)|||/project"]
+        }
+        let session = VoiceSession(config: .init(hostName: "h", address: "host", tmuxSession: "work", backend: .codex),
+                                   manifest: manifest, login: { .host(host) }, readCodexStatus: {
+                                       XCTFail("Switched panes cannot supply input for this call"); return nil
+                                   })
+        defer { session.close() }
+        XCTAssertNil(session.resolveCodexTarget(host))
+    }
+
+    func testManualStatusCaptureIgnoresPriorOutputOtherSubmissionsAndCancelledAttempts() {
+        let id = "019a1234-6789-7abc-8def-0123456789ab"
+        let report = Data("Model: gpt-5\r\nDirectory: /tmp\r\nSession: \(id)".utf8)
+        var observation = CodexStatusObservation()
+        observation.receive(report)
+        XCTAssertNil(observation.thread)
+        observation.sentInput(submittingStatus: false)
+        observation.receive(report)
+        XCTAssertNil(observation.thread)
+        observation.sentInput(submittingStatus: true)
+        observation.receive(report.prefix(25))
+        XCTAssertNil(observation.thread)
+        // A new call after cancellation or timeout starts with no pending input or prior response.
+        observation = CodexStatusObservation()
+        observation.receive(report.suffix(from: 25))
+        XCTAssertNil(observation.thread)
+        observation.sentInput(submittingStatus: true)
+        observation.receive(report)
+        XCTAssertEqual(observation.thread, id)
+        observation.sentInput(submittingStatus: false)
+        XCTAssertNil(observation.thread)
+    }
+
     func testFreshStatusBindsUnboundPaneAndReplacesStaleBindingAfterThreadSwitch() {
         let id = "019a1234-6789-7abc-8def-0123456789ab"
         for previous in ["", "019e1234-6789-7abc-8def-0123456789ab"] {

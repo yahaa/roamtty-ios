@@ -72,7 +72,7 @@ final class AgentStatusTests: XCTestCase {
         }
         XCTAssertTrue(launcher.contains("Stop stop stop " + AgentHooks.codexHookHash(eventKey: "stop", command: "sh ~/.roamtty/agent-hook.sh codex stop")))
         XCTAssertTrue(launcher.contains("export ROAMTTY_AGENT=codex\n"))
-        XCTAssertTrue(launcher.contains("codex \"$@\"\nstatus=$?\nsh ~/.roamtty/agent-hook.sh codex end </dev/null\nexit $status\n"))
+        XCTAssertTrue(launcher.contains("sh ~/.roamtty/agent-hook.sh codex launch \"$@\"\nstatus=$?\nsh ~/.roamtty/agent-hook.sh codex end </dev/null\nexit $status\n"))
     }
 
     func testGrokHooksActOnlyForAGrokStartedByTheApp() {
