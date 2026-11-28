@@ -8,14 +8,17 @@ event=$2
 session=$3
 # Grok and Antigravity hooks are global: only an agent the app started (through ~/.roamtty/<agent>) reports,
 # except Antigravity's statusLine command which only runs when explicitly pointed at agent-hook.sh.
+# Codex hooks run either inside a pane (requires ROAMTTY_AGENT=codex) or inside the shared codex app-server daemon
+# (TMUX_PANE unset, matched back to a Roamtty-launched Codex pane by session_id or canonical cwd below).
 case "$agent:$event" in
   agy:statusline) ;;
   grok:*|agy:*) [ "$ROAMTTY_AGENT" = "$agent" ] || exit 0 ;;
 esac
 # A Claude Code session sent to the background (/bg, or the agents view) runs on outside tmux. Its hooks report to the
 # tmux session named in its settings; with older settings, to the pane whose recorded session it resumes.
+# Codex hooks fired by the shared app-server daemon also run outside tmux and match their pane by session_id / cwd.
 # statusLine hooks also cache live quotas even if started outside tmux.
-[ -n "$TMUX_PANE" ] || [ "$agent" = claude ] || [ "$event" = statusline ] || exit 0
+[ -n "$TMUX_PANE" ] || [ "$agent" = claude ] || [ "$agent" = codex ] || [ "$event" = statusline ] || exit 0
 in_pane=${TMUX_PANE:+1}
 input=$(cat 2>/dev/null)
 # Claude Code statusLine hook receives official 5h/7d rate_limits JSON; cache for Roamtty and forward user statusLine if set.
@@ -325,6 +328,22 @@ agy_tool_name() {
 get() { tmux show-options -qv -t "$TMUX_PANE" "$1" 2>/dev/null; }
 put() { tmux set-option -q -t "$TMUX_PANE" "$1" "$2" 2>/dev/null; }
 
+# Codex hooks fired by the shared `codex app-server` daemon inherit whatever TMUX_PANE started the daemon
+# (often dead or belonging to another pane). Ignore TMUX_PANE when running under app-server or when the pane is gone.
+if [ "$agent" = codex ] && [ -n "$in_pane" ] && [ -n "$input" ]; then
+  _codex_pid=$PPID
+  for _ in 1 2 3 4 5; do
+    [ -n "$_codex_pid" ] && [ "$_codex_pid" -gt 1 ] 2>/dev/null || break
+    case "$(ps -ww -o args= -p "$_codex_pid" 2>/dev/null)" in
+      *app-server*) in_pane=; break ;;
+    esac
+    _codex_pid=$(ps -o ppid= -p "$_codex_pid" 2>/dev/null | tr -d ' ')
+  done
+  if [ -n "$in_pane" ] && ! tmux display-message -p -t "$TMUX_PANE" '#{pane_id}' >/dev/null 2>&1; then
+    in_pane=
+  fi
+fi
+
 if [ -z "$in_pane" ] && [ -n "$session" ]; then
   tmux has-session -t "=$session" 2>/dev/null || exit 0
   TMUX_PANE="=$session:"
@@ -337,6 +356,44 @@ elif [ -n "$in_pane" ]; then
   tpath=$(field 'transcript_path|transcriptPath' 400)
   if [ -n "$tpath" ]; then put @roamtty_transcript "$tpath"
   elif [ -n "$sid" ] && [ "$sid" != "$prev_sid" ]; then tmux set-option -u -q -t "$TMUX_PANE" @roamtty_transcript 2>/dev/null; fi
+elif [ "$agent" = codex ]; then
+  # Codex hooks executed by the shared app-server daemon have no TMUX_PANE; match back to the owning Roamtty Codex pane
+  # by @roamtty_session first, else bind an unbound Codex pane in the same canonical directory. Ignore daemon SessionEnd
+  # (the in-pane launcher's end hook cleans up when Codex actually exits, so /new or thread GC cannot clear an active pane).
+  [ "$event" != end ] || exit 0
+  sid=$(field 'session_id|sessionId' 64)
+  [ -n "$sid" ] || exit 0
+  tpath=$(field 'transcript_path|transcriptPath' 400)
+  hook_cwd=$(field 'cwd' 400)
+  TMUX_PANE=$(tmux list-panes -a -F '#{pane_id}	#{@roamtty_session}	#{@roamtty_agent}' 2>/dev/null |
+    awk -F '\t' -v id="$sid" '$2 == id { split($3, a, "|"); if (a[3] == "codex") { print $1; exit } }')
+  if [ -z "$TMUX_PANE" ] && [ -n "$hook_cwd" ]; then
+    canon_cwd=$(cd "$hook_cwd" 2>/dev/null && pwd -P || printf '%s' "$hook_cwd")
+    TMUX_PANE=$(tmux list-panes -a -F '#{pane_id}	#{@roamtty_session}	#{@roamtty_agent}	#{@roamtty_codex_cwd}	#{pane_current_path}	#{@roamtty_codex_start}' 2>/dev/null |
+      awk -F '\t' -v cwd="$canon_cwd" -v raw="$hook_cwd" '
+        $2 == "" {
+          split($3, a, "|")
+          if (a[3] == "codex" && ($4 == cwd || $4 == raw || $5 == cwd || $5 == raw)) {
+            ts = $6 + 0
+            if (ts >= best_ts) { best_ts = ts; best = $1 }
+          }
+        }
+        END { if (best != "") print best }')
+    if [ -z "$TMUX_PANE" ] && [ "$event" = start ]; then
+      TMUX_PANE=$(tmux list-panes -a -F '#{pane_id}	#{@roamtty_agent}	#{@roamtty_codex_cwd}	#{pane_current_path}' 2>/dev/null |
+        awk -F '\t' -v cwd="$canon_cwd" -v raw="$hook_cwd" '
+          {
+            split($2, a, "|")
+            if (a[3] == "codex" && ($3 == cwd || $3 == raw || $4 == cwd || $4 == raw)) { count++; pane = $1 }
+          }
+          END { if (count == 1) print pane }')
+    fi
+  fi
+  [ -n "$TMUX_PANE" ] || exit 0
+  prev_sid=$(get @roamtty_session)
+  put @roamtty_session "$sid"
+  if [ -n "$tpath" ]; then put @roamtty_transcript "$tpath"
+  elif [ "$sid" != "$prev_sid" ]; then tmux set-option -u -q -t "$TMUX_PANE" @roamtty_transcript 2>/dev/null; fi
 else
   # The session a background Claude Code resumed is in its command line ("--resume …/<id>.jsonl"); the hook may run
   # under a shell or two below it.
@@ -405,7 +462,17 @@ case "$event" in
       fi
     fi
     # Claude Code also submits "<task-notification>…" itself when a background task ends: that is no task of the user's.
+    # Codex voice turns submit "<realtime_delegation><input>…</input>…</realtime_delegation>", and emit a housekeeping
+    # "<source>transcript_tail_flush</source>" turn when voice ends (ignore tail flush so it never wipes the real reply).
     task=$(field 'prompt|lastUserInput' 200)
+    if [ "$agent" = codex ]; then
+      raw_task=$(field 'prompt|lastUserInput' 500)
+      case "$raw_task" in
+        *'<source>transcript_tail_flush</source>'*) exit 0 ;;
+        '<realtime_delegation>'*'<input>'*)
+          task=$(printf '%s' "$raw_task" | sed -E 's/^.*<input>//; s/<\/input>.*$//; s/^[[:space:]]+//; s/[[:space:]]+$//' | cut -c1-200) ;;
+      esac
+    fi
     prev_task=$(get @roamtty_task)
     case "$task" in "<"*) ;; *) [ -z "$task" ] || put @roamtty_task "$task" ;; esac
     # A turn starts: the time it began, for how long it worked once it stops. A turn that waited for background work
@@ -495,11 +562,15 @@ case "$event" in
       exit 0
     fi
     # How long the turn worked, in seconds; Claude Code shows it as "Worked for …".
+    # Ignore Codex housekeeping stops (e.g. transcript_tail_flush) that carry no reply when the pane is already idle.
+    if [ "$agent" = codex ] && [ -z "$reply" ]; then
+      case "$(get @roamtty_agent)" in idle\|*) exit 0 ;; esac
+    fi
     turn=$(get @roamtty_turn)
     case "$turn" in ''|*[!0-9]*) ;; *) put @roamtty_worked "$(( $(date +%s) - turn ))" ;; esac
     record idle "" "" ;;
   end)
-    for option in @roamtty_agent @roamtty_task @roamtty_turn @roamtty_worked @roamtty_reply @roamtty_owner @roamtty_transcript; do
+    for option in @roamtty_agent @roamtty_task @roamtty_turn @roamtty_worked @roamtty_reply @roamtty_owner @roamtty_transcript @roamtty_codex_cwd @roamtty_codex_start; do
       tmux set-option -u -q -t "$TMUX_PANE" "$option" 2>/dev/null
     done ;;
 esac

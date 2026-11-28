@@ -47,6 +47,7 @@ import RoamttyTransport
     var compactRefreshTask: Task<Void, Never>?
     var lastAgentUsageAt: Date?
     var lastAgentUsageState: AgentStatus.State?
+    var codexHookSynced = false
     /// The status the last answered poll reported, starting from what the session reported before this runtime: what
     /// `onAgentReport` compares the next report with. Unlike `agentStatus`, a dropped connection does not clear it.
     var reportedAgentStatus: AgentStatus?

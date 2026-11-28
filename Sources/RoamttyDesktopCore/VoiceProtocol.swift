@@ -49,7 +49,7 @@ public enum VoiceProtocol {
         (flags >> VOICE_GEN_SHIFT) & 0x0F
     }
 
-    public static func parseStart(_ line: String) -> VoiceStart {
+    public static func parseStart(_ line: String, backend: VoiceBackend = .agy) -> VoiceStart {
         guard let json = JSONValue.object(line) else {
             return .failed(code: "internal", detail: "bad hello: \(String(line.prefix(200)))")
         }
@@ -62,7 +62,7 @@ public enum VoiceProtocol {
                 max: json["max"] != nil ? (JSONValue.int(json["max"]) ?? 0) : nil
             )
         }
-        guard let hello = VoiceHello.parse(json) else {
+        guard let hello = VoiceHello.parse(json, allowZeroMicPort: backend == .codex) else {
             return .failed(code: "internal", detail: "bad voice hello: \(String(line.prefix(200)))")
         }
         return .ready(hello)
@@ -232,11 +232,32 @@ public enum VoiceProtocol {
         port: Int? = nil,
         resumeSession: String? = nil,
         resumeToken: String? = nil,
-        idleTimeoutSec: Int? = nil
+        idleTimeoutSec: Int? = nil,
+        backend: VoiceBackend = .agy,
+        codexThread: String? = nil,
+        codexCwd: String? = nil
     ) -> String {
         var args = ["--proto", "\(supportedProto)"]
-        if let port, (1...65535).contains(port) {
+        if backend != .agy {
+            args += ["--backend", backend.rawValue]
+        }
+        if backend == .agy, let port, (1...65535).contains(port) {
             args += ["--port", "\(port)"]
+        }
+        if backend == .codex {
+            if let rawThread = codexThread, !rawThread.isEmpty {
+                let safeThread = String(rawThread.unicodeScalars.filter {
+                    $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_")
+                }.prefix(128))
+                if !safeThread.isEmpty {
+                    args += ["--codex-thread", safeThread]
+                }
+            }
+            if !windows, let rawCwd = codexCwd, !rawCwd.isEmpty,
+               !rawCwd.unicodeScalars.contains(where: { $0 == "\u{0}" || $0 == "\r" || $0 == "\n" }) {
+                let quoted = "'" + rawCwd.replacingOccurrences(of: "'", with: "'\\''") + "'"
+                args += ["--codex-cwd", quoted]
+            }
         }
         if let session = resumeSession, let token = resumeToken, !session.isEmpty, !token.isEmpty {
             let safeSession = String(session.unicodeScalars.filter { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_") })
@@ -296,6 +317,12 @@ public enum VoiceProtocol {
     }
 }
 
+/// Host-side voice backend passed via `--backend` to `roamtty-desktop voice`.
+public enum VoiceBackend: String, Equatable, Sendable {
+    case agy
+    case codex
+}
+
 public struct VoiceHello: Equatable, Sendable {
     public let proto: Int
     public let version: String
@@ -307,10 +334,11 @@ public struct VoiceHello: Equatable, Sendable {
     public let udp: UdpOffer?
     public let codecs: [String]
 
-    static func parse(_ json: [String: Any]) -> VoiceHello? {
+    static func parse(_ json: [String: Any], allowZeroMicPort: Bool = false) -> VoiceHello? {
+        let minPort = allowZeroMicPort ? 0 : 1
         guard let proto = JSONValue.int(json["proto"]),
               let micPort = JSONValue.int(json["mic_port"]),
-              (1...65535).contains(micPort) else { return nil }
+              (minPort...65535).contains(micPort) else { return nil }
         let mode = JSONValue.string(json["mode"])
         guard mode.isEmpty || mode == "voice" else { return nil }
         var udp: UdpOffer?

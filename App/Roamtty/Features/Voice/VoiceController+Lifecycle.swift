@@ -44,15 +44,17 @@ extension VoiceController {
             streamTracker.beginRecovery()
             if active { ghostState = .connecting }
         case .ready(let port, let udp):
-            recovering = false; networkPoor = false; micPort = port; onUdp = udp
-            Diagnostics.shared.log("voice-ready", "port=\(port) udp=\(udp)")
+            recovering = false; networkPoor = false; micPort = backend == .agy && port > 0 ? port : nil; onUdp = udp
+            Diagnostics.shared.log("voice-ready", "backend=\(backend.rawValue) port=\(port) udp=\(udp)")
             model.markDesktopPluginInstalled(for: runtime.host.id)
             if !startKeySent {
                 startKeySent = true
-                sendFunctionKey(mode.startFunctionKey, to: runtime)
+                if backend == .agy {
+                    sendFunctionKey(mode.startFunctionKey, to: runtime)
+                }
                 ghostState = isMuted ? .muted : .listening(level: 0)
                 startElapsedTimer()
-                if port != VoiceProtocol.defaultPort {
+                if backend == .agy && port != VoiceProtocol.defaultPort {
                     showToast(model.text(
                         "语音端口 24713 被占用，已改用 \(port)；若当前 agy 无响应请重启会话",
                         "Voice port 24713 is busy; using \(port). Restart agy if voice does not respond"
@@ -123,7 +125,7 @@ extension VoiceController {
             boundModel?.logins.dismissPrompts(owner: owner)
             loginOwner = nil
         }
-        let shouldSendF7 = sendHangup && startKeySent
+        let shouldSendF7 = sendHangup && startKeySent && backend == .agy
         #if DEBUG
         if shouldSendF7, !fixtureMode, let target = runtime ?? boundRuntime { sendFunctionKey(7, to: target) }
         #else
@@ -185,9 +187,11 @@ extension VoiceController {
             guard let self, let model, !Task.isCancelled,
                   self.active, !self.recovering, self.startGeneration == generation,
                   !self.streamTracker.hadAnyStream else { return }
-            Diagnostics.shared.log("voice-no-stream", "mode=\(self.mode.rawValue)")
+            Diagnostics.shared.log("voice-no-stream", "backend=\(self.backend.rawValue) mode=\(self.mode.rawValue)")
             self.showToast(
-                model.text("未检测到 agy 语音流，请查看终端状态", "No agy audio stream yet — check terminal"),
+                self.backend == .codex
+                    ? model.text("未检测到 Codex 语音流，请查看终端状态", "No Codex audio stream yet — check terminal")
+                    : model.text("未检测到 agy 语音流，请查看终端状态", "No agy audio stream yet — check terminal"),
                 duration: .seconds(3.5)
             )
         }
@@ -198,7 +202,9 @@ extension VoiceController {
         switch reason {
         case .abortedEarly:
             showToast(
-                model.text("agy 语音已中断，请查看终端输出", "agy voice stopped — check terminal"),
+                backend == .codex
+                    ? model.text("Codex 语音已中断，请查看终端输出", "Codex voice stopped — check terminal")
+                    : model.text("agy 语音已中断，请查看终端输出", "agy voice stopped — check terminal"),
                 duration: .seconds(3.5)
             )
             stopInternal(sendHangup: false, reason: "remote-aborted")

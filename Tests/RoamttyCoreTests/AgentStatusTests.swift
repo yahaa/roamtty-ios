@@ -64,11 +64,15 @@ final class AgentStatusTests: XCTestCase {
         XCTAssertEqual(AgentHooks.codexHookHash(eventKey: "interrupt", command: log + " stop"), "sha256:9d388d80df6c839ca91447ad8ec4ad0b9b42f961b8d1d704b77381cd7e484800")
         let launcher = AgentHooks.codexLauncher
         XCTAssertTrue(launcher.hasPrefix("#!/bin/sh"))
+        // Hooks live in hooks.json so `codex "$@"` runs with zero -c overrides and stays attached to app-server daemon.
+        XCTAssertFalse(launcher.contains("-c 'hooks."))
+        XCTAssertTrue(launcher.contains("hooks_file=\"$real_home/hooks.json\""))
         for event in ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "Stop", "Interrupt", "SessionEnd"] {
-            XCTAssertTrue(launcher.contains("-c 'hooks.\(event)=[{hooks=[{type=\"command\",command=\"sh ~/.roamtty/agent-hook.sh codex "), event)
+            XCTAssertTrue(launcher.contains("\"\(event)\""), event)
         }
         XCTAssertTrue(launcher.contains("trust stop " + AgentHooks.codexHookHash(eventKey: "stop", command: "sh ~/.roamtty/agent-hook.sh codex stop")))
-        XCTAssertTrue(launcher.contains("  \"$@\"\nstatus=$?\nsh ~/.roamtty/agent-hook.sh codex end </dev/null\nexit $status\n"))
+        XCTAssertTrue(launcher.contains("export ROAMTTY_AGENT=codex\n"))
+        XCTAssertTrue(launcher.contains("codex \"$@\"\nstatus=$?\nsh ~/.roamtty/agent-hook.sh codex end </dev/null\nexit $status\n"))
     }
 
     func testGrokHooksActOnlyForAGrokStartedByTheApp() {

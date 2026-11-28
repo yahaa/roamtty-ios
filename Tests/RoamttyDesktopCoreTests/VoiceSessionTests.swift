@@ -305,6 +305,84 @@ final class VoiceSessionTests: XCTestCase {
         XCTAssertFalse(session.networkPoor)
         XCTAssertTrue(waitUntil(3) { session.networkPoor && poorObserved.value }, "unanswered pings must flag networkPoor")
     }
+
+    func testCodexBackendResolvesThreadSkipsMicPortInjectionAndAcceptsZeroMicPort() throws {
+        let audio = FakeVoiceAudioIO()
+        let injected = Box<Bool>(false)
+        let cleared = Box<Bool>(false)
+        let streamBox = Box<FakeStream?>(nil)
+        let host = FakeHost(probe: FakeHost.probe("no", uname: "Darwin arm64", version: "0.9.7")) { s, _ in
+            streamBox.value = s
+            s.hello([
+                "proto": 1, "ver": "0.9.7", "os": "macos", "mode": "voice",
+                "mic_port": 0, "session": "vs-codex", "resume_token": "tok-codex", "codecs": ["opus", "pcm16"]
+            ])
+        }
+        host.scriptLines = { script in
+            script.contains("@roamtty_session") ? ["01a2-ios-tid|/Users/v/work/app"] : []
+        }
+        let session = VoiceSession(
+            config: .init(hostName: "mac", address: "127.0.0.1", tmuxSession: "roamtty-c", backend: .codex),
+            manifest: manifest,
+            timings: fastTimings,
+            login: { .host(host) },
+            injectMicPort: { _, _, _ in injected.value = true },
+            clearMicPort: { _, _ in cleared.value = true }
+        )
+        session.audioIO = audio
+        session.start()
+
+        XCTAssertTrue(waitUntil(3) { if case .ready(0, _) = session.phase { return true }; return false })
+        let stream = try XCTUnwrap(streamBox.value)
+        XCTAssertTrue(stream.command.contains("--backend codex"), stream.command)
+        XCTAssertTrue(stream.command.contains("--codex-thread 01a2-ios-tid"), stream.command)
+        XCTAssertTrue(stream.command.contains("--codex-cwd '/Users/v/work/app'"), stream.command)
+        XCTAssertFalse(stream.command.contains("--port"), stream.command)
+        XCTAssertNil(session.micPort)
+        XCTAssertFalse(injected.value, "codex backend must never inject ANTIGRAVITY_MIC")
+
+        session.close()
+        XCTAssertTrue(waitUntil(2) {
+            stream.received.contains { f in
+                guard f.type == DesktopProtocol.CONFIG else { return false }
+                let text = String(decoding: f.payload, as: UTF8.self)
+                return text.contains("\"shutdown\"") && text.contains("true")
+            }
+        })
+        Thread.sleep(forTimeInterval: 0.08)
+        XCTAssertFalse(cleared.value, "codex backend must never clear ANTIGRAVITY_MIC")
+    }
+
+    func testCodexBackendAutoUpgradesWhenLegacyPluginReturnsNonZeroMicPort() {
+        let installAttempts = Box<Int>(0)
+        let host = FakeHost(probe: FakeHost.probe("no", uname: "Linux x86_64", version: "0.9.7")) { s, attempt in
+            if attempt == 1 {
+                // Simulates an old plugin ignoring --backend codex and opening agy TCP port 24713.
+                s.hello(["proto": 1, "ver": "0.9.7", "os": "linux", "mode": "voice", "mic_port": 24713, "session": "old", "resume_token": "t", "codecs": ["opus"]])
+            } else {
+                s.hello(["proto": 1, "ver": "0.9.7", "os": "linux", "mode": "voice", "mic_port": 0, "session": "new", "resume_token": "t", "codecs": ["opus"]])
+            }
+        }
+        host.scriptStatus = { script in
+            if script.contains("roamtty-desktop") { installAttempts.value += 1 }
+            return 0
+        }
+        let session = VoiceSession(
+            config: .init(hostName: "h", address: "127.0.0.1", backend: .codex),
+            manifest: manifest,
+            timings: fastTimings,
+            login: { .host(host) },
+            fetch: { _ in Data() }
+        )
+        defer { session.close() }
+        session.start()
+        // Attempt 1 sees mic_port=24713 -> triggers headless auto-upgrade -> attempt 2 succeeds with mic_port=0!
+        XCTAssertTrue(waitUntil(3) {
+            if case .ready(0, _) = session.phase { return true }
+            return false
+        })
+        XCTAssertEqual(host.allStreams.count, 2)
+    }
 }
 
 final class FakeVoiceAudioIO: VoiceAudioIO, @unchecked Sendable {

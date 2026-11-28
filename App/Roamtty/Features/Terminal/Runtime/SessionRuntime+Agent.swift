@@ -55,10 +55,22 @@ extension SessionRuntime {
     }
 
     private func maybeRefreshAgentUsage(status: AgentStatus?) {
-        guard activeAgentKind != nil else {
+        guard let kind = activeAgentKind else {
             if agentPolled && status == nil { agentUsage = nil }
             lastAgentUsageState = nil
             return
+        }
+        if kind == .codex && !codexHookSynced && phase == .connected {
+            codexHookSynced = true
+            Task { [weak self] in
+                guard let self, let ssh = await self.sideConnection(),
+                      let cmd = RemoteCommands.writeHostFile(AgentHooks.scriptName, executable: false) else {
+                    self?.codexHookSynced = false
+                    return
+                }
+                let ok = (try? await ssh.run(cmd, input: Data(AgentHooks.script.utf8), timeout: 8, cancellation: self.lifetimeCancellation))?.status == 0
+                if !ok { self.codexHookSynced = false }
+            }
         }
         let now = Date()
         let stateChanged = status?.state != lastAgentUsageState

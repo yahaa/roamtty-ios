@@ -9,6 +9,7 @@ public final class VoiceSession: @unchecked Sendable {
     public struct Config: Sendable {
         public var hostName: String
         public var address: String
+        public var backend: VoiceBackend = .agy
         public var preferredPort: Int = VoiceProtocol.defaultPort
         public var idleTimeoutSec: Int = VoiceProtocol.defaultIdleTimeoutSec
         public var tmuxSession: String?
@@ -16,10 +17,11 @@ public final class VoiceSession: @unchecked Sendable {
         public var testLoss = 0.0
         public var english = false
 
-        public init(hostName: String, address: String, tmuxSession: String? = nil) {
+        public init(hostName: String, address: String, tmuxSession: String? = nil, backend: VoiceBackend = .agy) {
             self.hostName = hostName
             self.address = address
             self.tmuxSession = tmuxSession
+            self.backend = backend
         }
     }
 
@@ -117,7 +119,12 @@ public final class VoiceSession: @unchecked Sendable {
 
     public var phase: VoiceSessionPhase { sync { _phase } }
     public var hello: VoiceHello? { sync { _hello } }
-    public var micPort: Int? { sync { _hello?.micPort } }
+    public var micPort: Int? {
+        sync {
+            guard config.backend == .agy, let port = _hello?.micPort, port > 0 else { return nil }
+            return port
+        }
+    }
     public var log: [String] { sync { _log } }
     public var onUdp: Bool { sync { link?.alive ?? false } }
     public var isMuted: Bool { sync { _muted } }
@@ -214,14 +221,17 @@ public final class VoiceSession: @unchecked Sendable {
         h?.disconnect()
     }
 
-    public func voiceCommand() -> String {
+    public func voiceCommand(codexThread: String? = nil, codexCwd: String? = nil) -> String {
         let (session, token, windows) = sync { (sessionId, resumeToken, _windowsHost) }
         return VoiceProtocol.voiceCommand(
             windows: windows,
-            port: config.preferredPort,
+            port: config.backend == .agy ? config.preferredPort : nil,
             resumeSession: session,
             resumeToken: token,
-            idleTimeoutSec: config.idleTimeoutSec
+            idleTimeoutSec: config.idleTimeoutSec,
+            backend: config.backend,
+            codexThread: codexThread,
+            codexCwd: codexCwd
         )
     }
 

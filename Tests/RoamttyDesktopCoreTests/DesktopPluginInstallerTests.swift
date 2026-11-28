@@ -111,7 +111,7 @@ final class DesktopPluginInstallerTests: XCTestCase {
     func testPinnedBuildsCarryTheirEncoder() throws {
         let manifest = try PluginManifest.bundled()
         let linux = try XCTUnwrap(DesktopPluginInstaller.Build.pinned(manifest, target: "linux-x86_64"))
-        XCTAssertEqual(linux.version, "0.9.12")
+        XCTAssertEqual(linux.version, "0.9.14")
         XCTAssertTrue(linux.url.hasSuffix("linux-x86_64.gz"))
         XCTAssertTrue(linux.openh264Url?.hasPrefix(PluginManifest.OPENH264_BASE + "/") == true)
         let mac = try XCTUnwrap(DesktopPluginInstaller.Build.pinned(manifest, target: "macos-universal"))
@@ -151,7 +151,7 @@ final class DesktopPluginInstallerTests: XCTestCase {
         }
         let host = ScriptRecordingHost()
         let inst = DesktopPluginInstaller(remote: host, fetch: { _ in Data() })
-        let res = inst.install(.init(version: "0.9.12", url: "https://x/macos-universal.zip", sha256: String(repeating: "00", count: 32), openh264Url: nil), headless: true)
+        let res = inst.install(.init(version: "0.9.14", url: "https://x/macos-universal.zip", sha256: String(repeating: "00", count: 32), openh264Url: nil), headless: true)
         XCTAssertEqual(res, .installed)
         XCTAssertTrue(host.scripts.contains { $0.contains("com.roamtty.desktop.plist") && $0.contains("roamtty-desktop\" install") })
     }
