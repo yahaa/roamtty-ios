@@ -312,9 +312,11 @@ extension VoiceJitterBuffer {
         let gen = UInt8(truncatingIfNeeded: turn) & 0x0F
         if let latest = absoluteTurn, Int32(bitPattern: turn &- latest) <= 0 { return false }
         if absoluteTurn == nil && turnGenLocked {
-            let ahead = (gen &- turnGen) & 0x0F
-            if ahead == 0 || ahead >= 8 {
-                absoluteTurn = turn &+ UInt32((turnGen &- gen) & 0x0F)
+            let behind = (turnGen &- gen) & 0x0F
+            // The full number is authoritative across large jumps. Only preserve a newer
+            // media turn when it was already observed before this control arrived.
+            if gen == turnGen || turn < UInt32(turnGen) || (behind <= 7 && Int(behind) <= pendingClearSkips) {
+                absoluteTurn = turn &+ UInt32(behind)
                 return false
             }
         }

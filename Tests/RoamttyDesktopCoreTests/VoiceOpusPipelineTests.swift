@@ -12,6 +12,23 @@ final class VoiceOpusPipelineTests: XCTestCase {
         }
     }
 
+    func testNumberedClearAcceptsLargeFirstJumpAndPreservesMediaWhichAlreadyAdvanced() throws {
+        let jitter = try XCTUnwrap(VoiceJitterBuffer(streamId: 1, sampleRate: 16000))
+        func push(_ gen: UInt8, _ seq: UInt32) {
+            let flags = VoiceProtocol.withTurnGen(VoiceProtocol.VOICE_FLAG_SPEECH, turnGen: gen)
+            jitter.push(.init(streamId: 1, seq: seq, tsSamples: seq * 320, flags: flags, red: [], primary: [0xF8]), nowMs: Int64(seq) * 20)
+        }
+        push(0, 0)
+        XCTAssertTrue(jitter.clearForTurn(9))
+        XCTAssertEqual(jitter.queuedFrames(), 0)
+        push(9, 1)
+        XCTAssertEqual(jitter.queuedFrames(), 1)
+        push(10, 2)
+        XCTAssertFalse(jitter.clearForTurn(10))
+        XCTAssertFalse(jitter.clearForTurn(9))
+        XCTAssertEqual(jitter.queuedFrames(), 1)
+    }
+
     func testVoiceOpusAndStatsWireRoundTrip() throws {
         let flags = VoiceProtocol.withTurnGen(
             VoiceProtocol.VOICE_FLAG_FEC | VoiceProtocol.VOICE_FLAG_SPEECH | VoiceProtocol.VOICE_FLAG_RESET,
