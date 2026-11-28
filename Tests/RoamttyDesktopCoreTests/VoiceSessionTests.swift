@@ -340,8 +340,12 @@ final class FakeVoiceAudioIO: VoiceAudioIO, @unchecked Sendable {
     func speakerStats(streamId: UInt32, nowMs: Int64) -> VoiceStats? { lock.withLock { mockStats } }
     func clearSpeaker(streamId: UInt32) { lock.withLock { spkCleared.append(streamId) } }
     func finishSpeaker(streamId: UInt32, completion: @escaping () -> Void) {
-        if let deferredSpeakerStop { deferredSpeakerStop(streamId, completion) }
-        else { stopSpeaker(streamId: streamId); completion() }
+        if let deferredSpeakerStop {
+            deferredSpeakerStop(streamId, completion)
+        } else {
+            stopSpeaker(streamId: streamId)
+            completion()
+        }
     }
     func stopSpeaker(streamId: UInt32) { lock.withLock { spkStoppedIds.append(streamId) } }
     func stopAll() { lock.withLock { onPcm = nil } }

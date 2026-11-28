@@ -40,25 +40,34 @@ extension VoiceSession {
         return CodexPane(id: fields[0], session: fields[1], thread: fields[2], cwd: fields[3])
     }
 
-    func agyUsesPort(_ remote: DesktopHost, _ port: Int, windows: Bool) -> Bool {
+    enum AgyKeyTarget: Equatable {
+        case terminal
+        case pane(String)
+    }
+
+    func agyKeyTarget(_ remote: DesktopHost, _ port: Int, windows: Bool) -> AgyKeyTarget? {
         let legacyDefault = port == VoiceProtocol.defaultPort
-        guard let session = config.tmuxSession, !session.isEmpty else { return legacyDefault }
-        var endpoint = ""
-        let capture: (String) -> Void = { endpoint = $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard let session = config.tmuxSession, !session.isEmpty else { return legacyDefault ? .terminal : nil }
+        var line = ""
+        let capture: (String) -> Void = { line = $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let format = "'#{pane_id}|#{@roamtty_agy_mic}'"
         let status: Int?
         if windows {
             let target = session.replacingOccurrences(of: "'", with: "''")
-            let cmd = PowerShell.command("psmux show-options -pqv -t '=\(target):' '@roamtty_agy_mic'; exit $LASTEXITCODE")
+            let cmd = PowerShell.command("psmux display-message -p -t '=\(target):' \(format); exit $LASTEXITCODE")
             status = remote.runCommand(cmd, timeout: 4, onLine: capture)
         } else {
             let target = session.replacingOccurrences(of: "'", with: "'\\''")
             let script = """
             PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/home/linuxbrew/.linuxbrew/bin:/snap/bin"; export PATH
-            tmux -u show-options -pqv -t '=\(target):' @roamtty_agy_mic
+            tmux -u display-message -p -t '=\(target):' \(format)
             """
             status = remote.run(script + "\n", timeout: 4, onLine: capture)
         }
-        guard status == 0, !endpoint.isEmpty else { return legacyDefault }
-        return endpoint == "127.0.0.1:\(port)"
+        let fields = line.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+        guard status == 0, fields.count == 2, fields[0].first == "%", fields[0].count > 1,
+              fields[0].dropFirst().utf8.allSatisfy({ (48...57).contains($0) }),
+              fields[1].isEmpty ? legacyDefault : fields[1] == "127.0.0.1:\(port)" else { return nil }
+        return .pane(String(fields[0]))
     }
 }

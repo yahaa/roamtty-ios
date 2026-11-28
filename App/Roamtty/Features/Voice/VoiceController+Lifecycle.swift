@@ -53,8 +53,11 @@ extension VoiceController {
             let firstReady = !bridgeReady
             bridgeReady = true
             if backend == .agy {
-                if session?.agyKeysAllowed != true { startKeySent = false }
-                else if firstReady { startKeySent = sendFunctionKey(mode.startFunctionKey, to: runtime) }
+                if session?.agyKeysAllowed != true {
+                    startKeySent = false
+                } else if firstReady {
+                    startKeySent = sendFunctionKey(mode.startFunctionKey, to: runtime)
+                }
                 if !startKeySent, streamTracker.activeMicStreamId == nil, streamTracker.activeSpkStreamId == nil {
                     if firstReady || resumed { showAgyPortHint(port: port, model: model) }
                     return

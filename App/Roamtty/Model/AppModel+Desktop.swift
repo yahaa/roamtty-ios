@@ -240,8 +240,11 @@ extension AppModel {
                 DispatchQueue.main.sync {
                     guard let runtime = self.runtimes[sessionID], runtime.voice.loginOwner == owner,
                           let saved = self.host(runtime.host.id) else { return }
-                    if runtime.host.hasSameLoginIdentity(as: saved) { self.logins.rejectLogin(saved.id) }
-                    else { runtime.loginSnapshot.invalidateAuthentication() }
+                    if runtime.host.hasSameLoginIdentity(as: saved) {
+                        self.logins.rejectLogin(saved.id)
+                    } else {
+                        runtime.loginSnapshot.invalidateAuthentication()
+                    }
                 }
             }
             return .failed(message: error.localizedDescription, connecting: error != .authentication && error != .cancelled)

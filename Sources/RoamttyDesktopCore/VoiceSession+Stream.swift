@@ -233,10 +233,12 @@ extension VoiceSession {
         callbackQueue.async { self.onNetworkPoor?(false) }
         if config.backend == .agy {
             // Always (re-)inject ANTIGRAVITY_MIC on hello so even a fresh fallback port after resume takes effect.
-            let keysAllowed = agyUsesPort(remote, hello.micPort, windows: windows)
-            sync { _agyKeysAllowed = keysAllowed }
+            sync { _agyKeysAllowed = false }
+            let target = agyKeyTarget(remote, hello.micPort, windows: windows)
             injectMicPort(remote, hello.micPort, windows)
             if isClosing { s.close(); sync { stream = nil }; return .closed }
+            let stillTargeted = target != nil && target == agyKeyTarget(remote, hello.micPort, windows: windows)
+            sync { _agyKeysAllowed = stillTargeted }
         }
         callbackQueue.async { self.onHello?(hello) }
 

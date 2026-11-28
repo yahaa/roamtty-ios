@@ -295,7 +295,7 @@ extension VoiceSessionEdgeTests {
             let host = FakeHost(probe: FakeHost.probe("no", version: "0.9.7")) { s, _ in
                 s.hello(["proto": 1, "mic_port": port, "session": "s", "resume_token": "t"])
             }
-            host.scriptLines = { $0.contains("@roamtty_agy_mic") ? [marker] : [] }
+            host.scriptLines = { $0.contains("@roamtty_agy_mic") ? ["%1|\(marker)"] : [] }
             let session = VoiceSession(config: .init(hostName: "h", address: "localhost", tmuxSession: "work"),
                                        manifest: manifest, timings: fastTimings, login: { .host(host) })
             session.start()
@@ -303,6 +303,26 @@ extension VoiceSessionEdgeTests {
             XCTAssertEqual(session.agyKeysAllowed, permitted, "port=\(port) marker=\(marker)")
             session.close()
         }
+    }
+
+    func testAgySwitchingPanesDuringEnvironmentSetupDoesNotSendKeys() {
+        let port = VoiceProtocol.defaultPort
+        let pane = Box("%1")
+        let host = FakeHost(probe: FakeHost.probe("no", version: "0.9.14")) { stream, _ in
+            stream.hello(["proto": 1, "mic_port": port, "session": "s", "resume_token": "t"])
+        }
+        host.scriptLines = { command in
+            guard command.contains("@roamtty_agy_mic") else { return [] }
+            let endpoint = "127.0.0.1:\(port)"
+            return [command.contains("#{pane_id}") ? "\(pane.value)|\(endpoint)" : endpoint]
+        }
+        let session = VoiceSession(config: .init(hostName: "h", address: "localhost", tmuxSession: "work"),
+                                   manifest: manifest, timings: fastTimings, login: { .host(host) },
+                                   injectMicPort: { _, _, _ in pane.value = "%2" })
+        defer { session.close() }
+        session.start()
+        XCTAssertTrue(waitUntil(2) { if case .ready = session.phase { return true }; return false })
+        XCTAssertFalse(session.agyKeysAllowed)
     }
 
     func testNaturalStopWaitsForPlaybackAndCanStillBeInterruptedByClear() throws {

@@ -136,8 +136,8 @@ extension DeviceValidation {
         let ended = DispatchSemaphore(value: 0)
         let session = VoiceSession(config: .init(hostName: "fixture", address: fixture.address), manifest: manifest, callbackQueue: events,
                                    login: {
-                                       do { return .host(SSHDesktopHost(connection: try fixture.connect())) }
-                                       catch { return .failed(message: nil, connecting: false) }
+                                       guard let ssh = try? fixture.connect() else { return .failed(message: nil, connecting: false) }
+                                       return .host(SSHDesktopHost(connection: ssh))
                                    })
         session.onEvent = { event in
             switch event {
