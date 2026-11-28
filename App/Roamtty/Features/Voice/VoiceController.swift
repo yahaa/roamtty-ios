@@ -13,6 +13,7 @@ import RoamttyTransport
     @Published var recovering = false
     @Published var networkPoor = false
     @Published var mode: VoiceMode = .live
+    @Published var backend: VoiceBackend = .agy
     @Published var audioRoute: VoiceAudioRoute = .speaker
     @Published var ghostState: GhostVoiceState = .idle
     @Published var isMuted = false
@@ -120,15 +121,20 @@ import RoamttyTransport
         }
         let owner = "voice-\(runtime.record.id)"
         let initialRoute = route ?? (VoiceAudioEngine.hasBluetoothRoute ? .bluetooth : .speaker)
+        let targetBackend = resolveBackend(for: runtime)
         boundRuntime = runtime; boundModel = model; loginOwner = owner
-        self.mode = mode; self.audioRoute = initialRoute; self.active = true; self.recovering = false; self.networkPoor = false
+        self.mode = mode; self.backend = targetBackend; self.audioRoute = initialRoute; self.active = true; self.recovering = false; self.networkPoor = false
         self.isMuted = false; self.elapsedSeconds = 0; self.popoverOpen = false
         self.errorMessage = nil; self.startKeySent = false; self.ghostState = .connecting
         streamTracker.reset(mode: mode)
         cancelStreamTimers()
         model.setVoiceCallActive(true)
-        Diagnostics.shared.log("voice-call-start", "mode=\(mode.rawValue) route=\(route?.rawValue ?? "default") handover=\(hadHandover)")
-        showToast(model.text("正在连接 agy 语音通道…", "Connecting agy voice channel…"))
+        Diagnostics.shared.log("voice-call-start", "backend=\(targetBackend.rawValue) mode=\(mode.rawValue) route=\(route?.rawValue ?? "default") handover=\(hadHandover)")
+        showToast(
+            targetBackend == .codex
+                ? model.text("正在连接 Codex 语音通道…", "Connecting Codex voice channel…")
+                : model.text("正在连接 agy 语音通道…", "Connecting agy voice channel…")
+        )
 
         do {
             if hadHandover {
@@ -142,7 +148,7 @@ import RoamttyTransport
                 return
             }
             let manifest = try model.desktopManifest()
-            let voiceSession = buildVoiceSession(runtime: runtime, host: latestHost, model: model, owner: owner, manifest: manifest)
+            let voiceSession = buildVoiceSession(runtime: runtime, host: latestHost, model: model, owner: owner, manifest: manifest, backend: targetBackend)
             let engine = makeAudioEngine(route: route)
             engine.prepareSession(route: route)
             voiceSession.audioIO = engine
@@ -160,10 +166,20 @@ import RoamttyTransport
         }
     }
 
-    private func buildVoiceSession(runtime: SessionRuntime, host: Host, model: AppModel, owner: String, manifest: PluginManifest) -> VoiceSession {
+    private func resolveBackend(for runtime: SessionRuntime) -> VoiceBackend {
+        if runtime.activeAgentKind == .agy || (!runtime.agentPolled && runtime.launchedAgent == .agy) || runtime.screenApp() == .agy {
+            return .agy
+        }
+        if runtime.activeAgentKind == .codex || (!runtime.agentPolled && runtime.launchedAgent == .codex) || runtime.screenApp() == .codex {
+            return .codex
+        }
+        return .agy
+    }
+
+    private func buildVoiceSession(runtime: SessionRuntime, host: Host, model: AppModel, owner: String, manifest: PluginManifest, backend: VoiceBackend) -> VoiceSession {
         let hostID = host.id
         let tmux = runtime.record.mode == .tmux ? runtime.record.remoteName : nil
-        var config = VoiceSession.Config(hostName: host.name, address: host.hostname, tmuxSession: tmux)
+        var config = VoiceSession.Config(hostName: host.name, address: host.hostname, tmuxSession: tmux, backend: backend)
         config.english = model.english
         return VoiceSession(
             config: config,
@@ -214,13 +230,18 @@ import RoamttyTransport
         guard canToggleMute else { return }
         isMuted.toggle()
         session?.setMuted(isMuted)
-        #if DEBUG
-        if !fixtureMode { sendFunctionKey(6, to: runtime) }
-        #else
-        sendFunctionKey(6, to: runtime)
-        #endif
-        ghostState = isMuted ? .muted : .listening(level: 0.25)
-        showToast(isMuted ? (english ? "Muted (F6)" : "已静音（F6）") : (english ? "Microphone resumed" : "已恢复麦克风"))
+        if backend == .agy {
+            #if DEBUG
+            if !fixtureMode { sendFunctionKey(6, to: runtime) }
+            #else
+            sendFunctionKey(6, to: runtime)
+            #endif
+            ghostState = isMuted ? .muted : .listening(level: 0.25)
+            showToast(isMuted ? (english ? "Muted (F6)" : "已静音（F6）") : (english ? "Microphone resumed" : "已恢复麦克风"))
+        } else {
+            ghostState = isMuted ? .muted : .listening(level: 0.25)
+            showToast(isMuted ? (english ? "Muted" : "已静音") : (english ? "Microphone resumed" : "已恢复麦克风"))
+        }
     }
 
     func cycleAudioRoute(english: Bool) {

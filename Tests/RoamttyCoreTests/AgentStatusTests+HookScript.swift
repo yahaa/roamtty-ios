@@ -230,6 +230,83 @@ extension AgentStatusTests {
         XCTAssertNil(fixture.option("@roamtty_owner"))
     }
 
+    func testCodexDaemonHooksHandleStalePaneAndVoiceDelegation() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("agent-hook-codex-daemon-\(UUID().uuidString)")
+        let opts = dir.appendingPathComponent("opts")
+        let work = dir.appendingPathComponent("work")
+        try FileManager.default.createDirectory(at: opts, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let script = dir.appendingPathComponent("agent-hook.sh")
+        try AgentHooks.script.write(to: script, atomically: true, encoding: .utf8)
+        let tmux = dir.appendingPathComponent("tmux")
+        let tmuxBody = """
+        #!/bin/sh
+        case "$1" in
+          show-options) cat "\(opts.path)/$4_$5" 2>/dev/null ;;
+          set-option)
+            if [ "$2" = -u ]; then rm -f "\(opts.path)/$5_$6"
+            else printf '%s' "$6" > "\(opts.path)/$4_$5"
+            fi ;;
+          display-message)
+            [ "$4" = "%7" ] || exit 1
+            printf '%s\\n' "%7" ;;
+          list-panes)
+            fmt="$4"
+            agent=$(cat "\(opts.path)/%7_@roamtty_agent" 2>/dev/null)
+            sess=$(cat "\(opts.path)/%7_@roamtty_session" 2>/dev/null)
+            ccwd=$(cat "\(opts.path)/%7_@roamtty_codex_cwd" 2>/dev/null)
+            cstart=$(cat "\(opts.path)/%7_@roamtty_codex_start" 2>/dev/null)
+            case "$fmt" in
+              *'@roamtty_codex_start'*) printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' "%7" "$sess" "$agent" "$ccwd" "\(work.path)" "$cstart" ;;
+              *'@roamtty_codex_cwd'*) printf '%s\\t%s\\t%s\\t%s\\n' "%7" "$agent" "$ccwd" "\(work.path)" ;;
+              *) printf '%s\\t%s\\t%s\\n' "%7" "$sess" "$agent" ;;
+            esac ;;
+        esac
+        """
+        try tmuxBody.write(to: tmux, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tmux.path)
+
+        try "idle|1000|codex||".write(to: opts.appendingPathComponent("%7_@roamtty_agent"), atomically: true, encoding: .utf8)
+        try work.path.write(to: opts.appendingPathComponent("%7_@roamtty_codex_cwd"), atomically: true, encoding: .utf8)
+        try "1000".write(to: opts.appendingPathComponent("%7_@roamtty_codex_start"), atomically: true, encoding: .utf8)
+
+        func runHook(_ event: String, _ json: String, pane: String?) throws {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/bin/sh")
+            p.arguments = [script.path, "codex", event]
+            var env = ProcessInfo.processInfo.environment
+            env["PATH"] = dir.path + ":" + (env["PATH"] ?? "/usr/bin:/bin")
+            env["TMUX_PANE"] = pane
+            env["ROAMTTY_AGENT"] = nil
+            p.environment = env
+            let pipe = Pipe()
+            p.standardInput = pipe
+            try p.run()
+            pipe.fileHandleForWriting.write(Data(json.utf8))
+            try pipe.fileHandleForWriting.close()
+            p.waitUntilExit()
+            XCTAssertEqual(p.terminationStatus, 0)
+        }
+        func opt(_ name: String) -> String? { try? String(contentsOf: opts.appendingPathComponent("%7_\(name)"), encoding: .utf8) }
+
+        try runHook("start", #"{"session_id":"01a2-thread-1","cwd":"\#(work.path)"}"#, pane: "%0")
+        XCTAssertEqual(opt("@roamtty_session"), "01a2-thread-1")
+
+        try runHook("prompt", #"{"session_id":"01a2-thread-1","cwd":"\#(work.path)","prompt":"<realtime_delegation>\n  <input>check wifi</input>\n  <transcript_delta>hi</transcript_delta>\n</realtime_delegation>"}"#, pane: "%0")
+        XCTAssertEqual(opt("@roamtty_task"), "check wifi")
+        try runHook("stop", #"{"session_id":"01a2-thread-1","cwd":"\#(work.path)","last_assistant_message":"Channel 149 ok."}"#, pane: "%0")
+        XCTAssertEqual(opt("@roamtty_reply"), "Channel 149 ok.")
+        let worked = opt("@roamtty_worked")
+
+        try runHook("prompt", #"{"session_id":"01a2-thread-1","cwd":"\#(work.path)","prompt":"<realtime_delegation>\n  <source>transcript_tail_flush</source>\n  <input>The user just ended their realtime session.</input>\n</realtime_delegation>"}"#, pane: "%0")
+        try runHook("stop", #"{"session_id":"01a2-thread-1","cwd":"\#(work.path)"}"#, pane: "%0")
+        XCTAssertEqual(opt("@roamtty_task"), "check wifi")
+        XCTAssertEqual(opt("@roamtty_reply"), "Channel 149 ok.")
+        XCTAssertEqual(opt("@roamtty_worked"), worked)
+    }
+
     func testPruningKeepsSettingsOfLiveSessionsAndRecentFiles() throws {
         let fixture = try HookFixture()
         let folder = fixture.dir.appendingPathComponent(".roamtty")

@@ -69,12 +69,20 @@ extension VoiceSession {
               let build = DesktopPluginInstaller.Build.pinned(manifest, target: targetName) else {
             return .failed(.unsupportedSystem)
         }
-        sync { _windowsHost = targetName.hasPrefix("windows-") }
+        let isWindows = targetName.hasPrefix("windows-")
+        sync { _windowsHost = isWindows }
+        if config.backend == .codex && isWindows {
+            return .failed(.codexVoiceUnsupportedOs)
+        }
         if probe.version != manifest.version, let failed = installHeadless(remote, build: build, target: targetName) { return failed }
+        let (codexThread, codexCwd): (String?, String?) = (config.backend == .codex && sync { sessionId == nil })
+            ? resolveCodexTarget(remote)
+            : (nil, nil)
+        if isClosing { return .closed }
         var tries = 0
         while !isClosing && tries < 3 {
             tries += 1
-            switch startPlugin(remote, build: build, target: targetName) {
+            switch startPlugin(remote, build: build, target: targetName, codexThread: codexThread, codexCwd: codexCwd) {
             case .finished(let outcome): return outcome
             case .retry: break
             }
@@ -82,9 +90,39 @@ extension VoiceSession {
         return isClosing ? .closed : .failed(.voicePluginStartFailed)
     }
 
-    private func startPlugin(_ remote: DesktopHost, build: DesktopPluginInstaller.Build, target: String) -> StartStep {
+    private func resolveCodexTarget(_ remote: DesktopHost) -> (String?, String?) {
+        guard let raw = config.tmuxSession, !raw.isEmpty else { return (nil, nil) }
+        let safe = String(raw.unicodeScalars.filter {
+            CharacterSet.letters.contains($0) || CharacterSet.decimalDigits.contains($0) || $0 == "-" || $0 == "_"
+        }.prefix(64))
+        guard !safe.isEmpty else { return (nil, nil) }
+        let script = """
+        PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/home/linuxbrew/.linuxbrew/bin:/snap/bin"; export PATH
+        tmux -u display-message -p -t '=\(safe):' '#{@roamtty_session}|#{pane_current_path}' 2>/dev/null || true
+        """
+        var firstLine: String?
+        _ = remote.run(script + "\n", timeout: 4) { line in
+            if firstLine == nil && !line.isEmpty { firstLine = line }
+        }
+        guard let line = firstLine else { return (nil, nil) }
+        guard let sep = line.firstIndex(of: "|") else {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (trimmed.isEmpty ? nil : trimmed, nil)
+        }
+        let tid = line[..<sep].trimmingCharacters(in: .whitespacesAndNewlines)
+        let cwd = line[line.index(after: sep)...].trimmingCharacters(in: .whitespacesAndNewlines)
+        return (tid.isEmpty ? nil : tid, cwd.isEmpty ? nil : cwd)
+    }
+
+    private func startPlugin(
+        _ remote: DesktopHost,
+        build: DesktopPluginInstaller.Build,
+        target: String,
+        codexThread: String?,
+        codexCwd: String?
+    ) -> StartStep {
         if !sync({ everConnected }) { setPhase(.connecting(step: .start)) }
-        guard let s = remote.openStream(voiceCommand()) else { return .finished(.dropped(nil)) }
+        guard let s = remote.openStream(voiceCommand(codexThread: codexThread, codexCwd: codexCwd)) else { return .finished(.dropped(nil)) }
         sync { stream = s }
         var parser = FrameParser()
         let first: String
@@ -97,17 +135,28 @@ extension VoiceSession {
             return .finished(isClosing ? .closed : .dropped(.voiceHelloTimeout))
         }
         if isClosing { s.close(); sync { stream = nil }; return .finished(.closed) }
-        switch VoiceProtocol.parseStart(first) {
+        switch VoiceProtocol.parseStart(first, backend: config.backend) {
         case .failed(let code, let detail, _, _):
             s.close()
             if code == "proto_unsupported", !sync({ installAttempted }) {
                 if let failed = installHeadless(remote, build: build, target: target) { return .finished(failed) }
                 return .retry
             }
+            if code == "codex_voice_failed" {
+                return .finished(.failed(.codexVoiceFailed(detail ?? code)))
+            }
             return .finished(.failed(.voicePluginError(detail ?? code)))
         case .ready(let hello):
+            if config.backend == .codex && hello.micPort != 0 {
+                s.close()
+                if !sync({ installAttempted }) {
+                    if let failed = installHeadless(remote, build: build, target: target) { return .finished(failed) }
+                    return .retry
+                }
+                return .finished(.failed(.codexVoiceOutdatedPlugin))
+            }
             let outcome = runStream(s, remote: remote, hello: hello, parser: parser)
-            if isClosing {
+            if config.backend == .agy && isClosing {
                 clearMicPort(remote, sync { _windowsHost })
             }
             return .finished(outcome)
@@ -200,9 +249,11 @@ extension VoiceSession {
             return (_windowsHost, opus)
         }
         callbackQueue.async { self.onNetworkPoor?(false) }
-        // Always (re-)inject ANTIGRAVITY_MIC on hello so even a fresh fallback port after resume takes effect.
-        injectMicPort(remote, hello.micPort, windows)
-        if isClosing { s.close(); sync { stream = nil }; return .closed }
+        if config.backend == .agy {
+            // Always (re-)inject ANTIGRAVITY_MIC on hello so even a fresh fallback port after resume takes effect.
+            injectMicPort(remote, hello.micPort, windows)
+            if isClosing { s.close(); sync { stream = nil }; return .closed }
+        }
         callbackQueue.async { self.onHello?(hello) }
 
         let queue = DesktopOutQueue()

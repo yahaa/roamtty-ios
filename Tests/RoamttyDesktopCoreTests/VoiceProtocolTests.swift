@@ -135,11 +135,35 @@ final class VoiceProtocolTests: XCTestCase {
             VoiceProtocol.parseStart(#"{"error":"bind_failed","detail":"port busy"}"#),
             .failed(code: "bind_failed", detail: "port busy")
         )
+
+        // mic_port=0 is rejected for agy, accepted for codex.
+        let codexHelloLine = #"{"proto":1,"ver":"0.9.13","os":"macos","mode":"voice","mic_port":0,"session":"sc","resume_token":"tc","codecs":["opus","pcm16"]}"#
+        if case .failed = VoiceProtocol.parseStart(codexHelloLine) {} else {
+            XCTFail("agy must reject mic_port=0")
+        }
+        guard case .ready(let codexHello) = VoiceProtocol.parseStart(codexHelloLine, backend: .codex) else {
+            return XCTFail("codex must accept mic_port=0")
+        }
+        XCTAssertEqual(codexHello.micPort, 0)
+        XCTAssertEqual(codexHello.codecs, ["opus", "pcm16"])
     }
 
     func testVoiceCommandAndUdpReliabilityClassification() {
         let posix = VoiceProtocol.voiceCommand(windows: false, port: 24713, resumeSession: "s1", resumeToken: "tok+/=", idleTimeoutSec: 300)
         XCTAssertEqual(posix, "\"$HOME/.roamtty/bin/roamtty-desktop\" voice --proto 1 --port 24713 --resume s1 --token tok+/= --idle-timeout 300")
+
+        let codexPosix = VoiceProtocol.voiceCommand(
+            windows: false,
+            port: 24713,
+            idleTimeoutSec: 300,
+            backend: .codex,
+            codexThread: "01a2-thread_1;bad",
+            codexCwd: "/Users/v/it's work"
+        )
+        XCTAssertEqual(
+            codexPosix,
+            "\"$HOME/.roamtty/bin/roamtty-desktop\" voice --proto 1 --backend codex --codex-thread 01a2-thread_1bad --codex-cwd '/Users/v/it'\\''s work' --idle-timeout 300"
+        )
 
         let win = VoiceProtocol.voiceCommand(windows: true, port: 24713, idleTimeoutSec: 300)
         XCTAssertEqual(win, #"cmd /c ""%USERPROFILE%\.roamtty\bin\roamtty-desktop.exe" voice --proto 1 --port 24713 --idle-timeout 300""#)

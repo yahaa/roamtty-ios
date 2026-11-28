@@ -628,7 +628,43 @@ def latest_codex_account_quotas(exclude_path=None):
     return (q5h, q5h_ts, q5h_def), (q7d, q7d_ts, q7d_def)
 
 
-def find_codex_transcript(transcript, sid, cwd, allow_fallback=True):
+def tmux_codex_meta(tmux_session):
+    if not tmux_session:
+        return "", 0, set()
+    codex_cwd = ""
+    codex_start = 0
+    try:
+        out = subprocess.check_output(
+            ["tmux", "-u", "display-message", "-p", "-t", f"={tmux_session}:", "#{@roamtty_codex_cwd}\t#{@roamtty_codex_start}"],
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+            env=cmd_env(),
+        ).decode("utf-8", "replace").rstrip("\r\n")
+        parts = out.split("\t")
+        if parts:
+            codex_cwd = parts[0].strip()
+        if len(parts) > 1:
+            codex_start = safe_int(parts[1].strip())
+    except Exception:
+        pass
+    claimed = set()
+    try:
+        out = subprocess.check_output(
+            ["tmux", "-u", "list-panes", "-a", "-F", "#{session_name}\t#{@roamtty_session}"],
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+            env=cmd_env(),
+        ).decode("utf-8", "replace")
+        for line in out.splitlines():
+            parts = line.split("\t", 1)
+            if len(parts) == 2 and parts[0].strip() != tmux_session and parts[1].strip():
+                claimed.add(parts[1].strip())
+    except Exception:
+        pass
+    return codex_cwd, codex_start, claimed
+
+
+def find_codex_transcript(transcript, sid, cwd, allow_fallback=True, min_created_ts=0, claimed_sids=None):
     if transcript and os.path.isfile(transcript):
         return transcript
     base = os.path.join(HOME, ".codex", "sessions")
@@ -638,11 +674,12 @@ def find_codex_transcript(transcript, sid, cwd, allow_fallback=True):
         hits = glob.glob(os.path.join(base, "*", "*", "*", f"*{sid}*.jsonl"))
         if hits:
             return max(hits, key=os.path.getmtime)
-    if not allow_fallback or transcript or sid:
+    if transcript or sid or (not allow_fallback and min_created_ts <= 0):
         return None
     target = norm_path(cwd)
     if not target:
         return None
+    claimed = claimed_sids or set()
     candidates = glob.glob(os.path.join(base, "*", "*", "*", "*.jsonl"))
     candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
     for p in candidates[:30]:
@@ -654,9 +691,18 @@ def find_codex_transcript(transcript, sid, cwd, allow_fallback=True):
                         break
                     if '"cwd"' in line:
                         o = json.loads(line)
-                        c = (o.get("payload") or {}).get("cwd")
-                        if c and norm_path(c) == target:
-                            return p
+                        pl = o.get("payload") or {}
+                        c = pl.get("cwd")
+                        if not c or norm_path(c) != target:
+                            continue
+                        if not allow_fallback and min_created_ts > 0:
+                            meta_sid = pl.get("session_id") or pl.get("id") or ""
+                            if meta_sid and meta_sid in claimed:
+                                break
+                            created = parse_iso_ts(pl.get("timestamp")) or parse_iso_ts(o.get("timestamp")) or 0.0
+                            if created < min_created_ts - 5:
+                                break
+                        return p
         except Exception:
             continue
     return None
@@ -1151,7 +1197,14 @@ def run_session(agent_arg, tmux_session, cwd_arg):
             if q7d:
                 data["q7d"] = q7d
     elif agent == "codex":
-        p = find_codex_transcript(t_transcript, t_sid, cwd, allow_fallback=allow_fallback)
+        codex_cwd, codex_start, claimed = (
+            tmux_codex_meta(tmux_session) if (tmux_session and not t_transcript and not t_sid and not allow_fallback)
+            else ("", 0, set())
+        )
+        p = find_codex_transcript(
+            t_transcript, t_sid, codex_cwd or cwd,
+            allow_fallback=allow_fallback, min_created_ts=codex_start, claimed_sids=claimed,
+        )
         if p:
             data = parse_codex_file(p, model_cache=codex_model_ctx_cache())
         (fb5, fb5_ts, fb5_def), (fb7, fb7_ts, fb7_def) = latest_codex_account_quotas(exclude_path=p)
