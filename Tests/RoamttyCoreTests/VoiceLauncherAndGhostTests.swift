@@ -45,6 +45,7 @@ final class VoiceLauncherAndGhostTests: XCTestCase {
 
         // Dynamic default launcher uses 127.0.0.1:24713 when voice-mic is absent, and honors ~/.roamtty/voice-mic when present.
         try AgentHooks.agyLauncher(micPort: nil).write(to: launcher, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: launcher.path)
         let procDefault = Process()
         procDefault.executableURL = launcher
         procDefault.environment = env

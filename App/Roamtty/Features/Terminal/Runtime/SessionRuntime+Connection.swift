@@ -124,6 +124,10 @@ extension SessionRuntime {
     func receive(_ data: Data, token: UUID, attempt: UUID) {
         guard generation == token, startupAttempt == attempt else { return }
         if let view = terminalView as? AccessibleTerminalView { view.feedKeepingPlace(Array(data)[...]) } else { terminalView.feed(byteArray: Array(data)[...]) }
+        if voice.pendingCodexStatus != nil {
+            voice.pendingCodexStatus?.append(data)
+            if let size = voice.pendingCodexStatus?.count, size > 65536 { voice.pendingCodexStatus?.removeFirst(size - 65536) }
+        }
         mouseTracking.consume(data); restoreMouseTracking()
         queueCursorRefresh()
         if !startupSent {

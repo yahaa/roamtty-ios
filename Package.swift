@@ -38,7 +38,7 @@ let package = Package(
         .target(name: "RoamttyDesktopCore", dependencies: ["CNative"] + desktopCrypto, resources: [.copy("Resources/desktop-plugin.json")], swiftSettings: nativeSwift),
         .testTarget(name: "RoamttyCoreTests", dependencies: ["RoamttyCore"], swiftSettings: nativeSwift),
         .testTarget(name: "RoamttyTransportTests", dependencies: ["RoamttyTransport", "RoamttyDesktopCore"], swiftSettings: nativeSwift),
-        .testTarget(name: "RoamttyDesktopCoreTests", dependencies: ["RoamttyDesktopCore"], resources: [.copy("Resources/desktop-proto")])
+        .testTarget(name: "RoamttyDesktopCoreTests", dependencies: ["RoamttyDesktopCore"], resources: [.copy("Resources/desktop-proto")], swiftSettings: nativeSwift)
     ],
     swiftLanguageModes: [.v5]
 )

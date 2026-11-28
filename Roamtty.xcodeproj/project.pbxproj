@@ -1839,6 +1839,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "4799E6E1EB268447AA9A6176";
 		};
+		"F36EEBF5FCDF0F726F2B11C6" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/VoiceRxStats.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"6A0869D8B48AF41BB6994C05" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "F36EEBF5FCDF0F726F2B11C6";
+		};
 		"832F7EFBEEC78204E25B0B7A" = {
 			"isa" = "PBXFileReference";
 			"path" = "Sources/RoamttyDesktopCore/VoiceSession+Audio.swift";
@@ -1858,6 +1868,16 @@
 		"3EBA15915F6EA954A5F8A1A2" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "7201AB6EC56D639E8570C610";
+		};
+		"115D3C194E3FDF4CC6DF36EE" = {
+			"isa" = "PBXFileReference";
+			"path" = "Sources/RoamttyDesktopCore/VoiceSession+Target.swift";
+			"sourceTree" = "SOURCE_ROOT";
+			"lastKnownFileType" = "sourcecode.swift";
+		};
+		"908E6605D827C3A1BDC12F97" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "115D3C194E3FDF4CC6DF36EE";
 		};
 		"A52EC7C4276BE23759CA549D" = {
 			"isa" = "PBXFileReference";
@@ -1922,8 +1942,10 @@
 				"07E9CFDDA09F2818BCEFBF1E",
 				"4D272C232D45133A3008BC2D",
 				"0B4FF2AF607708B4B37605D3",
+				"6A0869D8B48AF41BB6994C05",
 				"ADB0C4CD05C3BD23B1E013A9",
 				"3EBA15915F6EA954A5F8A1A2",
+				"908E6605D827C3A1BDC12F97",
 				"32136654FFBBA59E2004229E",
 				"0C5917A086B889B7D204A054",
 			);
@@ -5309,8 +5331,10 @@
 				"253400D652BB4DD0EEAF948E",
 				"140A5696A069EBE863A13A4A",
 				"4799E6E1EB268447AA9A6176",
+				"F36EEBF5FCDF0F726F2B11C6",
 				"832F7EFBEEC78204E25B0B7A",
 				"7201AB6EC56D639E8570C610",
+				"115D3C194E3FDF4CC6DF36EE",
 				"A52EC7C4276BE23759CA549D",
 				"52DB96C0DE5EC4B6986CA788",
 				"E253649D0644962204A856CE",

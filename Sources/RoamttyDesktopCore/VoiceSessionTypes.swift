@@ -43,12 +43,19 @@ public protocol VoiceAudioIO: AnyObject {
     func playSpeaker(streamId: UInt32, pcm: [UInt8])
     func playSpeakerOpus(streamId: UInt32, packet: VoiceOpusPacket)
     func speakerStats(streamId: UInt32, nowMs: Int64) -> VoiceStats?
+    func clearSpeaker(streamId: UInt32, turn: UInt32?)
     func clearSpeaker(streamId: UInt32)
+    func finishSpeaker(streamId: UInt32, completion: @escaping () -> Void)
     func stopSpeaker(streamId: UInt32)
     func stopAll()
 }
 
 public extension VoiceAudioIO {
+    func clearSpeaker(streamId: UInt32, turn: UInt32?) { clearSpeaker(streamId: streamId) }
+    func finishSpeaker(streamId: UInt32, completion: @escaping () -> Void) {
+        stopSpeaker(streamId: streamId)
+        completion()
+    }
     func playSpeakerOpus(streamId: UInt32, packet: VoiceOpusPacket) {}
     func speakerStats(streamId: UInt32, nowMs: Int64) -> VoiceStats? { nil }
 }

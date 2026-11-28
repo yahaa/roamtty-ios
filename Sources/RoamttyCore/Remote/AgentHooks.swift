@@ -68,7 +68,7 @@ public enum AgentHooks {
     /// is all that tells them the session they belong to: they run outside tmux.
     public static func claudeSettings(session: String?) -> String {
         let events = [("SessionStart", "start"), ("UserPromptSubmit", "prompt"), ("PreToolUse", "tool"), ("PostToolUse", "post"),
-                      ("Notification", "notify"), ("Stop", "stop"), ("SessionEnd", "end")]
+                      ("Notification", "notify"), ("Stop", "stop"), ("StopFailure", "stop"), ("SessionEnd", "end")]
         let hooks = events.map { event, action in
             "\"\(event)\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"\(hookCommand(.claude, action, session: session))\"}]}]"
         }.joined(separator: ",")
@@ -105,90 +105,18 @@ public enum AgentHooks {
     /// so Codex stays attached to its shared `app-server` daemon (required for full-duplex voice).
     public static var codexLauncher: String {
         let specs = codexEvents.map { event, key, action in
-            "    (\"\(event)\", \"\(key)\", \"\(hookCommand(.codex, action))\")"
-        }.joined(separator: ",\n")
-        let fallbackHooks = codexEvents.map { event, _, action in
-            "\"\(event)\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"\(hookCommand(.codex, action))\",\"timeout\":\(codexTimeout)}]}]"
-        }.joined(separator: ",")
-        let trust = codexEvents.map { _, key, action in
-            "trust \(key) \(codexHookHash(eventKey: key, command: hookCommand(.codex, action))) \"$(idx_of \(key))\""
-        }
-        let head = [
+            let hash = codexHookHash(eventKey: key, command: hookCommand(.codex, action))
+            return "'\(event) \(key) \(action) \(hash)'"
+        }.joined(separator: " ")
+        let lines = [
             "#!/bin/sh",
-            "# Roamtty: starts Codex with hooks in hooks.json (no -c overrides so Codex stays attached to its shared app-server daemon).",
             "PATH=\"$PATH:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/home/linuxbrew/.linuxbrew/bin:/snap/bin\"; export PATH",
-            "codex_home=\"${CODEX_HOME:-$HOME/.codex}\"",
-            "mkdir -p \"$codex_home\"",
-            "real_home=$(cd \"$codex_home\" 2>/dev/null && pwd -P || printf '%s' \"$codex_home\")",
-            "hooks_file=\"$real_home/hooks.json\"",
-            "config=\"$real_home/config.toml\"",
-            "trust() {",
-            "  header=\"[hooks.state.\\\"$hooks_file:$1:${3:-0}:0\\\"]\"",
-            "  grep -qF \"$header\" \"$config\" 2>/dev/null || printf '\\n%s\\ntrusted_hash = \"%s\"\\n' \"$header\" \"$2\" >> \"$config\"",
-            "}",
-            "if command -v python3 >/dev/null 2>&1; then",
-            "  idxs=$(python3 - \"$hooks_file\" <<'__ROAMTTY_CODEX_HOOKS__'",
-            "import json, os, sys",
-            "path = sys.argv[1]",
-            "try:",
-            "    with open(path, encoding=\"utf-8\") as f:",
-            "        data = json.load(f)",
-            "    if not isinstance(data, dict):",
-            "        data = {}",
-            "except Exception:",
-            "    data = {}",
-            "hooks = data.get(\"hooks\")",
-            "if not isinstance(hooks, dict):",
-            "    hooks = {}",
-            "    data[\"hooks\"] = hooks",
-            "specs = [",
-            specs,
-            "]",
-            "changed = False",
-            "for ev, key, cmd in specs:",
-            "    groups = hooks.get(ev)",
-            "    if not isinstance(groups, list):",
-            "        groups = []",
-            "        hooks[ev] = groups",
-            "        changed = True",
-            "    found = None",
-            "    for i, g in enumerate(groups):",
-            "        if isinstance(g, dict) and g.get(\"matcher\") is None and isinstance(g.get(\"hooks\"), list) and len(g[\"hooks\"]) == 1:",
-            "            h = g[\"hooks\"][0]",
-            "            if isinstance(h, dict) and h.get(\"type\") == \"command\" and h.get(\"command\") == cmd and h.get(\"timeout\") == \(codexTimeout) and not h.get(\"async\", False):",
-            "                found = i",
-            "                break",
-            "    if found is None:",
-            "        found = len(groups)",
-            "        groups.append({\"hooks\": [{\"type\": \"command\", \"command\": cmd, \"timeout\": \(codexTimeout)}]})",
-            "        changed = True",
-            "    print(f\"{key}={found}\")",
-            "if changed or not os.path.exists(path):",
-            "    tmp = f\"{path}.{os.getpid()}.tmp\"",
-            "    with open(tmp, \"w\", encoding=\"utf-8\") as f:",
-            "        json.dump(data, f, indent=2)",
-            "        f.write(\"\\n\")",
-            "    os.replace(tmp, path)",
-            "__ROAMTTY_CODEX_HOOKS__",
-            "  )",
-            "  idx_of() { printf '%s\\n' \"$idxs\" | sed -n \"s/^$1=//p\" | head -n 1; }",
-            "elif [ ! -s \"$hooks_file\" ]; then",
-            "  printf '%s\\n' '{\"hooks\":{\(fallbackHooks)}}' > \"$hooks_file\"",
-            "  idx_of() { printf '0'; }",
-            "else",
-            "  idx_of() { printf '0'; }",
-            "fi"
-        ]
-        let launch = [
+            "\(hookCommand(.codex, "install")) \(specs) </dev/null",
             "export ROAMTTY_AGENT=codex",
-            "if [ -n \"$TMUX_PANE\" ]; then",
-            "  tmux set-option -q -t \"$TMUX_PANE\" @roamtty_codex_cwd \"$(pwd -P)\" 2>/dev/null",
-            "  tmux set-option -q -t \"$TMUX_PANE\" @roamtty_codex_start \"$(date +%s)\" 2>/dev/null",
-            "fi",
             "\(hookCommand(.codex, "start")) </dev/null",
             "codex \"$@\""
         ]
-        return (head + trust + launch + launcherEnd(.codex)).joined(separator: "\n") + "\n"
+        return (lines + launcherEnd(.codex)).joined(separator: "\n") + "\n"
     }
 
     /// Grok events and what the script makes of them.

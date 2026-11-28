@@ -66,11 +66,11 @@ final class AgentStatusTests: XCTestCase {
         XCTAssertTrue(launcher.hasPrefix("#!/bin/sh"))
         // Hooks live in hooks.json so `codex "$@"` runs with zero -c overrides and stays attached to app-server daemon.
         XCTAssertFalse(launcher.contains("-c 'hooks."))
-        XCTAssertTrue(launcher.contains("hooks_file=\"$real_home/hooks.json\""))
+        XCTAssertTrue(launcher.contains("sh ~/.roamtty/agent-hook.sh codex install "))
         for event in ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "Stop", "Interrupt", "SessionEnd"] {
-            XCTAssertTrue(launcher.contains("\"\(event)\""), event)
+            XCTAssertTrue(launcher.contains("'\(event) "), event)
         }
-        XCTAssertTrue(launcher.contains("trust stop " + AgentHooks.codexHookHash(eventKey: "stop", command: "sh ~/.roamtty/agent-hook.sh codex stop")))
+        XCTAssertTrue(launcher.contains("Stop stop stop " + AgentHooks.codexHookHash(eventKey: "stop", command: "sh ~/.roamtty/agent-hook.sh codex stop")))
         XCTAssertTrue(launcher.contains("export ROAMTTY_AGENT=codex\n"))
         XCTAssertTrue(launcher.contains("codex \"$@\"\nstatus=$?\nsh ~/.roamtty/agent-hook.sh codex end </dev/null\nexit $status\n"))
     }

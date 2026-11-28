@@ -188,13 +188,17 @@ extension VoiceAudioEngine {
     }
 
     func pumpOpusSpeakerLocked() {
+        if drainCompletion != nil {
+            let drained = (spkJitter?.queuedFrames() ?? 0) == 0 && pcmRing.queuedSamples == 0
+            if drained || interrupted || engine?.isRunning != true || DispatchTime.now().uptimeNanoseconds >= drainDeadlineNs { finishDrainLocked(); return }
+        }
         guard !interrupted, spkStreamId != nil, let jb = spkJitter, let resampler = spkResampler else { return }
         let nowNs = DispatchTime.now().uptimeNanoseconds
         let nowMs = Int64(nowNs / 1_000_000)
         var poppedAny = false
         while pcmRing.queuedSamples < Self.pumpTargetRingSamples {
             let hasQueued = jb.queuedFrames() > 0
-            if !hasQueued && pcmRing.queuedSamples >= Self.plcLowWaterRingSamples { break }
+            if !hasQueued && (drainCompletion != nil || pcmRing.queuedSamples >= Self.plcLowWaterRingSamples) { break }
             guard let samples = jb.popFrame(nowMs: nowMs) else { break }
             poppedAny = true
             echoGate.observeSpeaker(rms: VoiceOpusMath.pcmRms(samples), nowMs: nowMs)

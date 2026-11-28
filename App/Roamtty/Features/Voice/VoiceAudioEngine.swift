@@ -45,6 +45,9 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
     var spkResampler: VoiceLinearResampler?
     var spkJitter: VoiceJitterBuffer?
     var spkPumpTimer: DispatchSourceTimer?
+    var pendingSpeakerTurn: UInt32?
+    var drainDeadlineNs: UInt64 = 0
+    var drainCompletion: (() -> Void)?
     var lastSpeakerAudioNs: UInt64 = 0
     var route: VoiceAudioRoute = .speaker
     /// True once the user explicitly picks a route; false lets iOS honor the active default (Bluetooth / headset / speaker).
@@ -120,11 +123,27 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
         return outHasBT || inHasBT
     }
 
+    static func selectBuiltInInputIfNeeded(_ session: AVAudioSession) {
+        let currentIn = session.currentRoute.inputs.first?.portType
+        guard currentIn != .builtInMic else { return }
+        if let builtIn = session.availableInputs?.first(where: { $0.portType == .builtInMic }) {
+            try? session.setPreferredInput(builtIn)
+        } else {
+            try? session.setPreferredInput(nil)
+        }
+    }
+
+    static func detectRoute(_ session: AVAudioSession) -> VoiceAudioRoute {
+        let ports = Set(session.currentRoute.outputs.map(\.portType))
+        if !ports.isDisjoint(with: [.bluetoothHFP, .bluetoothA2DP, .bluetoothLE]) { return .bluetooth }
+        return ports.contains(.builtInSpeaker) ? .speaker : .earpiece
+    }
+
     func setAudioRoute(_ next: VoiceAudioRoute) {
         queue.async { [self] in
             route = next
             routeExplicitlyChosen = true
-            applyRouteLocked(force: true)
+            applyRouteLocked()
         }
     }
 
@@ -184,7 +203,9 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
             guard !interrupted, ensureEngineRunning() else {
                 return .failure(VoiceAudioError("audio engine unavailable"))
             }
+            finishDrainLocked()
             stopSpeakerPumpLocked()
+            pendingSpeakerTurn = nil
             pcmRing.clear()
             spkStreamId = streamId
             spkSampleRate = sampleRate
@@ -217,10 +238,15 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
             if spkJitter == nil || spkJitter?.streamId != streamId {
                 guard VoiceOpusMath.isOpusSampleRate(spkSampleRate),
                       let jb = VoiceJitterBuffer(streamId: streamId, sampleRate: spkSampleRate) else { return }
+                if let pendingSpeakerTurn { jb.clearForTurn(pendingSpeakerTurn) }
                 spkJitter = jb
                 startSpeakerPumpLocked()
             }
-            spkJitter?.push(packet, nowMs: nowMs)
+            if spkJitter?.push(packet, nowMs: nowMs) == true {
+                spkResampler?.reset()
+                pcmRing.clear()
+                echoGate.onSpeakerCleared(nowMs: nowMs)
+            }
             pumpOpusSpeakerLocked()
         }
     }
@@ -232,11 +258,16 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
         }
     }
 
-    func clearSpeaker(streamId: UInt32) {
+    func clearSpeaker(streamId: UInt32) { clearSpeaker(streamId: streamId, turn: nil) }
+
+    func clearSpeaker(streamId: UInt32, turn: UInt32?) {
         queue.async { [self] in
             guard spkStreamId == streamId else { return }
             let nowMs = Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000)
-            if let jb = spkJitter, !jb.clearForBargeIn(nowMs: nowMs) { return }
+            if let turn {
+                pendingSpeakerTurn = turn
+                if let jb = spkJitter, !jb.clearForTurn(turn) { return }
+            } else if let jb = spkJitter, !jb.clearForBargeIn(nowMs: nowMs) { return }
             spkResampler?.reset()
             pcmRing.clear()
             echoGate.onSpeakerCleared(nowMs: nowMs)
@@ -244,16 +275,34 @@ final class VoiceAudioEngine: VoiceAudioIO, @unchecked Sendable {
         }
     }
 
+    func finishSpeaker(streamId: UInt32, completion: @escaping () -> Void) {
+        queue.async { [self] in
+            guard spkStreamId == streamId else { completion(); return }
+            drainCompletion = completion
+            drainDeadlineNs = DispatchTime.now().uptimeNanoseconds + 3_000_000_000
+            if spkPumpTimer == nil { startSpeakerPumpLocked() }
+            pumpOpusSpeakerLocked()
+        }
+    }
+
+    func finishDrainLocked() {
+        guard let completion = drainCompletion else { return }
+        drainCompletion = nil
+        stopSpeakerLocked()
+        completion()
+    }
+
+    private func stopSpeakerLocked() {
+        stopSpeakerPumpLocked()
+        spkStreamId = nil; spkJitter = nil; spkResampler = nil; pendingSpeakerTurn = nil
+        pcmRing.clear()
+        resetSpeakerLevel()
+    }
+
     func stopSpeaker(streamId: UInt32) {
         queue.async { [self] in
             guard spkStreamId == streamId else { return }
-            Diagnostics.shared.log("voice-spk-stop", "stream=\(streamId)")
-            stopSpeakerPumpLocked()
-            spkStreamId = nil
-            spkJitter = nil
-            spkResampler = nil
-            pcmRing.clear()
-            resetSpeakerLevel()
+            if drainCompletion != nil { finishDrainLocked() } else { stopSpeakerLocked() }
         }
     }
 

@@ -1,130 +1,5 @@
 import Foundation
 
-/// Receiver-side raw primary packet loss, burst length, and P95/EWMA jitter estimator.
-public final class VoiceRxStats: @unchecked Sendable {
-    private var maxSeq: UInt32?
-    private var windowEvents: [(at: Int64, received: Bool)] = []
-    private var burstEvents: [(at: Int64, burst: UInt8)] = []
-    private var currentLossStreak: UInt8 = 0
-    private var seenSeqs: [UInt32] = []
-    private var arrivalAt: [Int64] = []
-    private var arrivalOffset: [Int64] = []
-    private var ewmaJitterMs = 0.0
-    private var lastTransitMs: Int64?
-
-    public init() {}
-
-    public func resetSeqCursor() {
-        maxSeq = nil
-        currentLossStreak = 0
-        resetTiming()
-    }
-
-    public func resetTiming() {
-        lastTransitMs = nil
-        arrivalAt.removeAll(keepingCapacity: true)
-        arrivalOffset.removeAll(keepingCapacity: true)
-    }
-
-    public func onPrimary(seq: UInt32, nowMs: Int64, resetDiscontinuity: Bool = false) {
-        guard !seenSeqs.contains(seq) else { return }
-        seenSeqs.append(seq)
-        if seenSeqs.count > 256 { seenSeqs.removeFirst(seenSeqs.count - 256) }
-        recordArrival(seq: seq, nowMs: nowMs, resetDiscontinuity: resetDiscontinuity)
-        recordLossProgress(seq: seq, nowMs: nowMs, resetDiscontinuity: resetDiscontinuity)
-        prune(nowMs: nowMs)
-    }
-
-    private func recordArrival(seq: UInt32, nowMs: Int64, resetDiscontinuity: Bool) {
-        let transit = nowMs - Int64(seq) * Int64(VoiceOpusMath.frameMs)
-        if resetDiscontinuity {
-            lastTransitMs = transit
-            return
-        }
-        if let prev = lastTransitMs {
-            ewmaJitterMs += (Double(abs(transit - prev)) - ewmaJitterMs) / 16.0
-        }
-        lastTransitMs = transit
-        if let lastO = arrivalOffset.last, abs(transit - lastO) > 2_000 {
-            arrivalAt.removeAll(keepingCapacity: true)
-            arrivalOffset.removeAll(keepingCapacity: true)
-        }
-        arrivalAt.append(nowMs)
-        arrivalOffset.append(transit)
-        if arrivalAt.count > VoiceOpusMath.jitterWindow {
-            arrivalAt.removeFirst()
-            arrivalOffset.removeFirst()
-        }
-    }
-
-    private func recordLossProgress(seq: UInt32, nowMs: Int64, resetDiscontinuity: Bool) {
-        guard !resetDiscontinuity, let prevMax = maxSeq else {
-            maxSeq = seq
-            windowEvents.append((nowMs, true))
-            currentLossStreak = 0
-            return
-        }
-        let diff = Int32(bitPattern: seq &- prevMax)
-        if diff > 0 && diff <= 200 {
-            for _ in 0..<Int(diff - 1) {
-                windowEvents.append((nowMs, false))
-                currentLossStreak = currentLossStreak < 255 ? currentLossStreak + 1 : 255
-            }
-            if currentLossStreak > 0 {
-                burstEvents.append((nowMs, currentLossStreak))
-                currentLossStreak = 0
-            }
-            windowEvents.append((nowMs, true))
-            maxSeq = seq
-        } else if diff > 200 {
-            maxSeq = seq
-            windowEvents.removeAll(keepingCapacity: true)
-            burstEvents.removeAll(keepingCapacity: true)
-            windowEvents.append((nowMs, true))
-            currentLossStreak = 0
-        } else if diff < 0 && diff >= -64 {
-            if let idx = windowEvents.lastIndex(where: { !$0.received }) {
-                windowEvents[idx].received = true
-            }
-        }
-    }
-
-    private func prune(nowMs: Int64) {
-        windowEvents.removeAll { nowMs - $0.at > VoiceOpusMath.statsWindowMs }
-        burstEvents.removeAll { nowMs - $0.at > VoiceOpusMath.statsWindowMs * 2 }
-    }
-
-    public func p95JitterMs() -> Double {
-        let count = arrivalAt.count
-        guard count >= 4 else { return ewmaJitterMs }
-        let meanT = arrivalAt.reduce(0.0) { $0 + Double($1) } / Double(count)
-        let meanO = arrivalOffset.reduce(0.0) { $0 + Double($1) } / Double(count)
-        var num = 0.0
-        var den = 0.0
-        for i in 0..<count {
-            let dt = Double(arrivalAt[i]) - meanT
-            num += dt * (Double(arrivalOffset[i]) - meanO)
-            den += dt * dt
-        }
-        let slope = den > 0 ? num / den : 0.0
-        var residuals = (0..<count).map { i in Double(arrivalOffset[i]) - slope * (Double(arrivalAt[i]) - meanT) }
-        let minR = residuals.min() ?? 0.0
-        for i in 0..<residuals.count { residuals[i] -= minR }
-        residuals.sort()
-        return residuals[min(count - 1, count * 95 / 100)]
-    }
-
-    public func snapshot(streamId: UInt32, bufferMs: UInt16, nowMs: Int64) -> VoiceStats {
-        prune(nowMs: nowMs)
-        let total = windowEvents.count
-        let lost = windowEvents.filter { !$0.received }.count
-        let lossPermille = total == 0 ? UInt16(0) : UInt16(min(1000, (lost * 1000) / total))
-        let maxBurst = burstEvents.map(\.burst).max() ?? 0
-        let jitter = UInt16(max(0.0, min(2000.0, max(p95JitterMs(), ewmaJitterMs).rounded())))
-        return VoiceStats(streamId: streamId, lossPermille: lossPermille, jitterMs: jitter, bufferMs: bufferMs, maxBurstLoss: maxBurst)
-    }
-}
-
 /// Adaptive Speech Jitter Buffer: seq reorder + temporal RED + Opus LBRR + native PLC + NetEQ expansion + WSOLA.
 public final class VoiceJitterBuffer: @unchecked Sendable {
     private struct Slot {
@@ -149,6 +24,10 @@ public final class VoiceJitterBuffer: @unchecked Sendable {
     private var firstArrivalMs: Int64?
     private var turnGen: UInt8 = 0
     private var turnGenLocked = false
+    // Legacy SPK_CLEAR contains only a stream ID. Media carries the authoritative turn number.
+    private var absoluteTurn: UInt32?
+    private var clearAtMs: Int64?
+    private var clearSeq: UInt32?
     private var pendingClearSkips = 0
     private var lastImplicitAdvanceMs: Int64 = 0
     private static let lateClearWindowMs: Int64 = 5_000
@@ -195,22 +74,15 @@ public final class VoiceJitterBuffer: @unchecked Sendable {
     }
 
     @discardableResult
-    public func clearForBargeIn(nowMs: Int64 = 0) -> Bool {
-        if pendingClearSkips > 0 {
-            let withinWindow = nowMs <= 0 || lastImplicitAdvanceMs <= 0 || (nowMs - lastImplicitAdvanceMs) <= Self.lateClearWindowMs
-            if withinWindow {
-                pendingClearSkips -= 1
-                return false
-            }
-            pendingClearSkips = 0
+    public func push(_ pkt: VoiceOpusPacket, nowMs: Int64) -> Bool {
+        let gen = VoiceProtocol.turnGenOf(pkt.flags)
+        let changedTurn = turnGenLocked && gen != turnGen
+        guard acceptTurnGen(gen, nowMs: nowMs) else { return false }
+        if let cleared = clearAtMs, let watermark = clearSeq {
+            // A duplicate CLEAR can arrive on SSH after this turn is already playing. Suppress
+            // in-flight packets briefly, then accept genuinely newer sequences of the same turn.
+            guard nowMs - cleared >= 160, Int32(bitPattern: pkt.seq &- watermark) > 0 else { return false }
         }
-        let next: UInt8? = turnGenLocked ? ((turnGen &+ 1) & 0x0F) : nil
-        clear(nextTurnGen: next)
-        return true
-    }
-
-    public func push(_ pkt: VoiceOpusPacket, nowMs: Int64) {
-        guard acceptTurnGen(VoiceProtocol.turnGenOf(pkt.flags), nowMs: nowMs) else { return }
         let isDtxPkt = (pkt.flags & VoiceProtocol.VOICE_FLAG_DTX) != 0
         let isResetPkt = (pkt.flags & VoiceProtocol.VOICE_FLAG_RESET) != 0
         rxStats.onPrimary(seq: pkt.seq, nowMs: nowMs, resetDiscontinuity: isDtxPkt || isResetPkt || inDtx)
@@ -220,6 +92,7 @@ public final class VoiceJitterBuffer: @unchecked Sendable {
         insertRedEntries(pkt)
         trimOldSlotsIfNeeded()
         updateTarget(nowMs: nowMs)
+        return changedTurn
     }
 
     private func reanchorIfStale(pkt: VoiceOpusPacket, isDtxPkt: Bool) {
@@ -281,7 +154,12 @@ public final class VoiceJitterBuffer: @unchecked Sendable {
         if pktGen == turnGen { return true }
         let ahead = (pktGen &- turnGen) & 0x0F
         guard ahead > 0 && ahead < 8 else { return false }
-        pendingClearSkips = min(7, pendingClearSkips + Int(ahead))
+        if let value = absoluteTurn { absoluteTurn = value &+ UInt32(ahead) }
+        if clearAtMs == nil {
+            pendingClearSkips = min(7, pendingClearSkips + Int(ahead))
+        }
+        clearAtMs = nil
+        clearSeq = nil
         lastImplicitAdvanceMs = nowMs
         clear(nextTurnGen: pktGen, resetPendingSkips: false)
         return true
@@ -424,5 +302,41 @@ public final class VoiceJitterBuffer: @unchecked Sendable {
             isSilence = true
         }
         return PopResult(pcm: pcm, isSilence: isSilence, advanceSeq: advanceSeq)
+    }
+}
+
+extension VoiceJitterBuffer {
+    /// A numbered clear sets a definitive generation floor, including before the first media packet.
+    @discardableResult
+    public func clearForTurn(_ turn: UInt32) -> Bool {
+        let gen = UInt8(truncatingIfNeeded: turn) & 0x0F
+        if let latest = absoluteTurn, Int32(bitPattern: turn &- latest) <= 0 { return false }
+        if absoluteTurn == nil && turnGenLocked {
+            let ahead = (gen &- turnGen) & 0x0F
+            if ahead == 0 || ahead >= 8 {
+                absoluteTurn = turn &+ UInt32((turnGen &- gen) & 0x0F)
+                return false
+            }
+        }
+        absoluteTurn = turn
+        clearAtMs = nil; clearSeq = nil
+        clear(nextTurnGen: gen)
+        return true
+    }
+
+    @discardableResult
+    public func clearForBargeIn(nowMs: Int64 = 0) -> Bool {
+        if pendingClearSkips > 0 {
+            let withinWindow = nowMs <= 0 || lastImplicitAdvanceMs <= 0 || (nowMs - lastImplicitAdvanceMs) <= Self.lateClearWindowMs
+            if withinWindow {
+                pendingClearSkips -= 1
+                return false
+            }
+            pendingClearSkips = 0
+        }
+        clearAtMs = nowMs
+        if turnGenLocked { clearSeq = highestSeq }
+        clear()
+        return true
     }
 }

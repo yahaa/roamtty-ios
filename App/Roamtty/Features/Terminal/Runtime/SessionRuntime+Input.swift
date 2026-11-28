@@ -14,8 +14,16 @@ extension SessionRuntime {
     }
     private func write(_ data: Data, reportFailure: Bool = true) -> Bool {
         guard phase == .connected else { return false }
+        if voice.awaitingManualStatus {
+            voice.codexInputRevision &+= 1
+            if data.count == 1, let key = data.first, key == 13 || key == 10, hasCodexStatusCommand {
+                voice.pendingCodexStatus = Data()
+                voice.awaitingManualStatus = false
+            }
+        }
         let sent = mosh?.write(data) ?? ssh?.write(data) ?? false
         if !sent && reportFailure { message = "输入未发送 / Input was not sent" }
+        if sent { lastTerminalWriteAt = ProcessInfo.processInfo.systemUptime }
         return sent
     }
     /// A delete from the keyboard: holding the key clears the line once (`TerminalDeleteHold`).
@@ -82,6 +90,28 @@ extension SessionRuntime {
         let lines = (0..<terminal.rows).map { terminal.getLine(row: $0)?.screenText ?? "" }
         return ScreenApp.detect(rows: lines, cursorRow: terminal.getCursorLocation().y)
     }
+    var hasCodexStatusCommand: Bool {
+        let terminal = terminalView.getTerminal()
+        return writableViewport && terminal.getLine(row: terminal.getCursorLocation().y)?.screenText.trimmingCharacters(in: .whitespaces) == "› /status"
+    }
+
+    /// A dim Codex placeholder at the insertion point establishes that no draft is present.
+    var hasEmptyCodexComposer: Bool {
+        let terminal = terminalView.getTerminal(), cursor = terminal.getCursorLocation()
+        guard writableViewport, ProcessInfo.processInfo.systemUptime - lastTerminalWriteAt > 0.75,
+              cursor.x == 2, terminal.getCharacter(col: 0, row: cursor.y) == "›",
+              cursor.x < terminal.cols else { return false }
+        var hasPlaceholder = false
+        for col in cursor.x..<terminal.cols {
+            guard let cell = terminal.getCharData(col: col, row: cursor.y) else { continue }
+            let character = cell.getCharacter()
+            if character == "\0" || character.isWhitespace { continue }
+            guard cell.attribute.style.contains(.dim) else { return false }
+            hasPlaceholder = true
+        }
+        return hasPlaceholder
+    }
+
     func refreshDetectedScreen() {
         let next = detectScreenApp()
         if detectedScreen != next { detectedScreen = next }
